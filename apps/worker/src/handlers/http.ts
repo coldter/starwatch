@@ -6,7 +6,7 @@ import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT } from "../constants.ts";
 import type { SearchQuery } from "../api.ts";
 
 /** Canonical login handling: GitHub logins are case-insensitive. */
-export const normalizeLogin = (raw: string): string => raw.trim().toLowerCase();
+export const normalizeLogin = (raw: string): string => raw.trim().replace(/^@+/, "").toLowerCase();
 
 /** `cf-connecting-ip`, then the first `x-forwarded-for` hop (dev). */
 export const clientIp = (request: HttpServerRequest.HttpServerRequest): string => {

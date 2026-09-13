@@ -33,6 +33,8 @@ function LandingPage() {
   const [preview, setPreview] = useState<Preview>({ status: "idle" });
   const [starting, setStarting] = useState(false);
   const [recents, setRecents] = useState<RecentUser[]>(() => getRecentUsers());
+  const [lastLogin, setLastLogin] = useState<string | null>(null);
+  const [missingUser, setMissingUser] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -57,6 +59,8 @@ function LandingPage() {
         });
         return;
       }
+      setLastLogin(login);
+      setMissingUser(null);
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -76,6 +80,7 @@ function LandingPage() {
   const startIndex = useCallback(
     async (login: string, full: boolean) => {
       setStarting(true);
+      setMissingUser(null);
       try {
         const result = await startUserSync(login, { full });
         if (!result.started) {
@@ -84,12 +89,23 @@ function LandingPage() {
             body: "We checked just now — nothing new to fetch yet."
           });
         }
+        goSearch(login);
       } catch (cause) {
         const error = asApiError(cause);
-        toast({ title: "Couldn't start indexing", body: error.message, tone: "error" });
+        if (error.kind === "not-found") {
+          // The sync endpoint fetches the GitHub profile itself, so a 404 here
+          // means the username really does not exist.
+          setMissingUser(login);
+          toast({
+            title: `No GitHub user named @${login}`,
+            body: "Check the spelling — usernames use letters, numbers and single hyphens.",
+            tone: "error"
+          });
+        } else {
+          toast({ title: "Couldn't start indexing", body: error.message, tone: "error" });
+        }
       } finally {
         setStarting(false);
-        goSearch(login);
       }
     },
     [goSearch, toast]
@@ -132,14 +148,42 @@ function LandingPage() {
       ) : null}
 
       {preview.status === "error" && preview.error.kind === "not-found" ? (
-        <section className="preview-card" aria-live="polite">
-          <div className="preview-card__body">
-            <p className="preview-card__name">We couldn&apos;t find a GitHub user named “{query}”</p>
-            <p className="preview-card__meta">
-              Check the spelling — usernames use letters, numbers and single hyphens.
-            </p>
-          </div>
-        </section>
+        missingUser !== null ? (
+          <section className="preview-card" aria-live="polite">
+            <div className="preview-card__body">
+              <p className="preview-card__name">
+                We couldn&apos;t find a GitHub user named “@{missingUser}”
+              </p>
+              <p className="preview-card__meta">
+                Check the spelling — usernames use letters, numbers and single hyphens.
+              </p>
+            </div>
+          </section>
+        ) : (
+          <section className="preview-card" aria-live="polite">
+            <div className="preview-card__body">
+              <p className="preview-card__name">
+                @{lastLogin ?? query} isn&apos;t indexed yet
+              </p>
+              <p className="preview-card__meta">
+                Indexing reads the public star list first (searchable in seconds), then fills in
+                READMEs and semantic search in the background.
+              </p>
+            </div>
+            <div className="preview-card__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={starting || lastLogin === null}
+                onClick={() => {
+                  if (lastLogin !== null) void startIndex(lastLogin, false);
+                }}
+              >
+                {starting ? "Starting…" : "Index & search"}
+              </button>
+            </div>
+          </section>
+        )
       ) : null}
 
       {preview.status === "error" && preview.error.kind !== "not-found" ? (

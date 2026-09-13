@@ -82,3 +82,31 @@ export function UserNotFoundState({ login }: { login: string }) {
     </section>
   );
 }
+
+export function NotIndexedState({
+  login,
+  onIndex,
+  busy
+}: {
+  login: string;
+  onIndex: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <section className="state-card">
+      <h2 className="state-card__title">@{login} isn&apos;t indexed yet</h2>
+      <p className="state-card__body">
+        Indexing reads the public star list first (searchable in seconds), then fills in READMEs
+        and semantic search in the background.
+      </p>
+      <div className="state-card__actions">
+        <button type="button" className="btn btn--small" onClick={onIndex} disabled={busy === true}>
+          {busy === true ? "Starting…" : "Index this user"}
+        </button>
+        <a className="btn btn--small" href="/">
+          Search another user
+        </a>
+      </div>
+    </section>
+  );
+}

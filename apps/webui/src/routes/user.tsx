@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoute } from "@tanstack/react-router";
 import { MAX_STARS, type DegradedReason, type Group, type SearchHit, type SearchMode, type SyncPhase } from "@starwatch/domain";
 import { Avatar } from "../components/Avatar";
@@ -9,7 +9,7 @@ import { RepoCard } from "../components/RepoCard";
 import { RepoDrawer } from "../components/RepoDrawer";
 import { SearchBar } from "../components/SearchBar";
 import { SkeletonList } from "../components/SkeletonCard";
-import { ErrorState, NoResultsState, UserNotFoundState } from "../components/StateViews";
+import { ErrorState, NoResultsState, NotIndexedState, UserNotFoundState } from "../components/StateViews";
 import { SyncBanner } from "../components/SyncBanner";
 import { useSearch, type SearchQueryState } from "../hooks/useSearch";
 import { useToast } from "../hooks/useToasts";
@@ -58,6 +58,10 @@ function UserSearchPage() {
   const toast = useToast();
 
   const { data, loading, refreshing, error, refresh, startSync, syncPending, transport } = useUserIndex(login);
+
+  // A 404 from the index means "not indexed yet", not "no such GitHub user";
+  // only the sync POST can tell those apart (it fetches the profile itself).
+  const [missingUser, setMissingUser] = useState(false);
 
   const query: SearchQueryState = {
     q: search.q,
@@ -199,8 +203,24 @@ function UserSearchPage() {
       {loading && !data ? <UserPageSkeleton /> : null}
 
       {error && !data ? (
-        error.kind === "not-found" ? (
+        missingUser ? (
           <UserNotFoundState login={login} />
+        ) : error.kind === "not-found" ? (
+          <NotIndexedState
+            login={login}
+            busy={syncPending}
+            onIndex={() => {
+              void startSync({ full: false }).then((outcome) => {
+                if (outcome.ok) {
+                  refresh();
+                } else if (outcome.error.kind === "not-found") {
+                  setMissingUser(true);
+                } else {
+                  toast({ title: "Couldn't start indexing", body: outcome.error.message, tone: "error" });
+                }
+              });
+            }}
+          />
         ) : (
           <ErrorState title="Couldn't load this user" error={error} onRetry={refresh} />
         )
