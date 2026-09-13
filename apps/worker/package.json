@@ -5,18 +5,16 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "dev:local": "node src/local/serve.ts",
-    "plan": "alchemy plan",
-    "deploy": "alchemy deploy",
-    "dev": "alchemy dev",
-    "destroy": "alchemy destroy"
+    "plan": "node scripts/preflight.mjs && alchemy plan",
+    "deploy": "node scripts/preflight.mjs && alchemy deploy",
+    "dev": "node scripts/preflight.mjs && alchemy dev",
+    "destroy": "node scripts/preflight.mjs && alchemy destroy"
   },
   "dependencies": {
     "@starwatch/cloudflare": "workspace:*",
     "@starwatch/core": "workspace:*",
     "@starwatch/domain": "workspace:*",
     "@effect/sql-d1": "catalog:",
-    "@effect/sql-sqlite-node": "catalog:",
     "@effect/platform-node": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:"

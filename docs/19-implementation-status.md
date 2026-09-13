@@ -30,20 +30,20 @@
 
 ## How to run
 
-**Local (no Cloudflare account):**
+**Local dev — one command (`alchemy dev`):**
 
 ```bash
 pnpm install
-pnpm --filter @starwatch/worker run dev:local   # API on :8787, SQLite + in-memory R2, fake embeddings
-pnpm --filter @starwatch/webui dev              # UI on :5173 (proxies /api → :8787)
-pnpm --filter @starwatch/cli dev -- search auth -u coldter --lang typescript
+pnpm dev        # Worker in workerd on :1337 (D1/R2/Queues/Workflows simulators) + WebUI on :5173
 ```
+
+Prerequisite: Cloudflare credentials (Workers AI and rate-limit bindings run live even in dev) — interactive `alchemy profile create default` + `alchemy profile edit`, or env vars from `apps/worker/.env.example`. Standalone: `pnpm dev:webui` / `pnpm --filter @starwatch/worker run dev`.
 
 **Tests:** `pnpm -r typecheck && pnpm -r test` · **Quality lab:** `pnpm --filter @starwatch/eval-lab run eval`
 
-**Deploy:** copy `apps/worker/.env.example` → `.env`, set credentials (env vars or `alchemy profile`), `pnpm --filter @starwatch/webui build`, then `pnpm plan && pnpm deploy`.
+**Deploy:** `pnpm deploy` (builds the WebUI, then `alchemy deploy`).
 
-**Verified end-to-end locally (2026-09-13):** synced `coldter` (3,449 repos, ~100 s) against the real GitHub API, then `auth --lang typescript` returned **1. better-auth/better-auth · 2. lucia-auth/lucia · 3. melody-auth · 5. voidauth · 7. logto-io/logto** — the docs/18 acceptance example passes. First-run bugs fixed: first-time sync now fetches the profile itself (previously required a prior lookup), and language/license filters are case-insensitive (`typescript` == `TypeScript`).
+**Verified end-to-end against live GitHub (2026-09-13):** synced `coldter` (3,449 repos, ~100 s), then `auth --lang typescript` returned **1. better-auth/better-auth · 2. lucia-auth/lucia · 3. melody-auth · 5. voidauth · 7. logto-io/logto** — the docs/18 acceptance example passes. First-run bugs fixed: first-time sync now fetches the profile itself (previously required a prior lookup), and language/license filters are case-insensitive (`typescript` == `TypeScript`).
 
 ## Known gaps (deliberate, ordered)
 
@@ -55,7 +55,7 @@ pnpm --filter @starwatch/cli dev -- search auth -u coldter --lang typescript
 6. **WebUI stubs**: no sync cancel/queue position, no per-user SEO/OG tags, README not rendered in-app (links to GitHub).
 7. **Eval lab is not yet wired as a regression gate** in CI/local workflow; it remains a standalone lab.
 8. **Workflow limits** are pinned to `steps: 1_000` (free cap is 1,024; observed worst cases 107 and 195).
-9. **Local mode uses fake embeddings** — keyword/expansion ranking is real, semantic ranking is only plumbed (use the eval lab or a deploy to judge semantic quality).
+9. **`alchemy dev` requires Cloudflare credentials** — D1/R2/Queues/Workflows are emulated locally, but Workers AI and the rate-limit bindings run live.
 
 ## Next steps
 

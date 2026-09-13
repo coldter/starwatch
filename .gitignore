@@ -14,6 +14,3 @@ coverage/
 
 # eval-lab caches (models, fetched stars/readmes, result dumps)
 eval-lab/data/
-
-# local dev database/state
-.dev/

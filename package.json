@@ -8,10 +8,12 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "pnpm --filter @starwatch/worker run dev",
+    "dev:webui": "pnpm --filter @starwatch/webui run dev",
+    "build": "pnpm --filter @starwatch/webui run build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "plan": "pnpm --filter @starwatch/worker run plan",
-    "deploy": "pnpm --filter @starwatch/worker run deploy",
-    "dev": "pnpm --filter @starwatch/worker run dev"
+    "deploy": "pnpm build && pnpm --filter @starwatch/worker run deploy"
   }
 }

@@ -32,16 +32,27 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 
 ## Development
 
-### Local (no Cloudflare account needed)
+### Local dev (`alchemy dev`)
+
+One command runs the whole stack: the Worker in **workerd** (D1/R2/Queues/Workflows simulators, hot reload, API on `:1337`) plus the WebUI Vite dev server (`:5173`, proxying `/api` to the Worker).
+
+Prerequisite — Cloudflare credentials, because Workers AI and the rate-limit bindings run live even in dev:
+
+```bash
+# interactive (recommended)
+pnpm --filter @starwatch/worker exec alchemy profile create default
+pnpm --filter @starwatch/worker exec alchemy profile edit
+
+# or env-based
+cp apps/worker/.env.example apps/worker/.env   # set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (+ optional GITHUB_TOKEN)
+```
 
 ```bash
 pnpm install
-pnpm --filter @starwatch/worker run dev:local     # local API on :8787 (SQLite + in-memory R2)
-pnpm --filter @starwatch/webui dev                # WebUI on :5173 (proxies /api)
-pnpm --filter @starwatch/cli dev -- search auth -u coldter --lang typescript
+pnpm dev          # alchemy dev: Worker (:1337, workerd) + WebUI (:5173, Vite)
 ```
 
-Local mode uses a deterministic fake embedder (no network), so semantic *ranking* is not meaningful there — keyword + expansion search is real. Set `GITHUB_TOKEN=$(gh auth token)` for a higher GitHub rate limit.
+Standalone variants: `pnpm dev:webui` (UI only) · `pnpm --filter @starwatch/worker run dev` (API only).
 
 ### Tests & search-quality lab
 
@@ -52,13 +63,12 @@ pnpm --filter @starwatch/eval-lab run eval       # measured quality lab (real co
 
 ### Deploy to Cloudflare
 
-1. `cp apps/worker/.env.example apps/worker/.env`
-2. Either set `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (token from the "Edit Cloudflare Workers" template, plus D1 + R2 edit), **or** run `pnpm --filter @starwatch/worker exec alchemy profile create default` then `alchemy profile edit` (interactive).
-3. `GITHUB_TOKEN` is optional but recommended (fine-grained PAT, public read) — it is bound as a Worker secret at deploy time.
-4. `pnpm --filter @starwatch/webui build && pnpm deploy`
+```bash
+pnpm deploy       # builds the WebUI, then runs alchemy deploy
+```
 
-For a cloud-backed dev loop: `pnpm --filter @starwatch/worker dev` (Alchemy, needs the credentials above).
+Credentials + `GITHUB_TOKEN` from the local-dev setup apply here too.
 
-**Status:** MVP implemented — worker API + Tier-0/Tier-1 Workflows, CLI, WebUI, local dev mode, 226 unit tests green. See [docs/19-implementation-status.md](docs/19-implementation-status.md).
+**Status:** MVP implemented — worker API + Tier-0/Tier-1 Workflows, CLI, WebUI, `alchemy dev` loop, 226 unit tests green. See [docs/19-implementation-status.md](docs/19-implementation-status.md).
 
 **Version pin (important):** Effect `4.0.0-rc.112` + Alchemy `2.0.0-beta.77` — newer Effect RCs (≥ rc.113) break Alchemy beta.77. See [docs/02-stack-and-pipeline.md](docs/02-stack-and-pipeline.md) §1.
