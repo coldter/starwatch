@@ -11,3 +11,6 @@ build/
 coverage/
 .DS_Store
 .idea/
+
+# eval-lab caches (models, fetched stars/readmes, result dumps)
+eval-lab/data/

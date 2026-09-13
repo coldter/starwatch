@@ -11,12 +11,16 @@
     "destroy": "alchemy destroy"
   },
   "dependencies": {
+    "@starwatch/cloudflare": "workspace:*",
+    "@starwatch/core": "workspace:*",
     "@starwatch/domain": "workspace:*",
+    "@effect/sql-d1": "catalog:",
     "@effect/platform-node": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
     "typescript": "catalog:"
   }
 }

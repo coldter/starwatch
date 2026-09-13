@@ -1,0 +1,12 @@
+-- 0002 — listing page attribution for ETag-aware re-list diffs.
+--
+-- A fresh 200 page records the page number it came from; a 304 page leaves the
+-- previous attribution untouched. The listing workflow's finalize step unions
+-- the ids of fresh pages with the stored ids of pages that returned 304, so
+-- "unstarred" can be computed exactly without re-fetching unchanged pages
+-- (docs/09 §1.2, docs/03 §(g)).
+--
+-- NULL = unknown page (rows written before this migration, or by writers that
+-- are not the paged listing). The workflow never treats NULL-attributed rows
+-- as unstarred.
+ALTER TABLE user_stars ADD COLUMN star_page INTEGER;

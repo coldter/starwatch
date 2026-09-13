@@ -24,6 +24,7 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 - [docs/16-search-quality-teardown.md](docs/16-search-quality-teardown.md) — teardown of openalternative.co / GitHub / npm search + patterns to adopt
 - [docs/17-query-understanding-ranking.md](docs/17-query-understanding-ranking.md) — query expansion, ranking design, worked `auth`+TS walkthrough
 - [docs/18-search-quality-eval.md](docs/18-search-quality-eval.md) — measured results on the real 3,448-star corpus + required fixes
+- [docs/19-implementation-status.md](docs/19-implementation-status.md) — what's built, test counts, how to deploy, known gaps
 
 **Original design (pre-pivot; parts superseded — see doc 11):**
 - [00-requirements.md](docs/00-requirements.md) · [01-search-and-index.md](docs/01-search-and-index.md) · [02-stack-and-pipeline.md](docs/02-stack-and-pipeline.md)
@@ -33,10 +34,14 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 
 ```bash
 pnpm install
-pnpm typecheck                                  # all packages
-pnpm --filter @starwatch/cli dev -- --help      # CLI (stubs for now)
-pnpm plan                                       # Alchemy plan (needs Cloudflare credentials)
-pnpm deploy                                     # Alchemy deploy
+pnpm -r typecheck && pnpm -r test                # 6 packages · 226 tests
+pnpm --filter @starwatch/webui build             # dist/ is served by the worker
+pnpm --filter @starwatch/worker dev              # Alchemy dev (needs Cloudflare auth)
+pnpm --filter @starwatch/cli dev -- search effect -u coldter
+pnpm plan && pnpm deploy                         # Alchemy plan/deploy (needs credentials)
+pnpm --filter @starwatch/eval-lab run eval       # search-quality regression lab
 ```
+
+**Status:** MVP implemented — worker API + Tier-0/Tier-1 Workflows, CLI, and WebUI, 226 unit tests green. Not yet deployed (needs Cloudflare credentials); global abuse budgets and Turnstile are follow-ups. See [docs/19-implementation-status.md](docs/19-implementation-status.md).
 
 **Version pin (important):** Effect `4.0.0-rc.112` + Alchemy `2.0.0-beta.77` — newer Effect RCs (≥ rc.113) break Alchemy beta.77. See [docs/02-stack-and-pipeline.md](docs/02-stack-and-pipeline.md) §1.

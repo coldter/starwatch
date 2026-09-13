@@ -1,0 +1,127 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { SearchMode, SearchResponse } from "@starwatch/domain";
+import { ApiError, asApiError, fetchSearch, isAbortError, type SearchQuery } from "../api";
+import { SEARCH_LIMIT } from "../lib/search-params";
+
+export type SearchStatus = "idle" | "loading" | "refreshing" | "ready" | "error";
+
+export interface SearchQueryState {
+  q: string;
+  mode: SearchMode;
+  lang?: string;
+  groups: string[];
+  archived: boolean;
+  minStars?: number;
+}
+
+export interface SearchResult {
+  response: SearchResponse | null;
+  status: SearchStatus;
+  error: ApiError | null;
+  retry: () => void;
+}
+
+interface FetchKey {
+  login: string;
+  query: string;
+  mode: SearchMode;
+  lang: string | undefined;
+  groupKey: string;
+  archived: boolean;
+  minStars: number | undefined;
+}
+
+/**
+ * One request per distinct query/filter tuple, always aborting the previous
+ * in-flight call. Empty queries never hit the API (browse state instead).
+ */
+export function useSearch(login: string, query: SearchQueryState): SearchResult {
+  const { q, mode, lang, archived, minStars } = query;
+  const groupKey = query.groups.join(",");
+
+  const [response, setResponse] = useState<SearchResponse | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [pending, setPending] = useState(false);
+  const [lastKey, setLastKey] = useState<FetchKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const trimmed = q.trim();
+
+  useEffect(() => {
+    if (!trimmed) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      setPending(false);
+      setError(null);
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setPending(true);
+    setError(null);
+
+    const params: SearchQuery = {
+      q: trimmed,
+      mode,
+      lang,
+      groups: groupKey ? groupKey.split(",") : [],
+      archived,
+      minStars,
+      limit: SEARCH_LIMIT
+    };
+
+    fetchSearch(login, params, controller.signal)
+      .then((next) => {
+        if (abortRef.current !== controller) return;
+        setResponse(next);
+        setLastKey({ login, query: trimmed, mode, lang, groupKey, archived, minStars });
+      })
+      .catch((cause) => {
+        if (isAbortError(cause) || abortRef.current !== controller) return;
+        setError(asApiError(cause));
+      })
+      .finally(() => {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setPending(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [login, trimmed, mode, lang, groupKey, archived, minStars, attempt]);
+
+  // Never show results for a different user, query, or filter set.
+  const fresh =
+    response !== null &&
+    lastKey !== null &&
+    lastKey.login === login &&
+    lastKey.query === trimmed &&
+    lastKey.mode === mode &&
+    lastKey.lang === lang &&
+    lastKey.groupKey === groupKey &&
+    lastKey.archived === archived &&
+    lastKey.minStars === minStars
+      ? response
+      : null;
+
+  const status: SearchStatus = !trimmed
+    ? "idle"
+    : pending
+      ? fresh === null
+        ? "loading"
+        : "refreshing"
+      : error !== null
+        ? "error"
+        : "ready";
+
+  const retry = useCallback(() => {
+    setAttempt((value) => value + 1);
+  }, []);
+
+  return { response: fresh, status, error, retry };
+}

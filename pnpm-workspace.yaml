@@ -6,9 +6,20 @@ packages:
 catalog:
   effect: 4.0.0-rc.112
   "@effect/sql-d1": 4.0.0-rc.112
+  "@effect/sql-sqlite-node": 4.0.0-rc.112
   "@effect/platform-node": 4.0.0-rc.112
+  "@effect/vitest": 4.0.0-rc.112
   alchemy: 2.0.0-beta.77
   typescript: 7.0.2
+  vitest: 4.1.11
+  vite: 8.3.0
+  react: 19.3.0
+  react-dom: 19.3.0
+  "@tanstack/react-router": 1.170.35
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@types/node": 26.5.1
+  "@cloudflare/workers-types": 5.20260911.1
 
 # Keep every transitive Effect package on the same RC.
 # (pnpm 12 ignores `pnpm.overrides` in package.json — it must live here.)
