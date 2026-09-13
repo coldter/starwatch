@@ -2,6 +2,8 @@
 
 > ⚠️ **Pivot notice (2026-09-13):** this document predates the public multi-tenant pivot. See [08-public-service-ux.md](08-public-service-ux.md)–[12-hardening.md](12-hardening.md) for the current design and [11-assumptions-delta.md](11-assumptions-delta.md) for exactly what changed.
 
+> 📊 **Eval update (2026-09-13):** measured on the real 3,448-star corpus — see [18-search-quality-eval.md](18-search-quality-eval.md). **Required design changes before implementation:** deterministic query expansion (static lexicon), IDF/specificity-gated name boosts, quality-aware AND→OR fallback, repo-level 384–512d vectors (chunking not justified by the data).
+
 > Status: **draft for discussion** · 2026-09-13 · Defines the v1 contract for query classes, accuracy targets, filters, ranking, snippets and parsing. Grounded in a read-only sample of the live stars (3,300 repos: full metadata; 110 READMEs fetched for size/quality stats) and the decisions in [00](00-requirements.md)–[02](02-stack-and-pipeline.md). ⚠️ marks items to verify at implementation time.
 
 ## 1. Scope and invariants

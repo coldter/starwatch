@@ -2,9 +2,11 @@
 
 > ⚠️ **Free-tier override (2026-09-13):** zero-budget launch constraints in [13-free-tier-feasibility.md](13-free-tier-feasibility.md)–[15-free-semantic-search.md](15-free-semantic-search.md) supersede cost/tier assumptions in this doc (e.g. daily budgets, no polling, precomputed collections).
 
-> Status: **draft for discussion** · 2026-09-13 · Authoritative for the **public multi-user service** mode. Docs [05](05-cli.md)/[06](06-webui.md) remain canonical for self-host/admin mode; where they conflict with this doc, **this doc wins for public behavior**. Technical foundations: [03 §4.4](03-sync-and-limits.md) (sync state contract, SSE), [04](04-groups.md) (groups), [07](07-search-contract.md) (search contract). ⚠️ = verify at implementation time.
+> Status: **draft for discussion** · 2026-09-13 · Authoritative for the **public multi-user service** mode. Docs [05](05-cli.md)/[06](06-webui.md) remain canonical for self-host/admin mode; where they conflict with this doc, **this doc wins for public behavior**. Technical foundations: [03 §4.4](03-sync-and-limits.md) (sync state contract, SSE), [04](04-groups.md) (groups), [07](07-search-contract.md)/[15](15-free-semantic-search.md) (search quality; docs 16–18 pending). Free-tier budgets and admission: [13](13-free-tier-feasibility.md)/[14](14-abuse-protection.md); public-data limits: [09](09-public-data-and-limits.md). ⚠️ = verify at implementation time.
+>
+> **Updated 2026-09-13 (free-tier pivot):** budgets, caps, semantic path and progress transport reconciled with [09](09-public-data-and-limits.md)/[13](13-free-tier-feasibility.md)/[14](14-abuse-protection.md)/[15](15-free-semantic-search.md); see §2.5.
 
-**Promise:** type a GitHub username → full-text search over that user's **public** stars in seconds; semantic search keeps improving while you read. No account, no per-user GitHub token. GitHub Lists become collections when the API exposes them. The queue and budgets are **honest product surfaces**, not hidden failures.
+**Promise:** type a GitHub username → full-text search over that user's **public** stars in seconds; semantic search keeps improving while you read. No account, no per-user GitHub token. GitHub Lists become collections (**public Lists verified importable for arbitrary users**, [09 §2](09-public-data-and-limits.md)). The queue and budgets are **honest product surfaces**, not hidden failures.
 
 ## 1. First-use flow & state machine
 
@@ -102,7 +104,7 @@ Rules: every state renders the **search bar and current results** if any index e
 
 Two independent coverages are shown separately, never as one ambiguous percent:
 - **Metadata coverage** — `pages_done/pages_total` during listing; then always 100%.
-- **Semantic coverage** — READMEs embedded / star count; grows only in Tier 1.
+- **Semantic coverage** — repos embedded / **semantic-window size** (the newest 1,500 repos on free, i.e. `min(star count, 1,500)`, [14 §3.6](14-abuse-protection.md)); grows only in Tier 1.
 
 ## 2. Eager-lazy indexing UX
 
@@ -111,13 +113,13 @@ Two independent coverages are shown separately, never as one ambiguous percent:
 | Tier | Name | Work | Wall clock (quiet system) | Search available |
 |---|---|---|---|---|
 | 0 | Listing | star pages (100/page, `created asc`) → repos + FTS metadata rows; ETag-aware | first hits ~2–5 s; complete 10–60 s for 35 pages (~3.4k stars), < 10 s for most users | lexical + filters + browse; chip `metadata only` |
-| 1a | Recent lane | READMEs + summary/chunk vectors for the **newest ~300** repos ([07 §5.3](07-search-contract.md) recency skew) | 1–3 min | hybrid over the newest slice; "semantic over N/M" |
-| 1b | Backfill lane | remaining READMEs, per-chunk hashes, embeddings | 10–30 min for 3.4k stars | hybrid coverage grows; results improve live |
+| 1a | Recent lane | repo-level embeddings for the newest ~300 repos — first slice of the **1,500-repo semantic window** ([15](15-free-semantic-search.md)) | 1–3 min | hybrid over the newest slice; "semantic over N/M" |
+| 1b | Backfill lane | remaining repos in the semantic window (up to newest 1,500), repo-level embeddings | 10–30 min for 3.4k stars; on free, deferred across days ([13 §2(b)](13-free-tier-feasibility.md)) | hybrid coverage grows; results improve live |
 | 2 | Steady state | re-list (ETags; 304s free) + changed READMEs only; refresh ≤ 24 h active users; similar works | 1–2 min typical | full hybrid + `similar` |
 
 Lane priority: 1a of **every** queued user runs before any 1b (fairness; everyone gets semantic on recent stars fast). Preemption happens only at repo-batch boundaries. Per-batch pause on GitHub secondary limits ([03 §1.3](03-sync-and-limits.md)); partial state is always searchable.
 
-Cap: `MAX_STARS = 10_000`. Above it: metadata for the newest 10k, semantic disabled (`too-many-stars`). Rationale: 10k READMEs ≈ two GitHub windows and ~16M embedding tokens — more than a fair share per user; metadata listing stays cheap.
+Caps: listing `MAX_STARS = 10,000` (100 pages); the semantic window is the newest **1,500** repos ([14 §3.6](14-abuse-protection.md)) embedded repo-level ([15 §2.1](15-free-semantic-search.md)). Above the window: metadata-only; above `MAX_STARS`: metadata for the newest 10k (`too-many-stars`). Rationale: 10k READMEs ≈ two GitHub windows and ~3.5M distilled-README tokens; the window is the free-quota fair share, and metadata listing stays cheap.
 
 ### 2.2 Auto-start policy (comparison, then recommendation)
 
@@ -130,7 +132,7 @@ Cap: `MAX_STARS = 10_000`. Above it: metadata for the newest 10k, semantic disab
 Rules:
 1. **Passive page views never start work.** A crawler or a chat-preview fetch sees the current state and a button.
 2. Tier 0 may also start on an explicit profile-page click (`Index & search`), even without a query.
-3. Tier 1 starts automatically on the first executed query for that user when `queue_depth(T1) < 5` and the daily budget has headroom; otherwise the job is **enqueued** with an honest position (no rejection, no silent deferral).
+3. Tier 1 starts automatically on the first executed query for that user when `queue_depth(T1) < 5` and free-quota headroom exists (neurons / rows written / Workflow steps, [14 §3.3](14-abuse-protection.md)); otherwise the job is **enqueued** with an honest position (no rejection, no silent deferral).
 4. Manual `Refresh` always enqueues; it never jumps the queue. Within cooldown it degrades to a Tier 0 re-list or shows the next allowed time.
 5. Every index is shared by all visitors ("community index"): one job per user, idempotent attach (`POST` returns the existing job instead of duplicating). Cancellation is starter-only via a key.
 
@@ -138,13 +140,13 @@ Rules:
 
 | Guard | v1 initial value (tunable) | Behavior on exceed |
 |---|---|---|
-| Tier 0 concurrency | 2 jobs, separate queue | short wait, position shown |
-| Tier 1 concurrency | 2 jobs (lane 1a preempts 1b at batch boundaries) | queue with position + ETA range |
-| Per-IP Tier 0/Tier 1 starts | 5 per 10 min; 20/day | `visitor-limited` copy, HTTP 429 + `Retry-After` |
-| Per-IP searches | 120/min, burst 30 | 429; UI keeps last results, toast with retry time |
-| Daily Tier 1 budget | **40% of service GitHub quota** (~48k requests/day with one 5k/h token) **or** embedding-token budget, whichever first | `rate-limited-paused` subtype "daily indexing budget" |
-| SSE connections | 3/IP | auto-fallback to 3 s polling ([03 §4.4](03-sync-and-limits.md)) |
-| Re-list cooldown (Tier 0) | 15 min/user (auto), manual same | "Up to date — checked 4 min ago" |
+| Tier 0 concurrency | **1 job**, separate queue | short wait, position shown |
+| Tier 1 concurrency | **1 job** (lane 1a preempts 1b at batch boundaries) | queue with position + ETA range |
+| Per-IP index starts | 2 per 60 s; 5/day, of which ≤3 new usernames/day ([14 §3.2](14-abuse-protection.md)) | `visitor-limited` copy, HTTP 429 + `Retry-After` |
+| Per-IP searches | 30/min keyword · 6/min semantic/similar; 300 + 60/day (session: 150 + 30/day) ([14 §3.2](14-abuse-protection.md)) | 429; UI keeps last results, toast with retry time |
+| Daily Tier 1 budget | **free-quota headroom**: min(neurons, Workflow steps, D1 rows written left) ([13 §4.2](13-free-tier-feasibility.md)); embeddings ≤6,000 neurons/day, query embeds + rerank ≤4,000 neurons/day ([14 §4](14-abuse-protection.md)) | `rate-limited-paused` subtype "daily indexing budget" |
+| SSE connections | 3/IP; **SSE only — 3 s polling is forbidden on free** (a backfill poll ≈40 req/tab against the 100k req/day budget, [13 §2(f)](13-free-tier-feasibility.md)) | close on `done`; reconnect with a status refetch |
+| Re-list cooldown (Tier 0) | 15 min/user (auto), manual same ([14 §3.2](14-abuse-protection.md)) | "Up to date — checked 4 min ago" |
 | Tier 1 refresh cooldown | 24 h/user | "Indexed 2 h ago; semantic refresh available in 22 h" |
 | Full rebuild | 7 days; admin/operator only | hidden unless self-host |
 
@@ -193,6 +195,17 @@ Queued / paused / complete / failed:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 2.5 Free-tier deltas applied
+
+The $0 launch ([13](13-free-tier-feasibility.md)–[15](15-free-semantic-search.md)) changes this UX's operating envelope; the states and copy above are unchanged:
+
+- **Concurrency 1 + 1** (one listing, one semantic) and global knobs of **500 searches/day, 100 semantic queries/day, 50 sync triggers/day, ≤10 weighted new users/day** ([14 §4](14-abuse-protection.md)).
+- **Semantic path:** repo-level 512d vectors in a per-user R2 blob + in-Worker kNN ([15 §2](15-free-semantic-search.md)) replaces per-user Vectorize namespaces; the semantic window is the newest **1,500** repos and listing is capped at `MAX_STARS = 10,000` ([14 §3.6](14-abuse-protection.md)).
+- **Daily budget is free-quota headroom**, not a share of the GitHub quota; GitHub's 5,000 req/h window runs 300 reserved → 4,700 usable, paced ≤700/min ([14 §3.4](14-abuse-protection.md)).
+- **SSE only; no progress polling** ([13 §2(f)](13-free-tier-feasibility.md)); close streams on `done`.
+- **Collections are precomputed per `index_version`** (D1 or Cache API) rather than scanned per request ([13 §4.2](13-free-tier-feasibility.md)).
+- **Indexed-user soft cap 50 full/warm** with LRU demotion/eviction ([14 §3.6](14-abuse-protection.md), [10 §6](10-multitenant-architecture.md)).
+
 ## 3. Search experience per username
 
 ### 3.1 URLs
@@ -215,7 +228,7 @@ Canonical redirects: wrong-case login → canonical; `?user=` inside `/u/` ignor
 
 ### 3.3 Single-user context (v1) vs multi-user/global (v2)
 
-**Recommend single-user context for v1.** Every ranking rule in [07](07-search-contract.md) assumes one corpus; cross-user search needs cross-corpus ranking, duplicate-repo handling, and per-user coverage accounting, and it changes the mental model from "search *their* memory" to a repo directory. Implementation fits v1 nicely: Vectorize **namespaces** (verified: per-partition operations) partition vectors per login in one index; D1 rows are scoped by `login` + `repo_id`. v2: a global scope across indexed users (fan-out query per namespace with cross-user RRF and dedupe) — experimental, never the landing default.
+**Recommend single-user context for v1.** Every ranking rule in [07](07-search-contract.md) assumes one corpus; cross-user search needs cross-corpus ranking, duplicate-repo handling, and per-user coverage accounting, and it changes the mental model from "search *their* memory" to a repo directory. Implementation fits v1 nicely: one semantic index per indexed user — a **per-user R2 vector blob** on the free path ([15 §2](15-free-semantic-search.md)) or a **per-user namespace** (`u{user_id}`) on the paid path ([10 §3](10-multitenant-architecture.md)); D1 rows are scoped by `login` + `repo_id`. v2: a global scope across indexed users (per-user fan-out with cross-user RRF and dedupe) — experimental, never the landing default.
 
 ### 3.4 Search page header / freshness area
 
@@ -262,13 +275,13 @@ Sharing: "Copy link" copies the canonical `/u/{login}?q=…`; page `<title>` = "
 ### 4.1 GitHub Lists import (primary when readable)
 
 - At Tier 0 completion, one GraphQL call attempts public Lists for the user; private lists are never visible to us and are never hinted at.
-- ⚠️ Doc [04](04-groups.md) verified `viewer.lists` only. Whether `User.lists` is readable for non-viewers is unverified: probe once, cache a global `lists_capability` flag plus per-user `lists_state: ok|empty|unavailable|error`, and feature-detect at runtime.
+- **Verified (2026-09-13, [09 §2](09-public-data-and-limits.md)):** `user(login).lists` returns any user's **public** Lists — developit showed 25 public lists + items in one GraphQL query (1 point); `isPrivate` lists appeared only for the token's own account. Import public Lists only and keep per-user `lists_state: ok|empty|unavailable|error` so absence degrades cleanly (open question 2 is resolved).
 - Import matches `nameWithOwner` → repo id; unmatched members (unstarred since) are dropped. Re-imported on each Tier 0 refresh; **read-only forever** (no writes to GitHub).
 - Provenance is explicit: chip prefix `▤` = GitHub List; `✦` = generated. Store `group.source` (`github_list | generated`) and `remote_list_id` if present.
 
 ### 4.2 Generated collections (always shipped, the real fallback)
 
-Computed from D1 at request time (3.4k rows — cheap), zero extra API calls, deterministic, unmoderated:
+Precomputed per `index_version` and cached (D1 or Cache API) — a request-time 3.4k-row scan is a D1 read-budget trap ([13 §4.2](13-free-tier-feasibility.md)) — zero extra API calls, deterministic, unmoderated:
 
 | Collection | Rule | Why |
 |---|---|---|
@@ -278,7 +291,7 @@ Computed from D1 at request time (3.4k rows — cheap), zero extra API calls, de
 | Most starred | stars desc, min 1k | "greatest hits" |
 | Archived gems | archived = true AND stars ≥ 1k | something unique search is good at |
 
-If Lists are unreadable for a user, `collections` renders these; copy: "No public Lists found — showing auto-generated collections." Never fabricate list-shaped groups.
+If a user has no public Lists (empty or unavailable), `collections` renders these; copy: "No public Lists found — showing auto-generated collections." Never fabricate list-shaped groups.
 
 ### 4.3 User-created groups — decision
 
@@ -315,7 +328,7 @@ If Lists are unreadable for a user, `collections` renders these; copy: "No publi
 
 | Current | Public-service delta |
 |---|---|
-| Cloudflare Access auth (§8.5) | **Removed.** Public site; per-IP rate limiting + optional invisible Turnstile on index-start endpoints. Admin stays behind Access on a separate path/hostname. |
+| Cloudflare Access auth (§8.5) | **Removed.** Public site; per-IP rate limiting + **mandatory Turnstile on index-start endpoints** (free tier: unlimited challenges; [14 §3.3](14-abuse-protection.md)/[§6](14-abuse-protection.md)). Admin stays behind Access on a separate path/hostname. |
 | `/` is the search page | `/` becomes the **public landing**; search moves to `/u/:login`; add `/u/:login/collections`, `/u/:login/r/:owner/:name`, `/queue`, `/about`. |
 | `/settings`, `/groups` manager | Removed for public users; settings → read-only `/about` (what we store — public data only; budgets; status; opt-out/removal contact). `/groups` becomes a read-only collections explorer. |
 | SPA has "no SEO need" | **Reversed.** `/u/*` is shareable and crawler-facing: per-user `<title>`/meta/OG, canonical, sitemap of indexed users, `robots.txt`; Worker HTML-head injection for `/u/*`, then SPA. Dynamic OG share cards = v1.5. |
@@ -326,7 +339,7 @@ If Lists are unreadable for a user, `collections` renders these; copy: "No publi
 | Component inventory (§10) | Add `LandingHero`, `UserSwitcher`, `ProfileHero`, `FreshnessChip`, `IndexProgressPanel`, `QueueBanner`, `CollectionChips`, `ShareMenu`; remove `SettingsPage`, `GroupEditor`, `BulkAssignBar`, `DangerZone`. |
 | Responsive (§8.7) | Public audience: mobile support is in-scope from day 1 (landing + search readable at 390 px), not desktop-first. |
 
-Also a delta for [03](03-sync-and-limits.md): its per-user fine-grained PAT, `starwatch login`, and private-star indexing describe **self-host mode only**. Public mode uses a service credential for public data (App/PAT/quota policy is open question 1) and never stores per-user GitHub credentials.
+Also a delta for [03](03-sync-and-limits.md): its per-user fine-grained PAT, `starwatch login`, and private-star indexing describe **self-host mode only**. Public mode uses one zero-permission service credential for public data ([09 §4.1](09-public-data-and-limits.md) recommends a no-permission fine-grained PAT; the final credential choice is open question 1) and never stores per-user GitHub credentials.
 
 ## 6. Additional UX suggestions (evaluated)
 
@@ -347,15 +360,15 @@ Short list to actually build, in order: (1) discovery strip, (2) OpenSearch + bo
 ## 7. Open questions
 
 1. **Service GitHub credential & quota policy** — GitHub App installation token on our own app/public repos vs fine-grained PAT vs a token pool (multi-account pooling risks ToS violation and is the wrong lever). The queue sizing, caps and daily budget all depend on this answer; raise cache/ETag efficiency before adding credentials.
-2. **`User.lists` for arbitrary users** — if unreadable, does §4.2 generated collections fully replace Lists, or should the UI stop mentioning Lists entirely (avoid implying hidden data)?
-3. **Star cap** — is 10,000 right? Large accounts (50k+ stars) get metadata-only forever; acceptable, or should they be special-cased with a "first 10k by recency" semantic window?
-4. **Auto-start thresholds** — `queue_depth < 5` and 30 indexes/day are guesses; tune against real quota data, and decide whether queue overflow should defer to off-peak instead of enqueueing.
+2. **`User.lists` for arbitrary users — resolved (2026-09-13).** Public Lists are readable for any account ([09 §2](09-public-data-and-limits.md)); private lists are owner-only. Generated collections (§4.2) remain the fallback for accounts with no public lists.
+3. **Star cap — resolved for the $0 launch.** `MAX_STARS = 10,000` with a newest-1,500 semantic window ([14 §3.6](14-abuse-protection.md)); revisit special-casing 10k+ accounts only on the paid path.
+4. **Auto-start thresholds** — `queue_depth < 5` and ≤10 weighted new users/day ([14 §3.6](14-abuse-protection.md)/[§4](14-abuse-protection.md)) are initial defaults; tune against real quota data, and decide whether queue overflow should defer to off-peak instead of enqueueing.
 5. **SEO/privacy** — index `/u/{login}` by default? Offer per-user `noindex`/removal on request (public data, but cached copies are ours). Robots policy for `/recent`.
-6. **Abuse protection** — is per-IP limiting enough, or does index-start need invisible Turnstile from day one?
-7. **Global/multi-user search (v2)** — fan-out over per-login Vectorize namespaces with cross-user RRF/dedupe, or a separate `login`-partitioned index? Measure fan-out cost first.
+6. **Abuse protection — resolved for the $0 launch.** Per-IP/day budgets + mandatory Turnstile on index starts; search stays uncaptchaed ([14](14-abuse-protection.md)). Escalation path: [14 §3.5](14-abuse-protection.md).
+7. **Global/multi-user search (v2)** — fan-out over per-user indexes (R2 blobs, or paid Vectorize namespaces) with cross-user RRF/dedupe, or a separate `login`-partitioned index? Measure fan-out cost first.
 8. **Cancellation ownership** — starter-only cancel is simple but means shared indexes can be killed by one visitor; should the page owner (verified later) or a quorum be able to cancel/keep?
-9. **Retention/eviction** — how long to keep indexes for users nobody visits? D1 + Vectorize growth (≈10–60 MB + 23k dims per 3.4k-star user) is the first real cost wall; eviction policy is a UX promise, so decide before launch.
-10. **Re-list cadence without visits** — on-demand only (cheapest, honest) vs nightly refresh for popular pages (fresher, quota-heavy).
-11. **Domain/branding** — custom domain for OG/SEO and whether `.workers.dev` stays as the canonical host.
+9. **Retention/eviction — resolved for the $0 launch.** Indexed-user soft cap 50 full/warm with LRU demotion, then eviction ([14 §3.6](14-abuse-protection.md), [10 §6](10-multitenant-architecture.md)); announcement windows are set, the exact retention promise is still open.
+10. **Re-list cadence — resolved for the $0 launch.** On-demand + 15 min re-list / 24 h full refresh cooldowns ([14 §3.2](14-abuse-protection.md)); no nightly sweeps on free ([10 §7](10-multitenant-architecture.md)). Nightly hot-page refresh is a paid-mode option.
+11. **Domain/branding — resolved for the $0 launch.** `.workers.dev`, no zone (so no WAF/Bot Fight Mode behind it; [13 §3](13-free-tier-feasibility.md)); custom domain is a paid/abuse-driven decision.
 
-**Verification note:** Vectorize per-namespace partition semantics confirmed in the Workers binding API docs (2026-04-21). GitHub endpoint costs/ETag behavior as verified in [03](03-sync-and-limits.md); `User.lists` non-viewer readability and dynamic OG image generation remain ⚠️.
+**Verification note:** `User.lists` non-viewer readability **verified** in [09 §2](09-public-data-and-limits.md) (public lists readable; private owner-only). Under the free-tier pivot Vectorize is not in the launch path ([15 §1](15-free-semantic-search.md)) — semantic runs on repo-level R2 blobs + in-Worker kNN, with per-user namespaces (`u{user_id}`) retained as the paid path ([10 §3](10-multitenant-architecture.md)). GitHub endpoint costs/ETag behavior as verified in [03](03-sync-and-limits.md); dynamic OG image generation remains ⚠️.

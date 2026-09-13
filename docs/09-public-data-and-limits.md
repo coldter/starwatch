@@ -1,6 +1,8 @@
 # 09 — Public-Data Indexing & Service Limits
 
-> Status: **draft for discussion** · 2026-09-13 · Every claim marked "verified" was checked live (read-only) against `api.github.com`, the GraphQL API and `raw.githubusercontent.com` as `coldter` on this date; ⚠️ marks low-confidence items to re-check at implementation time. Companions: [00](00-requirements.md) · [03](03-sync-and-limits.md) (own-account sync, token basics, error taxonomy) · [04](04-groups.md) (Lists semantics) · [07](07-search-contract.md).
+> Status: **draft for discussion** · 2026-09-13 · Every claim marked "verified" was checked live (read-only) against `api.github.com`, the GraphQL API and `raw.githubusercontent.com` as `coldter` on this date; ⚠️ marks low-confidence items to re-check at implementation time. Companions: [00](00-requirements.md) · [03](03-sync-and-limits.md) (own-account sync, token basics, error taxonomy) · [04](04-groups.md) (Lists semantics) · [07](07-search-contract.md)/[15](15-free-semantic-search.md) (search quality; docs 16–18 pending) · [10](10-multitenant-architecture.md) (topology) · [13](13-free-tier-feasibility.md)/[14](14-abuse-protection.md) (free quotas and admission).
+>
+> **Updated 2026-09-13 (free-tier pivot):** snapshot caps aligned with [14 §3.6](14-abuse-protection.md) (`MAX_STARS = 10,000`, newest-1,500 semantic window); free-plan allocations are owned by [13](13-free-tier-feasibility.md)–[15](15-free-semantic-search.md) and bind before the GitHub envelope in §6.
 
 This doc owns: indexing **arbitrary users' public stars** with one service-side token — endpoint semantics, GitHub Lists visibility for other users, README fetching at scale without per-user tokens, the token model, cache-and-serve policy, capacity math, and edge cases. Own-account sync semantics stay in [03].
 
@@ -72,8 +74,8 @@ Live-verified semantics:
 |---|---|---|
 | Max pages? | No documented cap. Deep pagination verified to a 9,845-star account (`yoshuawuyts`): page 99/99 was the last; page 100/101 returned `200` with `[]` (not 422) | live |
 | >10,000 stars | No live account found to test ⚠️. GitHub itself reports its web stars list breaks >10,000 stars+topics (community #147863); GraphQL exposes `StarredRepositoryConnection.isOverLimit` = "Is the list of stars for this user truncated? This is true for users that have many stars" (threshold undocumented ⚠️) | docs + community |
-| Worst case | 20,000 stars = 200 pages = 4% of one hourly budget; a full sweep is fine | math |
-| Policy | Cap a snapshot at **200 pages (20k stars)**; if `Link rel="next"` persists, mark the user `over_limit`, index the first 20k, and surface partial coverage instead of failing | proposed |
+| Worst case at cap | 10,000 stars = 100 pages ≈ 2% of one hourly budget; a full sweep is fine | math |
+| Policy | Cap a snapshot at `MAX_STARS = 10,000` (100 pages); if `Link rel="next"` persists, mark the user `over_limit`, index the newest 10k, and surface partial coverage instead of failing ([14 §3.6](14-abuse-protection.md)) | proposed |
 
 ## 2. GitHub Lists for arbitrary users — YES (public lists)
 
@@ -95,7 +97,7 @@ Live-verified semantics:
 | `torvalds` | 0 | empty is a normal answer |
 | `antfu`, `gaearon`, `kentcdodds`, … | 0 | most accounts never create lists |
 
-**Visibility rule:** `isPrivate: true` appeared only when the querying identity was the owner. Across 4 other accounts, every visible list was public. We cannot directly prove private lists are hidden for others with a single token ⚠️, but the field description and observed data support: **other users see public lists only**.
+**Visibility rule (resolved 2026-09-13, doc 08 Q2):** `isPrivate: true` appeared only when the querying identity was the owner; across 4 other accounts every visible list was public. Public Lists are therefore readable and importable for arbitrary users, and private lists are owner-only. ⚠️ is limited to proving the negative with a single token — the product rule is public-only ([08 §4.1](08-public-service-ux.md)).
 
 ### 2.3 Pagination and cost
 
@@ -274,7 +276,7 @@ GraphQL      ≈ 1 point per user snapshot (unlimited lists/items)
 Raw fetches  ≈ X + path probes/misses (0 API quota)
 ```
 
-Worked examples against a **4,500 req/h indexing budget** (10% reserved for re-syncs/health):
+Worked examples against a conservative **4,500 req/h indexing budget** (the governor reserves 300/h of the 5,000, leaving 4,700 usable; [14 §3.4](14-abuse-protection.md)); the table's ~figures are rounded:
 
 | New user | N | overlap | API req | **Users/hour** | Users/day (sustained) |
 |---|---|---|---|---|---|
@@ -288,25 +290,25 @@ Burst note: one coldter-scale backfill (35 listing pages + ~103 README fallbacks
 
 ### 6.2 Re-sync cost
 
-`U users × P pages` per TTL, and many pages return 304 for free. At 10,000 indexed users averaging 1,000 stars: **100k requests/week ≈ 600 req/h** at a 7-day TTL (~13% of budget), or ~140 req/h at 30 days. Cross-user dedupe means a repo is README-fetched and embedded **once** no matter how many users star it — this is the single biggest lever in the whole design.
+`U users × P pages` per TTL, and many pages return 304 for free. At 10,000 indexed users averaging 1,000 stars: **100k requests/week ≈ 600 req/h** at a 7-day TTL (~13% of budget), or ~140 req/h at 30 days. Cross-user dedupe means a repo is README-fetched and embedded **once** no matter how many users star it — this is the single biggest lever in the whole design. (10k users is the paid-scale envelope; the $0 launch caps indexed users at 50 full/warm with LRU eviction, [14 §3.6](14-abuse-protection.md).)
 
 ### 6.3 Non-API ceilings (where the real wall is)
 
 | Resource | Rough capacity | Notes |
 |---|---|---|
-| Workers AI free tier | 10k neurons/day ≈ 9.3M tokens/day ÷ ~2.5k tokens/repo ≈ **~3,700 new repos/day** free ([01 §8](01-search-and-index.md)) | Beyond free: $0.012/M tokens ≈ $30/1M repos — cheap but not free |
-| Vectorize | 7 chunks/repo; index limit 20M vectors ([01 §3.2](01-search-and-index.md), [Vectorize limits](https://developers.cloudflare.com/vectorize/platform/limits/)) | ~2.8M repos before a second index/shard question |
+| Workers AI free tier | 10k neurons/day = 9.3M tokens/day; free launch embeds the newest 1,500 repos/user **repo-level** (~0.53M tokens ≈ 565 neurons per standard user, [15 §5](15-free-semantic-search.md)) and caps embeddings at **6,000 neurons/day** ([14 §4](14-abuse-protection.md)) ≈ 10 standard windows/day | Beyond free: $0.012/M tokens ≈ $30/1M repos — cheap but not free |
+| Vectorize (paid path) | 7 chunks/repo; index limit 20M vectors ([01 §3.2](01-search-and-index.md), [Vectorize limits](https://developers.cloudflare.com/vectorize/platform/limits/)) | ~2.8M repos before a second index/shard question; not used at launch ([15 §1](15-free-semantic-search.md)) |
 | D1 + R2 | 5 GB / 10 GB allowances | corpus metadata is tiny; READMEs ~6 KB avg |
 | Cloudflare subrequests | per-invocation cap ([02 §3](02-stack-and-pipeline.md)) | batch raw fetches; one repo per workflow step if needed |
 
-**Practical launch ceiling:** ~**1,000–3,000 new users/day** (≈30–110/hour during traffic hours), dominated by README/embedding ingest rather than API quota for small profiles; the token budget binds first for heavy profiles.
+**Practical GitHub-side ceiling:** ~**1,000–3,000 new users/day** (≈30–110/hour during traffic hours), dominated by README/embedding ingest rather than API quota for small profiles; the token budget binds first for heavy profiles. The **$0 launch admits ≤10 weighted new users/day** ([14 §4](14-abuse-protection.md)) because Cloudflare free quotas (rows written, Workflow steps, neurons) bind long before this ceiling ([13 §2](13-free-tier-feasibility.md)).
 
 ### 6.4 Queue and burst design
 
 1. **Global token bucket** (Durable Object) shared by all jobs: acquire before each GitHub call; read `x-ratelimit-remaining` and adjust.
-2. **Queue every user indexing** (Cloudflare Queue or Workflow per user): priority *first-time user > lazy refresh > nightly re-sync > README rechecks*.
+2. **Queue every user indexing** (Cloudflare Queue or Workflow per user): priority *first-time user > lazy refresh > hot-user re-sync > README rechecks* ([14 §3.4](14-abuse-protection.md)); no nightly sweeps for all users on free ([10 §7](10-multitenant-architecture.md)).
 3. **Per-IP + per-session quotas** on the "index this user" endpoint; cached users are instant and free.
-4. **Reserve** ~500 req/h for re-syncs and health; never start a backfill below the reserve.
+4. **Reserve** 300 req/h for re-syncs and health ([14 §3.4](14-abuse-protection.md)); never start a backfill below the reserve.
 5. **Pause, don't fail:** on `remaining = 0`, Workflow sleeps to reset+30 s and shows "resuming at HH:MM UTC" (same UX as [03 §4.3](03-sync-and-limits.md)).
 6. **Measure and store** per-run `api_used`, `raw_fetches`, `dedupe_ratio`, so capacity planning uses live data, not this doc's assumptions.
 
@@ -321,7 +323,7 @@ Burst note: one coldter-scale backfill (35 listing pages + ~103 README fallbacks
 | 5 | Case variants | `COLDTER` works; response gives canonical `login` | Canonicalize on write; URL-key users by lowercase login + id |
 | 6 | Org login | `/users/{org}` 200 `type: Organization`; `/users/github/starred` → `200 []` | Reject with "not a user account" (orgs can't star) unless org support is added |
 | 7 | >5k stars | Deep pagination verified to 9,845 | No special case; budget pages individually |
-| 8 | >10k stars | No live account ⚠️; web UI known to break >10k | Cap 20k/200 pages, mark `over_limit`, partial coverage label |
+| 8 | >10k stars | No live account ⚠️; web UI known to break >10k | Cap at `MAX_STARS = 10,000` (100 pages, [14 §3.6](14-abuse-protection.md)), mark `over_limit`, partial coverage label |
 | 9 | Empty repo (`size 0`) | Listing metadata | Skip README, index metadata |
 | 10 | Archived repo | `archived: true` | Index normally; archived penalty is a search concern ([07 §5.3](07-search-contract.md)) |
 | 11 | Disabled / DMCA repo | `disabled: true` or raw/REST 403/451 ⚠️ | Metadata shell + link; do not retry aggressively; drop README content |
@@ -339,20 +341,20 @@ Burst note: one coldter-scale backfill (35 listing pages + ~103 README fallbacks
 
 1. **Private-profile detection** — is there any API signal (`user_view_type`, followers delta) that separates "private profile" from "0 stars"? Find a known private-profile account and test before writing UX copy.
 2. **Token verification** — does a zero-permission fine-grained PAT really read `/users/{login}/starred` and `user(login).lists`? Test with the production token path.
-3. **>10k stars** — REST cap vs GraphQL `isOverLimit` threshold; find/borrow a 10k+ account to verify deep pagination and full counts.
+3. **>10k stars** — REST cap vs GraphQL `isOverLimit` threshold. Partially resolved: the launch cap is `MAX_STARS = 10,000` ([14 §3.6](14-abuse-protection.md)), so only the capped subset is exercised; verify the threshold before raising the cap.
 4. **OAuth client-credentials bucket** — is the documented 5,000/h OAuth-app public-data budget usable for these endpoints, and is adding it legitimate, or spirit-of-the-terms pooling?
 5. **Lists dependency** — preview API with a 32-list cap; do we import on every sync or only on first index + manual refresh?
-6. **Abuse controls** — per-IP quotas, queue caps, and whether "index user X" needs a CAPTCHA/backoff under flood; who can trigger a re-sync.
+6. **Abuse controls — resolved for the $0 launch.** Per-IP/day quotas, queue caps, Turnstile on index starts, and shared re-sync triggers are defined in [14](14-abuse-protection.md); tuning stays open.
 7. **Purge UX** — self-serve removal page vs email; retention window after deletion (proposed: 30 days).
 8. **Cache TTLs** — 24 h eager-lazy refresh: how stale is acceptable, and do we surface "indexed 3 h ago / refresh" affordances?
 9. **Owner account** — skip indexing `coldter` entirely, or index with a public-only token?
 10. **Legal/policy review** — a public multi-tenant index over GitHub data (ToS §H, AUP §7–8, Privacy Statement, GDPR erasure/deletion requests) before launch; also the README-mirroring + embedding question (derived data policy in §8 of the AUP).
 11. **Capacity telemetry** — publish real dedupe ratio / tokens per repo after the first 100 users; replace §6's assumptions.
-12. **Multi-index scaling** — Vectorize 20M vectors ≈ 2.8M repos; decide shard strategy before importing at that scale.
+12. **Multi-index scaling — resolved for the $0 launch.** Vectorize is off the free critical path ([15 §1](15-free-semantic-search.md)); the free semantic store is per-user R2 blobs. The paid shard strategy stays in [10 §3.2](10-multitenant-architecture.md).
 
 ## Sources (load-bearing)
 
-Internal: [00-requirements.md](00-requirements.md) · [01-search-and-index.md](01-search-and-index.md) · [03-sync-and-limits.md](03-sync-and-limits.md) · [04-groups.md](04-groups.md) · [07-search-contract.md](07-search-contract.md).
+Internal: [00-requirements.md](00-requirements.md) · [01-search-and-index.md](01-search-and-index.md) · [03-sync-and-limits.md](03-sync-and-limits.md) · [04-groups.md](04-groups.md) · [07-search-contract.md](07-search-contract.md) · [13](13-free-tier-feasibility.md)–[15](15-free-semantic-search.md).
 
 Live checks (2026-09-13, read-only, as `coldter`):
 - `/users/{login}` (case, org, 404s), `/user/{account_id}` durable ids (`77358146` → coldter; `4921183` → nilbuild), rename quirk (`kamranahmedse` 404 profile vs `200 []` starred; nilbuild 1,769 stars).

@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "apps/*"
+  - "eval-lab"
 
 catalog:
   effect: 4.0.0-rc.112
@@ -19,3 +20,7 @@ overrides:
 allowBuilds:
   msgpackr-extract: true
   workerd: true
+  onnxruntime-node: true
+  protobufjs: true
+  # eval-lab only extracts text; sharp is optional in @huggingface/transformers (image tasks).
+  sharp: false

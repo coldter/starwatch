@@ -1,0 +1,4 @@
+# Generated artifacts — never commit corpus dumps or model weights.
+data/
+node_modules/
+*.log

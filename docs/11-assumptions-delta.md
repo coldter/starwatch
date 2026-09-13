@@ -1,13 +1,13 @@
 # 11 — Assumptions Delta: Personal → Public Multi-Tenant
 
 > Status: **draft for discussion** · 2026-09-13 · Section-by-section audit of every assumption in [00](00-requirements.md)–[07](07-search-contract.md) invalidated or reshaped by the pivot: starwatch becomes a **public, no-login, multi-tenant service** — anyone enters any GitHub username, we index that user's **public** stars, expose public full-text + semantic search, use **one service token** for rate limits, sync **manually / eager-lazy**, and import public GitHub Lists as groups where visible.
-> **Hard dependency ⚠️:** **docs/09** (arbitrary-user GitHub public-data visibility) is pending. Every claim below about another user's star list, Lists, or private data is provisional until docs/09 lands.
-> This file records deltas only; no edits to 00–07 are applied here.
+> **Updated 2026-09-13 (free-tier pivot):** docs/09 has landed (arbitrary-user public stars and public Lists verified), the $0 free-tier launch ([13](13-free-tier-feasibility.md)–[15](15-free-semantic-search.md)) overlays the multi-tenant design, and resolved questions below are marked ✔ with pointers.
+> Companions: [08](08-public-service-ux.md) (UX) · [09](09-public-data-and-limits.md) (public data/limits) · [10](10-multitenant-architecture.md)/[13](13-free-tier-feasibility.md)/[15](15-free-semantic-search.md) (architecture) · [14](14-abuse-protection.md) (abuse); search quality: [07](07-search-contract.md)/[15](15-free-semantic-search.md) (docs 16–18 pending). This file records deltas only; no edits to 00–07 are applied here (their banners are final).
 
 ## 0. Conventions
 
 - "Old assumption" quotes are verbatim; `…` elides and `[brackets]` annotate. Inside quotes, `·` replaces the `|` that appears in the source's table rows (so the audit table stays parseable).
-- **Segment** = one indexed user's corpus. **Visitor** = anonymous searcher. "Per user" below means per indexed GitHub account, never an authenticated app user.
+- **Indexed user** = a GitHub account whose public stars we index; "per user"/"segment" below means that account or its corpus, never an authenticated app user. **Visitor/searcher** = an anonymous user running queries.
 - Actions are prioritized in §10; things to deliberately not touch are in §12.
 
 ## 1. 00 — Requirements
@@ -36,7 +36,7 @@
 | Doc § | Old assumption (quote) | New reality | Impact | Action |
 |---|---|---|---|---|
 | 01 §3.2 | "Estimated corpus: ~19.7k chunks + ~3.3k summary vectors ≈ **23k vectors**" | Per segment; aggregate = Σ; a repo starred by many users duplicates chunks/vectors unless deduped | Vector count + dims grow linearly; dedupe opportunity | Update sizing; decide dedupe vs isolation (§11) |
-| 01 §5 | "Vectorize `starwatch` … ~23.5M stored dims" | Topology undecided: one index + `user_id` pre-filter, **namespaces** per segment, or index-per-segment ⚠️ (limits unverified) | Biggest 01 decision; delete/re-index/eviction hinge on it | Decide in a new topology doc; `user_id` would consume 1 of 10 metadata slots |
+| 01 §5 | "Vectorize `starwatch` … ~23.5M stored dims" | ✔ Resolved: paid path = **per-user namespace** per indexed user ([10 §3](10-multitenant-architecture.md)); $0 path = repo-level R2 blobs + in-Worker kNN ([15 §2](15-free-semantic-search.md)) — Vectorize is off the free critical path | Free/paid topology split; delete/re-index/eviction hinge on it | Implemented in 10 §1.1/§3, 15 §2 |
 | 01 §5 | "All well within free allowances (D1 5 GB, R2 10 GB…)" | Per segment yes; ~15–60 MB D1 + ~26 MB R2 each → single-D1 ceiling binds in the low hundreds of segments ⚠️ | Scale ceiling | Define sharding/eviction thresholds |
 | 01 §6 C | "D1 is simpler for one shared corpus. Revisit if we ever go multi-corpus/per-user." | We are multi-corpus; shared D1 with scoping may still win, but the parenthetical is now live | Architecture choice | Re-verify vs namespace/index-per-segment |
 | 01 §8 | "Reranker (300 searches × 50 passages) … ~$0.01" | Per-query cost linear in public traffic; a hot segment makes it unbounded | Cost/abuse | Keep flag-controlled; per-IP/global query caps |
@@ -51,7 +51,7 @@
 | Doc § | Old assumption (quote) | New reality | Impact | Action |
 |---|---|---|---|---|
 | 02 §5 auth | "fine-grained PAT, User permission **"Starring: Read"** … Stored as a Worker secret" | A PAT can only read *its owner's* `/user/starred`; arbitrary users need public endpoints. The service token needs **no scopes** (public data) | Entire ingestion auth model | Rewrite: service token for rate limits only |
-| 02 §5 listing | "`GET /user/starred?per_page=100&sort=created&direction=asc` … → 35 requests for ~3,448 stars" | Becomes `GET /users/{login}/starred` (public; verify `star+json` + sort once ⚠️); private stars never visible | Endpoint, ETag keys, per-segment page counts | Rewrite; key ETags by segment |
+| 02 §5 listing | "`GET /user/starred?per_page=100&sort=created&direction=asc` … → 35 requests for ~3,448 stars" | Becomes `GET /users/{login}/starred` (public; ✔ `star+json` + `sort=created` verified in [09 §1.2](09-public-data-and-limits.md)); private stars never visible | Endpoint, ETag keys, per-user page counts | Rewrite; key ETags per indexed user |
 | 02 §5 ETag | "Store **ETag per page** in D1; unchanged pages return 304 = **free**" | Still true, but keyed `(login, page)`; README ETags are repo-global and can be shared across segments | Table keys; cross-segment reuse of README fetches | Rewrite key; consider a global repo/README cache |
 | 02 §5 pipeline | "Cron (nightly) └─► Workflow "star-sync" (durable, checkpointed in D1)" | Concurrent per-segment runs initiated by demand, not one cron; a global rate budget serializes them | Workflow topology, concurrency limits ⚠️, queue | Per-segment workflow IDs + global scheduler |
 | 02 §5 unstar | "Unstar → soft delete (`is_starred=0`) + `deleteByIds` vectors; keep rows ~90 days" | Repo starred by A and not B; deleting shared vectors/rows on one unstar corrupts other segments | Data model + vector IDs | Split global `repos` from per-segment `user_stars`; delete segment vectors only |
@@ -76,7 +76,7 @@
 | 03 §2(a) | "Login / auth" [device flow] | Deleted: no per-user GitHub auth | Section obsolete | Drop §2(a), or keep as admin bootstrap |
 | 03 §2(b) | "`GET /user` … cached in D1 `profile` … Refresh only on login" | Profile becomes a per-segment on-demand cache (avatar/link meta) | Table scoping | Key by GitHub user id; refresh policy |
 | 03 §2(d) | "**Private stars**: `/user/starred` returns private repos the token can see … compare totals at login and warn" | Removed; the public listing is the whole corpus | Simplifies sync; changes counts | Delete caveat; `starring=read` no longer needed |
-| 03 §2(e) | "query { viewer { lists …" | `viewer` is the token owner only; arbitrary users' Lists visibility unknown ⚠️ docs/09 | Group import blocked | Do not spec import until docs/09 |
+| 03 §2(e) | "query { viewer { lists …" | ✔ Resolved: `user(login).lists` reads public Lists for arbitrary users ([09 §2](09-public-data-and-limits.md)); private lists are owner-only | Read-only public import stands | Spec import as optional enrichment ([08 §4.1](08-public-service-ux.md)) |
 | 03 §2(g) | "Unstar detection requires the **full sweep**" | Still true per segment, but full sweeps for all segments are unaffordable | Freshness vs quota | Eager-lazy full sweeps on TTL; stale membership accepted |
 | 03 §2(h) | "`pushed_at > readme_checked_at`" trigger policy | Still valid per repo; repo-global README work can be shared across segments | Dedupe opportunity | Consider a global README/vector cache |
 | 03 §3 | "**Fine-grained PAT** ✅ recommended … `starring=read`" | Replaced by one no-scope service token; classic/OAuth/App options were per-owner and vanish | §3 rewritten | Keep "one secret, least privilege" principle |
@@ -96,9 +96,9 @@
 
 | Doc § | Old assumption (quote) | New reality | Impact | Action |
 |---|---|---|---|---|
-| 04 §1 | "**Local-first**: D1 owns groups; GitHub Lists are optional, never required" | Under no-login, "local" has no owner: visitors have no identity; groups must belong to a segment or to the service | Ownership contradiction | Decide: service-curated per-segment groups, claim flow, or local-only; or drop |
-| 04 §1 | "Read-only **one-time import** of the 22 existing lists into local groups" | Importer can only read `viewer.lists` (token owner); arbitrary-user Lists visibility pending ⚠️ docs/09 | Import may be owner-only or impossible | Block until docs/09 |
-| 04 §2.1 | "Read lists … `viewer.lists(first/last/after/before)`" | `viewer` ≠ arbitrary user; whether public Lists are readable for any account is unverified | Feasibility of the whole import | docs/09 dependency ⚠️ |
+| 04 §1 | "**Local-first**: D1 owns groups; GitHub Lists are optional, never required" | Under no-login, "local" has no owner: visitors have no identity; groups belong to an **indexed user** (per-user), not to visitors | Ownership contradiction | Decided v1: read-only per-user groups + generated collections; no anonymous writes ([08 §4.3](08-public-service-ux.md)) |
+| 04 §1 | "Read-only **one-time import** of the 22 existing lists into local groups" | ✔ Resolved: public Lists are readable for arbitrary users ([09 §2](09-public-data-and-limits.md)); private lists are not | Read-only public import only | Keep import read-only; no writes ([08 §4.1](08-public-service-ux.md)) |
+| 04 §2.1 | "Read lists … `viewer.lists(first/last/after/before)`" | ✔ Verified: `User.lists` exists and public lists are readable for any account ([09 §2](09-public-data-and-limits.md)) | Import is feasible | Read-only public import ([08 §4.1](08-public-service-ux.md)) |
 | 04 §2.1 | "Observed on `coldter` (2026-09-13): **22 lists** … **279 items total**" | Owner-specific sample; becomes an illustration only | Copy/statistics | Generalize; move sample to an appendix |
 | 04 §4.1 | "`slug TEXT NOT NULL UNIQUE`"; `group_members(group_id, repo_id)` | Needs an owner/segment column; global slug uniqueness breaks across segments | DDL + all queries | Redesign `0002` with owner key + composite uniqueness |
 | 04 §4.2 | "always with `is_starred = 1` unless `--include-unstarred`" | Per-segment star relation, not a global flag | Rule compiler | Join `user_stars` |
@@ -106,7 +106,7 @@
 | 04 §5.3 | "`repo_id` as a **number metadata index from day 1** (6th of 10 allowed)" | Couples to index topology; per-namespace metadata indexes may not exist ⚠️; index-per-segment needs per-index setup | Topology coupling | Re-evaluate after the topology decision |
 | 04 §6.1 | "`GET /groups` / `POST /groups` / `PATCH /groups/:slug`" | Needs segment scope and auth (`/u/{login}/groups`), plus write rules | Contract | Re-scope routes; admin-only writes |
 | 04 §7 | ">32 groups vs GitHub cap … mirror flag only on ≤32 selected groups" | Push mirror requires the user's own token — unavailable under no-login | v2 mirror dead unless users opt in with tokens | Drop mirror; keep read-only import |
-| 04 §8 | "GitHub · ✅ read-only one-time import" | Owner-only until docs/09 | Scope table | Update after docs/09 |
+| 04 §8 | "GitHub · ✅ read-only one-time import" | ✔ Public-list import verified for arbitrary users ([09 §2](09-public-data-and-limits.md)); the write mirror is dropped under no-login | Scope table | Read-only scope confirmed |
 | 04 §9 Q1 | "Mirror write scope — do Lists mutations work with the existing fine-grained PAT…" | Moot under no-login | — | Close question |
 
 ## 6. 05 — CLI
@@ -169,7 +169,7 @@
 2. **Non-goal inversion.** [00 §5](00-requirements.md) "Multi-user, sharing, teams" vs the entire public-service premise and every group-ownership section.
 3. **Cron vs eager-lazy.** [00 R8](00-requirements.md) + [03 §4.3](03-sync-and-limits.md) "nightly cron" vs the pivot's manual/eager-lazy sync.
 4. **Private stars.** [03 §2(d)/§3/§6 Q2](03-sync-and-limits.md) + [02 §5](02-stack-and-pipeline.md) ("+ repo access if private stars should be indexed") vs public-only; the old 3,448 count included 2 private stars.
-5. **Lists visibility.** [04 §2.1](04-groups.md) uses `viewer.lists` (token owner only) vs the claim that arbitrary users' public Lists can be imported; **docs/09 pending**.
+5. **Lists visibility.** ✔ Resolved: [09 §2](09-public-data-and-limits.md) verified that `User.lists` exposes any user's public Lists; private lists are owner-only.
 6. **Group ownership.** [04 §1](04-groups.md) "local-first, D1 owns groups" + [06 §5](06-webui.md) CRUD vs no-login visitors with no identity.
 7. **SEO.** [06 §2](06-webui.md) "no server rendering or SEO need (single user, behind Access)" vs [06 §3](06-webui.md) "Every search is bookmarkable and shareable" and public discoverability.
 8. **Access vs public.** [06 §8.5](06-webui.md) Access "gates … static assets and SSE" vs public pages; [05 §6.2](05-cli.md) "non-public endpoints require `Authorization: Bearer`" vs anonymous search.
@@ -178,18 +178,20 @@
 11. **Eval pinning.** [07 §3.3–§3.5](07-search-contract.md) single-corpus golden set and "drift > 1%" invalidation vs continuous indexing of arbitrary segments.
 12. **Quota model.** [03 §1.1](03-sync-and-limits.md) "per authenticated user, shared by all tokens/apps on that account" — one account now serves all segments; the 66–70%-of-window backfill math is per corpus but the window is global.
 13. **Cost growth.** [01 §8](01-search-and-index.md) "Stable through ~10× usage growth" vs public scale; [01 §5](01-search-and-index.md) free-allowance claims vs aggregate storage.
-14. **Index topology.** [01 §5](01-search-and-index.md) one `starwatch` index / [01 §6](01-search-and-index.md) "one shared corpus" vs per-segment corpora; no doc picks namespaces vs `user_id` vs index-per-user.
+14. **Index topology.** ✔ Resolved for the $0 launch: repo-level R2 blobs + in-Worker kNN ([15 §2](15-free-semantic-search.md)); paid path = per-user Vectorize namespaces ([10 §3](10-multitenant-architecture.md)).
 15. **CLI mocks.** [05 §9](05-cli.md) status/doctor outputs show a single index and "PASS auth" vs per-segment/service stats and anonymous use.
 16. **(Pre-existing, not pivot)** [00 §6](00-requirements.md) pins `effect@4.0.0-rc.115` while [02 §1](02-stack-and-pipeline.md)/README pin rc.112 for Alchemy compatibility.
 
-## 10. Minimal edit plan (priority order, not applied)
+## 10. Minimal edit plan (priority order; audit trail)
+
+**Status 2026-09-13:** the decisions below are captured in docs 08–15; docs 00–07 carry final free-tier banners and are frozen. This list remains the audit trail, not open work.
 
 **P0 — blockers; decide before editing prose**
 - [00](00-requirements.md) §2: rewrite product statement, users row, corpus row; §5: replace the multi-user non-goal; §8: rewrite success criteria.
 - [03](03-sync-and-limits.md) §3 + §4.1 + §6: remove the per-user PAT/device-flow/login model; move admin setup to an ops doc.
 - [02](02-stack-and-pipeline.md) §5: rewrite auth (service token), listing endpoint (`/users/{login}/starred`), ETag keys, unstar/vector deletion, workflow topology.
 - Data model: split global `repos` from per-segment `user_stars`; decide the Vectorize topology (namespaces vs `user_id` vs index-per-segment) in a new design doc — do not bury it in 00–07 edits.
-- Gate all Lists/import edits on **docs/09**.
+- ✔ Lists/import edits unblocked and applied ([09 §2](09-public-data-and-limits.md), [08 §4](08-public-service-ux.md)).
 
 **P1 — structural edits once P0 decisions land**
 - [03](03-sync-and-limits.md) §1.1–§1.3 + §4.3: global rate-limit budget, queue/fairness, service-level error taxonomy, edge-case table rewrite.
@@ -208,19 +210,19 @@
 
 ## 11. New open questions created by the pivot
 
-1. **Search scope:** per-username only, or a cross-segment "find this repo across indexed users"? Ranking across heterogeneous corpora is unsolved.
-2. **Vectorize topology:** namespaces vs `user_id` metadata vs index-per-segment; exact namespace/index limits, metadata-index behavior across namespaces, and per-segment delete semantics ⚠️.
-3. **Dedupe:** share README/chunks/embeddings for repos starred by many segments, or fully isolate per segment?
-4. **Identity:** canonical key = numeric GitHub user id (login is mutable); URL/display use login — rename handling and reserved-route list.
-5. **Caps:** max stars per segment, max segments, eviction/de-index policy, and what happens to very large corpora.
-6. **Rate-limit budget:** what happens when the one 5,000/h token is exhausted; fairness/queue; is "one service token" negotiable (multiple tokens or a GitHub App) ⚠️?
-7. **Trigger policy:** first-search auto-index vs explicit; TTL for re-sync; who may force a sync; per-IP quotas and bot mitigation.
-8. **Abuse/cost:** per-IP query quotas, rerank budget, global cost circuit breaker, popular-query caching.
-9. **Freshness promise:** what staleness is acceptable/displayed; nightly refresh only for hot segments?
-10. **Groups ownership:** service-curated, profile-claim, local-only, or dropped? Blocks 04 and the 06 group UI.
-11. **Lists import:** what is actually visible for arbitrary accounts (docs/09)? If nothing, is import owner-only or dropped?
-12. **Eval:** multi-corpus golden sets, synthetic corpora for CI, and drift handling for continuously changing indexes.
-13. **SEO/privacy:** prerender vs SPA, sitemaps, username enumeration/spam, public README storage and takedown policy, query-log retention.
+1. **Search scope — ✔ resolved (v1):** per-indexed-user only; cross-user global search is v2 ([08 §3.3](08-public-service-ux.md)).
+2. **Vectorize topology — ✔ resolved for $0:** repo-level R2 blobs + in-Worker kNN ([15 §2](15-free-semantic-search.md)); paid path = per-user namespaces ([10 §3](10-multitenant-architecture.md)).
+3. **Dedupe — ✔ resolved:** shared corpus + content-addressed embedding cache; users reference shared repo artifacts ([10 §2](10-multitenant-architecture.md)).
+4. **Identity — ✔ resolved:** numeric GitHub user id as the canonical key; login for URLs/display; rename handling in [09 §1.1](09-public-data-and-limits.md).
+5. **Caps — ✔ resolved:** `MAX_STARS = 10,000`; newest-1,500 semantic window; 64 KB/repo + 20 MB/user FTS; 50 full/warm indexed users ([14 §3.6](14-abuse-protection.md)).
+6. **Rate-limit budget — ✔ resolved:** one 5,000/h token, no pooling; governor reserves 300/h ([09 §4.2](09-public-data-and-limits.md), [14 §3.4](14-abuse-protection.md)).
+7. **Trigger policy — ✔ resolved:** intent-gated eager-lazy auto-start ([08 §2.2](08-public-service-ux.md)); admission/quotas in [14 §3](14-abuse-protection.md).
+8. **Abuse/cost — ✔ resolved:** [14](14-abuse-protection.md) owns budgets, quotas and degradation.
+9. **Freshness promise — ✔ resolved:** 15 min re-list / 24 h full refresh / capped accounts 7 d; on-visit stale-while-revalidate ([08 §2.3](08-public-service-ux.md), [10 §6](10-multitenant-architecture.md)).
+10. **Groups ownership — still open:** v1 is read-only (no anonymous writes); v2 owner-verified OAuth ([08 §4.3](08-public-service-ux.md)).
+11. **Lists import — ✔ resolved:** public Lists are readable for arbitrary accounts; private lists are not ([09 §2](09-public-data-and-limits.md)); import is optional enrichment.
+12. **Eval — still open:** multi-corpus golden sets and drift handling; docs 16–18 pending.
+13. **SEO/privacy — partially resolved:** shareable `/u/*` with robots/sitemap/noindex policy and a purge flow ([08 §5.2](08-public-service-ux.md), [12 §5](12-hardening.md)); retention windows remain open.
 
 ## 12. What does NOT change (churn control)
 
@@ -235,4 +237,4 @@
 
 ## Sources / verification needed ⚠️
 
-No new external claims are load-bearing here; quotes are from docs 00–07 (2026-09-13 revisions). Before acting on the extrapolations above, re-verify: D1 max database size and row-read pricing; Vectorize namespace support and limits; `GET /users/{login}/starred` handling of `application/vnd.github.star+json` and `sort=created`; Workflows concurrent-instance limits; Workers AI paid-tier embedding/rerank pricing at volume.
+No new external claims are load-bearing here; quotes are from docs 00–07 (2026-09-13 revisions). Verified since (2026-09-13): `GET /users/{login}/starred` handling of `application/vnd.github.star+json` and `sort=created`, and `User.lists` visibility ([09 §1–§2](09-public-data-and-limits.md)); Vectorize namespace limits and free-plan caps ([10 §3](10-multitenant-architecture.md), [13](13-free-tier-feasibility.md)); free semantic path and CPU benchmarks ([15](15-free-semantic-search.md)). Still to verify: D1 max database size and row-read pricing; Workflows concurrent-instance limits; Workers AI paid-tier embedding/rerank pricing at volume.

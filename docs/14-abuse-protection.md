@@ -1,6 +1,8 @@
 # 14 — Abuse Protection: $0 Design
 
-> Status: **draft for discussion** · 2026-09-13 · Authoritative for **abuse protection, rate limits, admission control and degradation** on the public service while the budget is **$0** and the account stays on the **Workers Free plan**. Supersedes [12](12-hardening.md) wherever 12 assumes paid primitives (Workers Paid CPU, paid Analytics Engine, paid Workers Logs, a custom-domain zone with WAF/Bot Fight Mode, Flagship, Cloudflare Notifications; 12 remains the **scale-up plan** after an upgrade). Companion docs: [08](08-public-service-ux.md) (states/copy), [09](09-public-data-and-limits.md) (GitHub budget), [10](10-multitenant-architecture.md) (eviction, dedupe). All Cloudflare limits below were re-verified live on 2026-09-13; ⚠️ marks items to smoke-test at implementation.
+> Status: **draft for discussion** · 2026-09-13 · Authoritative for **abuse protection, rate limits, admission control and degradation** on the public service while the budget is **$0** and the account stays on the **Workers Free plan**. Supersedes [12](12-hardening.md) wherever 12 assumes paid primitives (Workers Paid CPU, paid Analytics Engine, paid Workers Logs, a custom-domain zone with WAF/Bot Fight Mode, Flagship, Cloudflare Notifications; 12 remains the **scale-up plan** after an upgrade). Companion docs: [08](08-public-service-ux.md) (states/copy), [09](09-public-data-and-limits.md) (GitHub budget), [10](10-multitenant-architecture.md) (eviction, dedupe), [13](13-free-tier-feasibility.md) (free quotas), [15](15-free-semantic-search.md) (free semantic search; search quality: [07](07-search-contract.md)/[15](15-free-semantic-search.md), docs 16–18 pending). All Cloudflare limits below were re-verified live on 2026-09-13; ⚠️ marks items to smoke-test at implementation.
+>
+> **Updated 2026-09-13 (free-tier pivot):** Vectorize is out of the free path ([15 §1](15-free-semantic-search.md)); caps and admission reconciled with [13](13-free-tier-feasibility.md)/[15](15-free-semantic-search.md).
 
 **Thesis:** `$0` is a *capacity decision*, not just a billing one. On Workers Free the binding constraints are **100k requests/day, 10 ms CPU/invocation, 50 subrequests/invocation, 100k D1 rows written/day and 10k AI neurons/day** — not `$`. Abuse protection must therefore protect *finite quotas* and degrade in named, user-visible steps rather than papering over them.
 
@@ -17,7 +19,7 @@
 | Bot Fight Mode available | Zone-only | Turnstile is the only free bot gate without a domain |
 | Flagship for kill switches | ⚠️ plan availability unverified | Kill switches live in a **Durable Object** (`FeatureState`), alarms/flags in KV only as cache |
 | Cloudflare Notifications for alarms | Usage alerts need Pro+ | Self-alert via hourly cron + webhook (§5.4) |
-| Paid AI/Vectorize capacity | Free AI: **10k neurons/day**. Vectorize: ⚠️ docs conflict — pricing page says "only on Workers Paid" while its own Free column and the limits page define free allowances (30M queried dims/mo, 5M stored dims, 100 indexes, 1,000 namespaces) | Semantic is **opportunistic** in `$0` mode; keyword + cache must stand alone |
+| Paid AI/Vectorize capacity | Free AI: **10k neurons/day**. Vectorize: free allowances exist (30M queried dims/mo, 5M stored dims, 100 indexes, 1,000 namespaces; the stale "paid-only" sentence is resolved in [13 §1.1](13-free-tier-feasibility.md)) but cannot host per-user indexes ([15 §1](15-free-semantic-search.md)) | Semantic is **repo-level R2 blobs + in-Worker kNN** ([15 §2](15-free-semantic-search.md)); keyword + cache must still stand alone |
 
 ### 0.2 Workers Free caps that shape every decision
 
@@ -82,7 +84,7 @@ Attacker capability assumed: a script with many cheap IPs, no account, knowledge
 | Logpush to Axiom/Grafana, Tail Workers | Paid | Workers Logs 3-day window + AE SQL (3 months) |
 | Analytics Engine high volume / Grafana Cloud | Free caps: 100k points, 10k queries/day | Sample aggressively (target <5% of caps) |
 | Workers Paid CPU (30 s) and 10M req | Free is 10 ms/100k | Keep per-invocation work tiny; split sync into small, resumable invocations |
-| Vectorize at scale (⚠️ free caps: 5M stored dims ≈ **0.2 users** at 1024 d × 23k vectors) | Free allowance or paid-only | Semantic is a best-effort layer; keyword + browse + cache are the always-on product. Lite tier (summary + top-2 chunks, MRL dims) is the only free-viable semantic shape |
+| Vectorize at scale (free caps: 5M stored dims ≈ **0.2 users** at 1024 d × 23k vectors) | Kept out of the free critical path ([15 §1](15-free-semantic-search.md)) | Semantic = repo-level 512d R2 blobs + in-Worker kNN, windowed to the newest 1,500 repos ([15 §2](15-free-semantic-search.md), [§3.6](#36-storage-bomb-protection)); keyword + browse + cache are the always-on product. Vectorize remains the paid migration path ([10 §3](10-multitenant-architecture.md)) |
 | Multiple GitHub tokens/accounts | GitHub ToS §H (doc 09 §4.2) | One 5k/h bucket, cached/deduped aggressively (docs/10) |
 | Cloudflare Access for admin | Free tier ⚠️ unverified in 2026 | `STARWATCH_API_TOKEN` bearer + separate admin hostname/route; Access optional |
 
@@ -160,13 +162,13 @@ Every response carries `X-Starwatch-Mode: full|keyword|cache-only|maintenance`; 
 
 | Control | Value | Protects |
 |---|---|---|
-| Listing cap | `MAX_STARS = 10,000` (200 pages); beyond → newest 10k, `over_limit` label | GitHub requests, D1 rows |
-| Semantic window | newest **1,500** repos; ≤12 chunks/repo; ≤25k vectors/user (free Vectorize shrinks this to a lite tier, §2.2) | AI neurons, Vectorize dims, DO/R2 |
+| Listing cap | `MAX_STARS = 10,000` (100 pages); beyond → newest 10k, `over_limit` label | GitHub requests, D1 rows |
+| Semantic window | newest **1,500** repos, repo-level 512d f32 vectors (≤1,500 vectors/user on free; ≤12 chunks/repo and ≤25k vectors/user are the paid chunk-level caps, [15 §2](15-free-semantic-search.md), [10 §4.3](10-multitenant-architecture.md)) | AI neurons, R2 bytes, 10 ms CPU scan |
 | Per-repo FTS text | **64 KB** of README text in D1 (full bytes live content-addressed in R2) | D1 5 GB; keeps the write bomb bounded |
 | Per-user FTS budget | **20 MB**; beyond → metadata-only rows | D1 5 GB |
 | New-user weight | `w(u) = 1 + ceil(stars/1000)`; `Σw(new)/day ≤ 10`, per-IP ≤ 3 | spreads heavy accounts over days |
 | Indexed-user soft cap | 50 full/warm users; at 80% demote cold (LRU >7 d) to lite; at 90% stop admission (`index_new_users=false`); at 95% → L4 | all stores |
-| Eviction (docs/10 §6) | cold = drop FTS + namespace, keep `user_stars`; rebuild from the R2 embedding cache with **zero GitHub/AI calls** on return; announced on the profile page | long-term survival on 5 GB |
+| Eviction (docs/10 §6) | cold = drop FTS + vector blob, keep `user_stars`; rebuild from the R2 embedding cache with **zero GitHub/AI calls** on return; announced on the profile page | long-term survival on 5 GB |
 | Daily sentinel | cron compares D1/R2/DO usage; logs + alerts at 70/80/90/95% | early warning before errors |
 
 The 64 KB/20 MB FTS caps are a deliberate `$0`-mode amendment to [10 §4.3](10-multitenant-architecture.md)'s 35–65 MB/user sizing; paid mode can raise them. Full README text always lives in R2, so lowering the D1 cap loses recall only until the next re-index, never data.
@@ -180,7 +182,7 @@ Defaults below are deliberately small; each maps to a finite free cap. Change on
 | Global searches/day | **500** | D1 rows read (5M), Worker req (100k) | D1 rows read < 50% for 3 days | `rows_read`/search, p95 |
 | Global semantic/day | **100** | AI neurons, Vectorize dims | Semantic daily neurons < 50% | neurons, queried dims |
 | Global sync triggers/day | **50** | GitHub req/h, queue ops | GitHub remaining > 50% at 20:00 UTC | queue depth, GitHub remaining |
-| New users/day (weighted) | **10 units** | AI embeddings (~1.6 full 3.4k-star users/day), D1 writes, GitHub | D1 writes < 50% and neurons < 60% for 3 days | neurons, rows written, new-user backlog |
+| New users/day (weighted) | **10 units** | AI embeddings (~10 standard 1,500-repo windows/day at ~565 neurons each, [15 §5](15-free-semantic-search.md)), D1 writes, GitHub | D1 writes < 50% and neurons < 60% for 3 days | neurons, rows written, new-user backlog |
 | Embeddings/day | **6,000 neurons** (≈5.6M tokens) | 10k neurons | never above 7,000 on free | neurons used; defer backfill (lane 1b) first |
 | Query embeds + rerank/day | **4,000 neurons** | 10k neurons | only with paid AI | 429s, rerank skips |
 | GitHub reserve | **300/h** | 5,000/h core | raise if health re-lists starve | "paused" duration |
@@ -188,7 +190,7 @@ Defaults below are deliberately small; each maps to a finite free cap. Change on
 | Indexed-user cap | **50** warm/full | D1 5 GB / R2 10 GB | after measuring bytes/user; eviction must lead | storage %, rebuild hit rate |
 | Cache TTL | browse 60 s; keyword/hybrid 300 s | Worker requests (hits still count) | raise TTLs before raising search/day | `Cf-Cache-Status`, hit ratio |
 
-Cost mapping: **new users/day** is the only knob that spends all three scarce resources (GitHub + D1 writes + AI); **searches/day** spends D1 reads + (for hybrid) AI + Vectorize; **sync triggers/day** spends GitHub + queue ops; **MAX_STARS** multiplies everything per user. When a cap trips, lower the knob that maps to it — not the others.
+Cost mapping: **new users/day** is the only knob that spends all three scarce resources (GitHub + D1 writes + AI); **searches/day** spends D1 reads + (for hybrid) AI + in-Worker kNN CPU (no Vectorize); **sync triggers/day** spends GitHub + queue ops; **MAX_STARS** multiplies everything per user. When a cap trips, lower the knob that maps to it — not the others. At the 1,500-repo window a standard user is ~0.53M tokens ≈ 565 neurons ([15 §5](15-free-semantic-search.md)), so the 6,000-neuron embeddings knob and the 10-unit weighted cap line up.
 
 ## 5. Monitoring without paid analytics
 
@@ -256,10 +258,10 @@ Never log raw IPs, tokens, README bytes, or query text beyond a hash.
 
 ## 7. Open questions
 
-1. **Vectorize on Free** — docs conflict (paid-only sentence vs free allowances of 5M stored dims). Smoke-test create/insert/query on the Free account; if paid-only, is semantic a launch goal or a v1.5 feature?
+1. **Vectorize on Free — resolved.** Free allowances exist but cannot host per-user indexes; Vectorize is out of the free critical path ([13 §1.1](13-free-tier-feasibility.md), [15 §1](15-free-semantic-search.md)). Reopen only for a paid migration.
 2. **`ratelimits` on Free** — no explicit plan statement; verify with a deployed 429 test.
 3. **DO CPU on Free** — 10 ms (Workers plan table) vs 30 s (DO limits page). Determines whether heavy work can be offloaded to DOs; assume 10 ms until proven.
-4. **10 ms CPU budget** — does RRF + result serialization fit? Benchmark with 50 results on day 1; if not, reduce result size or move ranking stages.
+4. **10 ms CPU budget** — does RRF + result serialization fit? Benchmarks and headroom analysis are in [15 §3](15-free-semantic-search.md)/[§6.1](15-free-semantic-search.md); validate deployed `cpuTimeMs` before raising admission.
 5. **Workers Cache on Free** — hits still consume the 100k/day request quota and enable billing of static assets; is enabling it worth the collapsing benefit before a domain exists?
 6. **500 searches/day** — enough to demo, very low for a public service. What telemetry raises it, and to what first step (1,000? 5,000?)?
 7. **Route fail mode** — for a `workers.dev` deployment with no zone, what do users see at Error 1027, and should the maintenance page live on a separate free static host?

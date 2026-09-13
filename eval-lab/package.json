@@ -1,0 +1,17 @@
+{
+  "name": "@starwatch/eval-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local search-quality eval lab for the free-tier design (SQLite FTS5 + repo-level embeddings + RRF).",
+  "scripts": {
+    "fetch-stars": "node src/fetch-stars.ts",
+    "fetch-readmes": "node src/fetch-readmes.ts",
+    "index": "node src/index.ts",
+    "search": "node src/search.ts",
+    "eval": "node src/eval.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.0"
+  }
+}

@@ -1,11 +1,24 @@
 # 12 — Hardening: Abuse, Quota Governance & Cost Guardrails
 
-> ⚠️ **Superseded for the $0 launch by [14-abuse-protection.md](14-abuse-protection.md)** (free-primitive budgets, DO governors, degradation ladder). This doc remains the reference for the paid topology.
+> ⚠️ **Superseded for the $0 launch by [14-abuse-protection.md](14-abuse-protection.md)** — free-primitive budgets, DO governors, quota-unit alarms, degradation ladder. Where this doc and [14] conflict before a paid upgrade, **[14] wins**; this doc remains the reference for the paid topology (Workers Paid CPU, paid Analytics Engine/Logs, zone-level WAF/Bot Fight Mode, Flagship, dollar budgets). Free-launch deltas: §0.0.
 
 > Status: **draft for discussion** · 2026-09-13 · Cloudflare capabilities re-verified against live docs on this date; ⚠️ marks low-confidence items to re-check at implementation time.
-> Scope: starwatch as a **public anonymous service** — anyone can trigger indexing for any public GitHub user, and anyone can run hybrid searches against it. This doc owns abuse mitigation, the shared GitHub token budget, per-query cost budgets, spend guardrails, privacy/legal hygiene, and runbooks. It assumes and extends [00](00-requirements.md)–[07](07-search-contract.md); on hardening questions it is authoritative.
+> Scope: starwatch as a **public anonymous service** — anyone can trigger indexing for any public GitHub user, and anyone can run hybrid searches against it. This doc owns abuse mitigation, the shared GitHub token budget, per-query cost budgets, spend guardrails, privacy/legal hygiene, and runbooks (paid topology), and assumes/extends [00](00-requirements.md)–[07](07-search-contract.md). Companions: [08](08-public-service-ux.md) (UX), [09](09-public-data-and-limits.md) (GitHub budget), [10](10-multitenant-architecture.md) (architecture), [13](13-free-tier-feasibility.md)/[15](15-free-semantic-search.md) (free tier), [14](14-abuse-protection.md) (the $0 authority).
+>
+> **Updated 2026-09-13 (free-tier pivot):** see §0.0 for the deltas that apply while on Workers Free.
 
 ## 0. Assumptions & trust model
+
+### 0.0 Free-tier deltas applied
+
+- **Cost target:** $0 baseline on Workers Free; "abuse that costs > a few $/mo" becomes "abuse that exhausts free quotas" ([13 §4.2](13-free-tier-feasibility.md)); the $5/mo base returns only after the paid upgrade.
+- **Admission:** `daily_new_indexes` becomes a **weighted** cap — ≤10 units/day (`w(u) = 1 + ceil(stars/1000)`), not 25 new indexes ([14 §3.6](14-abuse-protection.md)/[§4](14-abuse-protection.md)) — and the bind points are D1 rows written, Workflow steps and AI neurons before GitHub windows ([13 §2(b)](13-free-tier-feasibility.md)).
+- **Caps:** free-mode caps are authoritative in [14 §3.6](14-abuse-protection.md): `MAX_STARS = 10,000`, newest-**1,500** semantic window, 64 KB/repo + 20 MB/user FTS, 50 full/warm indexed users. The larger values below are paid-topology defaults.
+- **Alarms:** quota units (rows read/written, steps, neurons, dims, requests), not dollars — soft 50–80 %, hard 95 % + kill switches ([14 §3.5](14-abuse-protection.md)/[§5.3](14-abuse-protection.md)); Analytics Engine (100k points/day) and Workers Logs (200k events/day) are usable free with sampling ([14 §2.1](14-abuse-protection.md)).
+- **Flags:** kill switches live in a Durable Object (`FeatureState`), not Flagship ([14 §0.1](14-abuse-protection.md)).
+- **Edge:** `ratelimits` binding + Turnstile on index starts (day 1, not v1.1) replace WAF/Bot Fight Mode until a zone exists ([14 §2.2](14-abuse-protection.md)).
+- **Sync:** per-user Workflows must chain ≤250-repo instances (free cap 1,024 steps/instance); the `GithubGovernor` (§2.1) still owns the 5,000/h token but admission is CF-headroom-first ([13 §2(b)](13-free-tier-feasibility.md), [15 §2.5](15-free-semantic-search.md)).
+- **Semantic:** repo-level R2 blobs + in-Worker kNN replace Vectorize on free ([15 §1](15-free-semantic-search.md)); §3–§4 below are the paid path.
 
 | # | Assumption | Consequence |
 |---|---|---|
@@ -13,7 +26,7 @@
 | A2 | One shared GitHub token (5,000 req/h core, 900 pts/min secondary) | GitHub budget is a **global serial resource**; all jobs must be admitted and paced by one authority |
 | A3 | Public data only: star metadata + READMEs of public repos | No private-repo indexing, no user OAuth, no secret in public responses |
 | A4 | Owner/admin surface (kill switches, purge, cost ledger) stays behind Cloudflare Access | Admin actions are authenticated; public surface never is |
-| A5 | Cost target remains ~$5/mo baseline + single-digit marginal ([00 R15](00-requirements.md)) | Abuse that costs > a few $/mo is a security incident, not a scaling event |
+| A5 | $0 while on Workers Free (§0.0); the ~$5/mo baseline + single-digit marginal target ([00 R15](00-requirements.md)) is the paid-mode ceiling after upgrade ([13](13-free-tier-feasibility.md), [14](14-abuse-protection.md)) | Abuse that exhausts a finite free quota is a security incident, not a scaling event |
 | A6 | Attackers can mint GitHub accounts and stars cheaply | Popularity/star count is **not** a trust signal and must not buy priority or budget |
 
 **Current CF primitives inventory (verified 2026-09-13):**
@@ -30,7 +43,7 @@
 | Cloudflare Queues | Durable job buffer; batch ≤ 100 msgs, 128 KB/msg, **25 GB backlog/queue**, 5,000 msg/s, retention ≤ 14 d, 250 concurrent push consumers | Backlog metrics via `queuesBacklogAdaptiveGroups`, `queueConsumerMetricsAdaptiveGroups`, `queueMessageOperationsAdaptiveGroups`, and `metrics()` (realtime `backlog_count`) | Sync-request admission control |
 | AI Gateway (+ Workers AI binding) | `env.AI.run(model, input, {gateway:{id, cacheKey, cacheTtl, skipCache, metadata}})`; per-gateway **fixed/sliding rate limiting** → 429; exact-match response caching; cost analytics | Caching exact-match only; rate limit is **uniform per gateway**, not per user | Global semantic cap, embedding/rerank cost tracking + caching |
 | Cloudflare Flagship | Feature flags with a native Workers binding (`env.FLAGS.getBooleanValue("x", false, {userId})`), KV-backed, dashboard-managed | ⚠️ New (docs 2026-06); plan availability/pricing unverified | Kill switches |
-| Analytics Engine | `writeDataPoint()` from Workers + SQL API | Paid: 10M points/mo + 1M read queries included (not yet billed as of Apr 2026) | Custom metrics/abuse forensics |
+| Analytics Engine | `writeDataPoint()` from Workers + SQL API | Paid: 10M points/mo + 1M read queries included (not yet billed as of Apr 2026); **free: 100k points/day + 10k read queries/day** ([14 §2.1](14-abuse-protection.md)) | Custom metrics/abuse forensics (sample aggressively on free) |
 | Workers Logs | Invocation logs | Paid: 20M events/mo + $0.60/M, 7-day retention | Debug/audit |
 
 Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.003/M tokens; Workers AI free tier 10,000 neurons/day; Vectorize $0.01/M queried dims + $0.05/100M stored dims/mo; Workers 10M req + 30M CPU-ms included, then $0.30/M req + $0.02/M CPU-ms.
@@ -62,7 +75,7 @@ Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.0
 ### 1.2 V2 — Huge-star accounts
 
 - Listing is `GET /users/{login}/starred?per_page=100&sort=created&direction=desc` (public; **not** affected by the 2026-06-30 stargazers restriction, which covers `/repos/{o}/{r}/stargazers` — never call that). 100k stars = 1,000 listing pages = 20% of an hourly window before a single README.
-- **Caps (proposed defaults, configurable):** `MAX_LIST_PAGES = 50` (5,000 stars) → 50 requests; `MAX_README_FETCHES = 1,500` (newest-first by `starred_at`); beyond that the user is `index_state = 'metadata'`; README truncation at 1 MB; `MAX_CHUNKS_PER_REPO = 40`; `MAX_VECTORS_PER_USER = 25,000`.
+- **Caps (proposed defaults, configurable):** `MAX_LIST_PAGES = 50` (5,000 stars) → 50 requests; `MAX_README_FETCHES = 1,500` (newest-first by `starred_at`); beyond that the user is `index_state = 'metadata'`; README truncation at 1 MB; `MAX_CHUNKS_PER_REPO = 40`; `MAX_VECTORS_PER_USER = 25,000`. **Free-mode caps are authoritative in [14 §3.6](14-abuse-protection.md):** `MAX_STARS = 10,000`, semantic window newest 1,500, 64 KB/repo + 20 MB/user FTS, 50 full/warm users; the values in this bullet are paid-topology defaults.
 - **Cost of a capped index:** 50 listing + 1,500 README + ~200 embed/upsert calls ≈ 1,750 requests (~35% of one window) and ~3M embedding tokens (~$0.04). At `active_jobs ≤ 2` and `daily_new_indexes ≤ 25`, GitHub budget and AI spend stay bounded.
 - The UI marks capped users: “metadata-only index for accounts with > 5,000 stars”.
 - Cooldown for capped users is longer (7 days) because a re-check still costs 50 listing requests.
@@ -173,7 +186,7 @@ All GitHub calls made on behalf of any user go through a single Durable Object i
 | Cooldown | initial index once; re-index after 24 h (normal) / 7 d (capped account); owner bypass |
 | Queue depth | own `max_queued = 200`; alert at backlog > 50 messages or > 500 MB (GraphQL/`metrics()`) |
 | Active jobs | `active ≤ 2` public + 1 owner |
-| New indexes/day | `daily_new_indexes ≤ 25` (≈ $1 embedding + ~44k GitHub requests ≈ 9 hourly windows/day) |
+| New indexes/day | Paid: `daily_new_indexes ≤ 25` (≈ $1 embedding + ~44k GitHub requests ≈ 9 hourly windows/day). Free ($0): ≤**10 weighted units/day** ([14 §4](14-abuse-protection.md)) |
 | GitHub reserve | anonymous work may not consume the last 200 requests of a window |
 
 ### 2.4 What the UI shows
@@ -228,7 +241,7 @@ Exit when the trigger is clear for 60 s (hysteresis). Responses carry `X-Starwat
 
 ### 4.1 Per-user index caps
 
-Metadata-only above 5,000 stars; ≤ 40 chunks/repo; ≤ 25,000 vectors/user; ≤ 1 MB README/repo (truncate); embed only changed chunks (hash-based, [02 §5](02-stack-and-pipeline.md)); rerank never runs at index time. A capped index costs ≤ ~$0.04 one-time and ~$0.01/mo stored dims. Global ceiling `MAX_USERS = 1,000` ⇒ ≤ 25M vectors, which **exceeds Vectorize's 20M vectors/index** — decide the shard strategy before the first non-owner user (N indexes or lower per-user cap; retrofitting is a full re-upsert ⚠️).
+Metadata-only above 5,000 stars; ≤ 40 chunks/repo; ≤ 25,000 vectors/user; ≤ 1 MB README/repo (truncate); embed only changed chunks (hash-based, [02 §5](02-stack-and-pipeline.md)); rerank never runs at index time. A capped index costs ≤ ~$0.04 one-time and ~$0.01/mo stored dims. **Free-mode caps are stricter and authoritative:** `MAX_STARS = 10,000`, semantic window newest 1,500 repos (repo-level vectors), 64 KB/repo + 20 MB/user FTS, 50 full/warm users ([14 §3.6](14-abuse-protection.md)); the 5,000-star/40-chunk/25k-vector values above are paid-topology defaults. Global ceiling `MAX_USERS = 1,000` ⇒ ≤ 25M vectors, which **exceeds Vectorize's 20M vectors/index** — decide the shard strategy before the first non-owner user (N indexes or lower per-user cap; retrofitting is a full re-upsert ⚠️).
 
 ### 4.2 Spend visibility
 
@@ -317,7 +330,7 @@ Every event carries `route`, `outcome`, `ms`, `mode`, `ip_hash` (never raw IP), 
 
 ## 7. v1 minimum hardening checklist (ship-blocking) vs later
 
-**Ship-blocking:**
+**Ship-blocking (paid mode; the $0 launch checklist is [14 §6](14-abuse-protection.md)):**
 
 1. Server-side caps (§3.4) + 15 s search timeout; no client-trusted limit.
 2. `ratelimits` bindings on search (per IP-hash) and sync trigger.
@@ -336,16 +349,16 @@ Every event carries `route`, `outcome`, `ms`, `mode`, `ip_hash` (never raw IP), 
 
 ## 8. Open questions
 
-1. **Public scope.** Do we index any username on demand, or curate a public allowlist? On-demand needs the whole §1/§2 machine; a curated list could start with per-IP limits only.
-2. **Budget numbers.** $10 marginal soft / $25 hard — real ceiling the owner will accept? Alarm thresholds and `MAX_USERS=1,000` follow from it.
-3. **Turnstile on search?** Only triggers, or also every anonymous search after N/day/IP? The latter hurts UX and cache-friendliness; the former leaves query flooding to rate limits.
-4. **Custom domain.** Worth a Pro zone (~$20+/mo ⚠️) for WAF rate limiting rules + Bot Fight Mode? If yes, which hostname and does Access stay on the admin subdomain?
-5. **API keys.** Do power users/agents get free keys with higher quotas in v1, or is anonymous-only enough?
-6. **Eviction policy.** 180 days inactive / oldest-first — announced how, and do we keep aggregate stats after purge?
-7. **Flagship dependency.** Is Flagship generally available and priced for Workers Paid ⚠️? If not, is the DO `FeatureState` row the primary mechanism instead?
-8. **GitHub App.** Is a GitHub App (installation tokens, higher per-installation limits) worth it long-term, or is the shared PAT model + caps sufficient for a public read-only service?
-9. **Vectorize sharding.** Per-user indexes at 1,000 users: shared index with `user_id` metadata vs N indexes — decide before the first non-owner user is indexed (retrofit is a full re-upsert).
-10. **Retention.** 7-day logs / 30-day IP hashes / 90-day unstar / 180-day inactivity — confirm before publishing the privacy note.
+1. **Public scope — resolved.** Index any valid public username on demand; no allowlist ([08 §2.2](08-public-service-ux.md), [14 §3.3](14-abuse-protection.md)).
+2. **Budget numbers — deferred to paid mode.** $10 marginal soft / $25 hard once upgraded; free-mode knobs are quota units in [14 §4](14-abuse-protection.md).
+3. **Turnstile on search? — resolved for the $0 launch.** Sync/purge only; search stays uncaptchaed ([14 §6](14-abuse-protection.md)).
+4. **Custom domain — resolved for the $0 launch.** `workers.dev`, no zone ([13 §3](13-free-tier-feasibility.md)); revisit only if abuse demands a WAF.
+5. **API keys.** Still open (paid mode).
+6. **Eviction policy — resolved for the $0 launch.** 50 full/warm user soft cap with LRU demotion/eviction ([14 §3.6](14-abuse-protection.md), [10 §6](10-multitenant-architecture.md)); aggregate-retention detail still open.
+7. **Flagship dependency — resolved for the $0 launch.** DO `FeatureState` is primary; Flagship is a paid-mode option ([14 §0.1](14-abuse-protection.md)).
+8. **GitHub App — resolved.** No scaling for arbitrary public users; one 5,000/h token with ETag/dedupe ([09 §4.2](09-public-data-and-limits.md)).
+9. **Vectorize sharding — resolved for the $0 launch.** Not used on free ([15 §1](15-free-semantic-search.md)); paid path per [10 §3.2](10-multitenant-architecture.md).
+10. **Retention.** 7-day logs / 30-day IP hashes / 90-day unstar / 180-day inactivity — confirm before publishing the privacy note (free-mode caps may shorten these; [14 §3.6](14-abuse-protection.md)).
 
 ## Sources (verified 2026-09-13)
 
