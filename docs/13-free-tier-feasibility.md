@@ -1,0 +1,305 @@
+# 13 — Free-Tier Feasibility
+
+> Status: **draft for discussion** · 2026-09-13 · Every Cloudflare cap below was verified against live docs on **2026-09-13**; ⚠️ marks uncertainty, contradictions between Cloudflare pages, or numbers that must be measured at implementation time. Sources checked date by date at the end; the matrix carries the authoritative URL per row.
+> Question: can the public service ([08](08-public-service-ux.md)–[12](12-hardening.md)) run entirely inside Cloudflare free tiers at **zero spend** during a low-traffic launch, and what breaks first as it grows? This doc owns the free-plan capability matrix, per-workload breaking points, the free→paid upgrade order, and the free-tier amendments to 08/10/12.
+
+**Verdict. Yes, a pilot fits free — after one architectural pivot: on free, D1 is metadata-first and Vectorize is not the primary retrieval path.** The honest launch envelope:
+
+| Pillar | Free-tier launch envelope | Binding quota |
+|---|---|---|
+| New user indexes | **~3–5/day** listing-only, ~2/day with backfill | D1 rows written 100k/day; Workflows 3k steps/day; AI 10k neurons/day |
+| Indexed users | **~50–100** with full README FTS; more only with metadata-only FTS | D1 500 MB/DB, 5 GB + 10 DBs/account |
+| Searches | **~3–15k/day** (keyword-first; depends on FTS scan factor ⚠️) | D1 rows read 5M/day; Workers 100k req/day |
+| Semantic | **recent-300 lane ≈ 15–20 users/day**; a full per-user namespace **does not fit free** | Vectorize 5M stored / 30M queried dims per month |
+| First paid lever | **Workers Paid $5/mo** — lifts CPU, request ceiling, subrequests, D1 queries/DB count/DB size at once | — |
+
+## 1. Free-plan capability matrix
+
+One row per binding capability. "Free" means the Workers Free plan (no paid products, no zone/domain required).
+
+| Capability | Free-plan allocation / limit | What binds starwatch | Authoritative source |
+|---|---|---|---|
+| Workers — requests | 100,000/day, reset 00:00 UTC; Error 1027 above; cron and Workflow instance creations share it | Whole public surface; 3M/mo vs 10M/mo paid | <https://developers.cloudflare.com/workers/platform/limits/> |
+| Workers — CPU | **10 ms/invocation** (HTTP, cron, queue consumer, Workflow step, DO); network/I-O wait does not count | Hybrid search, RRF, chunking, JSON work | <https://developers.cloudflare.com/workers/platform/limits/#cpu-time> |
+| Workers — subrequests | **50 external/invocation; 1,000 to Cloudflare services**; redirects count | GitHub/README batching; binding fan-out | <https://developers.cloudflare.com/workers/platform/limits/#subrequests> |
+| Workers — simultaneous connections | **6** waiting for response headers per request | D1 ∥ Vectorize ∥ AI legs (3) is safe; README fan-out is not | <https://developers.cloudflare.com/workers/platform/limits/#simultaneous-open-connections> |
+| Workers — cron triggers | **5/account**; 15 min wall; 10 ms CPU; each firing is a request | One dispatcher tick (1/min = 1,440 req/day) | <https://developers.cloudflare.com/workers/platform/limits/> · <https://developers.cloudflare.com/workers/configuration/cron-triggers/> |
+| Workers — workers.dev | Available free, `<worker>.<subdomain>.workers.dev`; treated as a "Free website" (hobby) | Day-1 hostname without buying a domain | <https://developers.cloudflare.com/workers/configuration/routing/workers-dev/> |
+| Workers — static assets | 20,000 files/version, 25 MiB/file; **requests free and unlimited while Workers Cache is off** | SPA/HTML/robots/sitemap do not consume the 100k budget | <https://developers.cloudflare.com/workers/platform/pricing/#workers> |
+| Workers — script limits | 100 Workers/account; 64 MiB bundle; 64 env vars/Worker; 1 s startup | Fine for a monolith Worker | <https://developers.cloudflare.com/workers/platform/limits/#account-plan-limits> |
+| Workers Cache (new) | No separate price; **cache hits are still requests at the standard rate**; CPU only on miss; tiered + request collapsing | CPU relief, not request relief; enabling it makes static-asset requests chargeable/countable ⚠️ | <https://developers.cloudflare.com/workers/cache/> |
+| Cache API | 512 MB/object; **50 calls/request** free; no request collapsing | Fragment/API response cache fallback | <https://developers.cloudflare.com/workers/platform/limits/#cache-api-limits> |
+| Workers Logs | 200,000 events/day; 3-day retention (free) | Observability without Logpush (paid) | <https://developers.cloudflare.com/workers/platform/pricing/#workers-logs> |
+| D1 — storage | **5 GB/account; 500 MB/DB; 10 DBs/account**; Time Travel 7 days | The hardest wall: [10 §2](10-multitenant-architecture.md)'s topology assumes 10 GB/DB and 50k DBs | <https://developers.cloudflare.com/d1/platform/limits/> |
+| D1 — rows read | **5,000,000/day** | Search scans + facet/collection queries | <https://developers.cloudflare.com/d1/platform/pricing/> |
+| D1 — rows written | **100,000/day** (index rows and FTS shadow rows count) | Backfill/listing admission ceiling | <https://developers.cloudflare.com/d1/platform/pricing/> |
+| D1 — queries/invocation | **50** free (1,000 paid); 100 bound params; 2 MB row; 100 KB statement | write batching; does a batch count as 1 or N queries ⚠️ | <https://developers.cloudflare.com/d1/platform/limits/> |
+| R2 | **10 GB-month; 1M Class A; 10M Class B/month**; deletes and egress free | README + embedding cache storage | <https://developers.cloudflare.com/r2/pricing/#free-tier> |
+| KV | **100k reads/day; 1k writes/deletes/lists per day; 1 GB** | Read-heavy flags OK; counters are not (use a DO) | <https://developers.cloudflare.com/kv/platform/pricing/> |
+| Durable Objects | Available free, **SQLite backend only**; **100k requests/day; 13,000 GB-s/day**; 5 GB storage/account; SQL rows 5M read / 100k written per day; 100 classes/account | Budgets/admission fit comfortably; do not stream per-repo work through a DO | <https://developers.cloudflare.com/durable-objects/platform/pricing/> · <https://developers.cloudflare.com/durable-objects/platform/limits/> |
+| Queues | Free; **10,000 ops/day** (≈3,300 3-op messages); **retention fixed at 24 h**; 25 GB backlog; batch 100; 250 consumers | Admission at user granularity only; per-chunk messages blow the op budget | <https://developers.cloudflare.com/queues/platform/pricing/> · <https://developers.cloudflare.com/queues/platform/limits/> |
+| Workflows | Free; **3,000 steps/day**; **1,024 steps/instance**; 100 concurrent running; 100k queued; 1 GB-month state; 3-day retention; **10 ms CPU/step**; 50 subrequests/invocation | Backfill work multiplier; must span instances | <https://developers.cloudflare.com/workflows/reference/pricing/> · <https://developers.cloudflare.com/workflows/reference/limits/> |
+| Workers AI | **10,000 neurons/day**, then requests fail on free; all listed models except the paid-billing-only set; free embeddings: `bge-small-en-v1.5` 1,841, `bge-base-en-v1.5` 6,058, `bge-large-en-v1.5` 18,582, `bge-m3` 1,075, `qwen3-embedding-0.6b` 1,075 neurons/M tokens; `bge-reranker-base` 283/M; embeddings 3,000 req/min (bge-large 1,500) | Embedding budget = ~1.5 full users/day with bge-m3 | <https://developers.cloudflare.com/workers-ai/platform/pricing/> · <https://developers.cloudflare.com/workers-ai/platform/limits/> |
+| Vectorize — availability | **Free plan supported**: 100 indexes, 1,000 namespaces/index, ≤1,536 dims, topK ≤50 with metadata, upsert ≤1,000/batch (Workers), 10 metadata indexes | Pilot index(es) only | <https://developers.cloudflare.com/vectorize/platform/limits/> · <https://developers.cloudflare.com/vectorize/get-started/intro/> |
+| Vectorize — stored dims | **5M stored dims/month** = 4,882 vectors @1024d, 19,531 @256d | **Less than one user's 23k-vector namespace at any useful dim** | <https://developers.cloudflare.com/vectorize/platform/pricing/> |
+| Vectorize — queried dims | **30M queried dims/month**; formula `(stored vectors + queries) × dims` | **~1.3 full-namespace queries/month @1024d** (one user query ≈ 23.8M dims) | <https://developers.cloudflare.com/vectorize/platform/pricing/> |
+| Turnstile | Free: 20 widgets, **unlimited challenges**, 10 hostnames/widget, 7-day analytics; server-side Siteverify mandatory | Sync triggers (and escalation path) | <https://developers.cloudflare.com/turnstile/plans/> |
+| `ratelimits` binding | Free; no documented plan gate or charge ⚠️; period must be **10 s or 60 s**; per-location, eventually consistent, not dashboard-visible | Per-IP bursts; global budgets still need a DO | <https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/> |
+| AI Gateway | All plans; **core free** (analytics, caching, rate limiting); 10 gateways/account free; **100,000 logs total** free; 25 MB cacheable request; Logpush paid | Exact-match embed/rerank caching + global 429 backstop | <https://developers.cloudflare.com/ai-gateway/reference/pricing/> · <https://developers.cloudflare.com/ai-gateway/reference/limits/> |
+
+### 1.1 Vectorize — resolving the conflict
+
+**Conflict:** the Workers pricing page still carries the sentence *"Vectorize is currently only available on the Workers paid plan"*, while its own table shows Free columns, and Vectorize's limits page (updated 2026-08-05) and its intro page (2026-08-25) explicitly document Workers Free usage (`Workers Paid / 100 (Free)` indexes and namespaces; *"Vectorize is available to all users on the Workers Free or Paid plans"*).
+
+**Resolution: Vectorize is available on the Free plan.** The paid-only sentence is stale; every other live page, including the pricing FAQ (*"the Workers free tier will always include the ability to prototype and experiment with Vectorize for free"*), documents free availability. ⚠️ Confirm by creating an index in a free account before relying on it.
+
+**But the allocations are a prototype budget, not a serving budget.** One starwatch user is ~23.2k vectors ≈ 23.55M dims on 1024d. Free allows 5M stored dims → **0.21 users**, or 0.83 users at 256d MRL. Query billing counts the namespace on every query — `(stored vectors + queries) × dims` — so a single query over a full namespace is ~23.8M queried dims against a 30M/month allowance. Doc [10 §3.2](10-multitenant-architecture.md) flagged exactly this pessimistic reading as an open question; the pricing page's own worked examples document it. Consequences: cache search responses, keep namespaces tiny (`lite`/recent-lane: ~1k vectors @256d ≈ 256k dims/query, ~117 queries/month free), and treat per-namespace query cost (not storage) as the scaling wall. ⚠️ Confirm the query-vector count empirically in week 1.
+
+Free `5M stored dims` also has no documented over-limit behavior (upsert failure vs upgrade prompt) — another reason to stay well under it.
+
+## 2. Breaking-point analysis
+
+### 2.0 Daily quota ledger
+
+Each unit of work consumes several independent free budgets; no single wall explains the ceiling. One full 3.4k-star user is the shock load, a search is the steady drip.
+
+| Daily budget | Free ceiling | One Tier 0 listing | One Tier 1a (recent 300) | One full backfill (1b) | One hybrid search |
+|---|---|---|---|---|---|
+| D1 rows read | 5M | ~10–20k ⚠️ | ~5–10k | ~30–60k | ~300–1,500 |
+| D1 rows written | 100k | ~15–30k ⚠️ | ~2–5k | ~30–60k | ~0 |
+| Workflow steps | 3,000 | ~10–20 | ~105–150 | ~850–1,700 | 0 |
+| Workers AI neurons | 10,000 | 0 | ~500 | ~6,100 | ~0.1 (+2 if reranked) |
+| R2 Class A ops | ~33k/day | 0 | ~600 | ~7k | 0 |
+| Inbound Worker requests | 100k | ~1 | ~1 + SSE | ~2–3 | 1 each |
+
+Reading the ledger: **listing-only is D1-write-bound (~3–5/day); semantic is step/neuron-bound (~2/day full, ~15–20/day for the recent lane); search is D1-read-bound (~3–15k/day) but cheap in every other budget.** Admit work on the minimum of the quotas, never on queue depth alone.
+
+### 2 (a) A hybrid search request on a 10 ms CPU budget
+
+Workers AI, Vectorize, D1 and R2 calls are network I/O and do **not** count toward CPU time ([limits, §CPU time](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)). What counts is our code: parsing/serialization, merging, shaping. Engineering estimate for one hybrid search (top-50 per leg, 20-result page) ⚠️:
+
+| Stage | CPU work | Estimate |
+|---|---|---|
+| Parse/canonicalize | URL params, clamp `q/limit/filters`, Effect plumbing | 0.1–0.5 ms |
+| Query embed (`bge-m3`) | dispatch + handle transfer of a ~1024-float response | 0.2–0.6 ms |
+| D1 FTS leg | materialize ≤50 rows + join filters (server-side execution is not CPU, row materialization is) | 0.3–1.5 ms |
+| Vectorize leg | receive ≤50 matches + metadata | 0.1–0.5 ms |
+| RRF merge | ~100 items sort, repo aggregation, star tie-break | 0.1–0.4 ms |
+| Result shaping | snippets (~200 chars), escape, JSON.stringify 20–50 results | 0.3–1.0 ms |
+| Framework | Effect v4 rc.112 + schema decode/encode | 0.5–2.0 ms ⚠️ |
+| **Total** | | **~1.6–6.5 ms** |
+
+| Mode | Estimated CPU | Fits 10 ms? | Notes |
+|---|---|---|---|
+| Browse (keyset) | ~0.2–1.0 ms | ✅ comfortable | no AI, no FTS |
+| Keyword-only search | ~0.8–3.0 ms | ✅ comfortable | FTS + filters + shaping |
+| Hybrid search | ~1.6–6.5 ms | ✅ with margin | three parallel legs |
+| Hybrid + rerank | ~2.0–7.5 ms | ⚠️ no margin | extra AI trip + re-sort |
+| Any mode, cache hit | 0 ms (Worker does not run) | ✅ | still counts as a request |
+
+**Verdict: hybrid fits, with real but not huge margin.** Keep both legs parallel (3 of 6 connections), cap snippets, never parse README text on the search path, and treat >6 ms p95 as a budget regression. Rerank is a second AI round trip plus a re-sort (~+0.3–0.5 ms); it does not fit alongside a cold D1 leg on a bad day. Cache hits run zero Worker CPU (they still consume a request). Search subrequests: D1 1–3 + Vectorize 1 + AI 1–2 ≈ well under 50. Error 1102 is the hard stop; 15 s is only the doc-12 wall-time clamp, not a free-plan limit.
+
+### 2 (b) An indexing run
+
+A 3.5k-star user = 35 list pages + ~3.4k READMEs → ~19.7k chunks + 3.4k summaries ([01 §5](01-search-and-index.md)).
+
+| Phase | Work | Free-limit check | Steps (est.) ⚠️ |
+|---|---|---|---|
+| Listing | 35 × `per_page=100` fetches; parse ~120 KB/page | One step can hold 35 fetches (≤50 external subrequests) but parsing 5 pages already ~2–6 ms CPU → 5–7 pages/step | 7 |
+| README fetch + chunk | 3.4k READMEs, truncate ≥256 KB, chunk 1.2k chars (1–3 ms CPU each) | 10 ms CPU/step → **2–4 repos/step** | ~850–1,700 |
+| Embedding | 19.7k chunks + 3.4k summaries = 5.7M tokens; ≤100 texts/call | ≤50 calls/invocation; one D1 write batch + vector upsert per group | ~60–200 |
+| Vector upsert | 23k vectors / 1,000 per batch (if used) | 1,000/batch; 20+ calls | ~25 |
+| D1 writes | 3.4k stars + 3.4k FTS docs + ~20k chunks + index rows → **~30–60k written rows** | 100k rows/day | 25–50 invocations |
+| **Total** | | | **~1,000–1,900 steps** |
+
+Free walls, in order: (1) **3,000 steps/day** account-wide → ~**2 full users/day**; (2) 1,024 steps/instance → a full backfill **must span ≥2 Workflow instances** (chain per 250-repo batch, or resume a second instance); (3) 100k rows written/day → 1–2 full users/day; (4) 10k neurons/day → 1.5 full users/day (below). Tier 1a (recent 300 repos ≈ 1.8k vectors ≈ 0.5M tokens ≈ 105–150 steps) fits **~15–20 users/day**, so the free-tier product shape is: listing (write-bound, ~3–5/day) then recent-lane semantic for everyone, full backfill deferred/queued.
+
+Queues do not help per-chunk (10k ops/day ≈ 3,300 messages) — use them (or a DO table) for user-level admission only. Cron at 1/min is 1,440 req/day; sleeping Workflow instances do not hold concurrency, and `step.sleep` is free up to 365 days.
+
+The **GitHub side is unchanged** by any of this: the service token still has 5k req/h and the doc-12 governor still paces it. But with Cloudflare quotas this small, admission must be driven by **CF headroom** (rows written, steps, neurons, R2 ops) first and GitHub windows second — a full user costs ~3.4k GitHub requests but also ~1,500 steps and ~6.1k neurons, and the CF numbers bind sooner.
+
+### 2 (c) D1 free rows-read/day vs the workloads
+
+| Pattern | Rows read (est.) ⚠️ | Implication |
+|---|---|---|
+| Keyword search, per-user FTS table (pilot design) | ~50–500 | best free shape; empty matches are cheap |
+| Keyword search, shared FTS + `user_id` filter ([10 §4.1](10-multitenant-architecture.md)) | ~500–5,000 (post-MATCH filter scans all shard matches) | 5M/day ≈ 1–10k searches/day; measure the factor before choosing |
+| Browse / keyset page | ~50–150 | cheap |
+| **Collections strip** ([08 §4.2](08-public-service-ux.md): "3.4k rows — cheap") | **~3,400/page view** | 5M/day ≈ **~1,470 page views/day** — must be precomputed/cached per index version |
+| Backfill reads (chunk-hash + embedding-cache lookups) | ~30–60k/user | not binding vs writes |
+
+So the D1 read budget supports **~3–15k searches/day** keyword-first, but only if facets/collections are cached and FTS stays user-scoped. Free **50 queries/invocation** is the tight per-request cap for writes: batch via `db.batch()` and multi-row statements, and verify whether a batch counts as 1 or N queries ⚠️.
+
+### 2 (d) Workers AI free neurons vs embedding
+
+10,000 neurons/day ÷ 1,075 neurons/M = **9.3M tokens/day** (bge-m3 / qwen3-embedding-0.6b).
+
+| Path | Tokens | Neurons | Users/day |
+|---|---|---|---|
+| Full chunk-level (23k vectors, [01 §5](01-search-and-index.md)) | 5.7M | 6,128 | **1.6** |
+| `lite` (summary + top 2 chunks, ~10k vectors) | ~2.5M | ~2,700 | ~3.7 |
+| Recent-300 lane (1a) | ~0.45–0.5M | ~500 | **~18–20** |
+| Repo-level summary only (~3.4k summaries) | ~0.7M | ~750 | ~13 |
+| Query embed (80 tokens) | — | 0.086/query | ~116k queries/day |
+| Rerank (60 passages × ~120 tokens) | — | ~2.0/query | ~5,000/day, shared with indexing |
+
+The pool is **account-wide**: one full backfill consumes the day's entire AI budget and starves query-time rerank. Free-tier default: embed the recent lane, queue (or defer) the backfill across days, disable rerank when neurons remaining < ~2,000.
+
+### 2 (e) R2 free 10 GB per user
+
+| Artifact | Per full user | 10 GB supports |
+|---|---|---|
+| READMEs (raw, content-addressed) | ~26 MB/user ([01 §5](01-search-and-index.md)); dedupe across users helps popular repos | ~300+ users before dedupe |
+| Embedding cache f32 @1024d | ~96 MB (23.5M dims × 4 B) | ~100 users |
+| Same, f16 / MRL 512d-f32 / MRL 256d-f16 | 48 / 48 / 12 MB | ~150 / ~150 / ~400 users |
+| **README + f32 embeddings** | **~120 MB** | **~80 users** |
+| README + 256d-f16 lite | ~30 MB | ~300 users |
+
+Class A: 1M/month ÷ ~7k writes/user (3.4k READMEs + ~3.4k packed embed objects) ≈ **~140 new full users/month**; Class B: 10M/month ÷ 10–30 snippet reads/search ≈ 0.3–1M searches/month if every result hydrates from R2 — cache snippets or keep them in D1. Deletes and egress are free, so GC is the only cost control. R2 is **not** the first wall.
+
+### 2 (f) The 100k requests/day ceiling
+
+- Reset 00:00 UTC; = 3M/month ≈ 1.16 req/s average. Static-asset requests are free/unlimited **unless Workers Cache is enabled** (then they become chargeable/counted) ⚠️.
+- Per interactive session: `GET /users/{login}` probe + profile + search + browse ≈ 5–10 Worker requests (cache hits included). **100k/day ≈ 10–20k sessions/day, roughly 1–3k DAU.**
+
+| Traffic shape | Worker requests/day | Verdict |
+|---|---|---|
+| 500 sessions × 8 requests | ~4,000 | ✅ comfortable |
+| 3k searches + 300 indexing sessions (SSE) | ~5–6k | ✅ comfortable |
+| 15k searches (D1 read-bound) + 1k sessions | ~20k | ✅ |
+| 1k sessions indexing with 3 s polling (~40 req each) | ~40k+ | ⚠️ polling fills the budget alone |
+| 10k sessions/day + SEO crawlers on uncached `/u/*` | 80k+ | ⚠️ at the ceiling; cache HTML |
+
+- **SSE is mandatory, polling is request budget poison:** a 3 s poll for a 2-minute index is ~40 requests/tab; a tab left open all day is 28,800 requests. Use SSE (1 request/connection) and close it on `done`.
+- Cron 1/min = 1,440/day; Workflow instance creations share this budget (steps do not); DO requests are metered separately (100k/day).
+- In practice CPU errors, D1 rows, or GitHub quota will bind before raw requests at pilot traffic. The request ceiling matters around ~1M Worker req/month.
+
+## 3. First-paid ranking
+
+| # | First wall (bind point) | Free alternative that defers it | First paid fix | Cost |
+|---|---|---|---|---|
+| 1 | **Workers Paid plan walls** — 100k req/day, 10 ms CPU, 50 subrequests, 50 D1 queries, 10 D1 DBs, 500 MB/DB | Static assets + SSE + caching; batching; one DB | **Workers Paid $5/mo** — 10M req + 30M CPU-ms included, 10k subrequests, 1,000 D1 queries, 50k DBs, 10 GB/DB, KV/DO upgrades | **$5/mo** |
+| 2 | **D1 capacity** (~50–100 full users: 500 MB/DB, 10 DBs, 5 GB) | Metadata-only/contentless FTS, eviction, R2 chunk text, per-user FTS tables in one DB | Paid D1: 10 GB/DB, 50k DBs; storage $0.75/GB-mo above 5 GB | cents–$5/mo at this scale |
+| 3 | **Vectorize capacity** — free ≈ 1.3 full-namespace queries/month | Skip full namespaces; recent/lite namespace ≤1–2k vectors @256d; cache responses; D1-only re-rank | Paid Vectorize: 10M stored / 50M queried included, then $0.05/100M stored + $0.01/M queried (≈**$0.24 per full-namespace query** ⚠️ — re-architect, don't just pay) | usage-based |
+| 4 | **Workers AI neurons** — 10k/day ≈ 1.6 full users/day | Recent lane first, corpus dedupe, defer backfills to the next day, rerank off by default | $0.011/1k neurons; a full user ≈ **$0.07** one-time | variable, small |
+| 5 | **Workflows steps** — 3,000/day | Split backfills into 250-repo instances across days; Queues for admission | Paid Workflows: 500k steps/mo included + $0.80/100k | cents |
+| 6 | **R2 storage** — 10 GB ≈ 80–300 users | f16/MRL, lite tier, reference-count GC | $0.015/GB-month (egress free) | cents |
+| 7 | **WAF zone controls** — WAF rate limiting rules, Bot Fight Mode need a proxied domain | `ratelimits` binding + DO budgets + Turnstile | Domain (~$10/yr) + Pro zone (~$20/mo) only if abuse demands | last |
+
+Order to actually pay: **(1) → (2) → (4) → (3) → (5) → (6) → (7)**. Paid Vectorize is deliberately late because its query pricing is the worst deal in the stack; earn it back with smaller namespaces and response caching first.
+
+**What the first $5 actually changes** (Workers Free → Workers Paid, the only lever that moves several walls at once):
+
+| Ceiling | Free | Paid |
+|---|---|---|
+| Requests | 100,000/day | 10M/mo included + $0.30/M |
+| CPU/invocation | 10 ms | 30 s default, configurable to 5 min |
+| Subrequests | 50 external / 1,000 internal | 10,000 / configurable to 10M |
+| D1 queries/invocation | 50 | 1,000 |
+| D1 DBs / DB size / account storage | 10 / 500 MB / 5 GB | 50,000 / 10 GB / 5 GB free, up to 1 TB/account |
+| Workflows steps | 3,000/day | 500,000/mo included + $0.80/100k |
+| KV / Queues / DO | small daily free pools | paid included allowances + usage |
+| Workers AI | 10k neurons/day, then fails | same 10k/day, then $0.011/1k |
+| Vectorize | 5M stored / 30M queried dims | 10M stored / 50M queried included, then usage |
+
+Everything after the upgrade is usage-based and small at pilot scale — a full user ≈ $0.07 in AI and <$0.01/mo in vector storage — with the one exception being Vectorize queried dims (~$0.24 per full-namespace query ⚠️), which is an architecture problem, not a billing problem.
+
+## 4. Recommendations
+
+### 4.1 Primitives to use vs avoid on day 1
+
+| Use day 1 | Why | Avoid / defer | Why |
+|---|---|---|---|
+| One Worker + static assets on `workers.dev` | Zero spend, static requests free, no zone needed | Custom domain + WAF | No free zone features needed yet |
+| **Single D1 DB**, metadata-first schema | 10 DBs and 500 MB/DB kill [10](10-multitenant-architecture.md)'s shard topology; single DB keeps joins local | Per-user D1 sharding as designed in [10 §2.2](10-multitenant-architecture.md) | 10 DBs max, 500 MB each on free |
+| Per-user FTS tables in one DB for the pilot (≤~100 users) | User-scoped scans read few rows; [10 §4.1](10-multitenant-architecture.md)'s rejection assumed 10k users | Shared-shard FTS + `user_id` post-filter as primary | Post-MATCH filter burns the 5M rows/day read budget |
+| README bytes + embedding cache in R2 (f16), chunk text in R2 | Keeps D1 under 500 MB | README chunk text in D1 | ~7 KB/repo × 20k chunks blows the DB |
+| **Recent-lane semantic only** (Tier 1a), small pilot namespace if any | ~18–20 users/day fits steps/neurons | Full per-user Vectorize namespaces day 1 | 5M stored dims < 1 user; 30M queried dims ≈ 1.3 queries/month |
+| Workers AI: `bge-m3` query embed + recent-lane indexing; rerank only with headroom | Cheap, fits free | Full backfill automatic for everyone | 6.1k neurons/user × 3k steps/user |
+| DO (SQLite) for budgets, admission, GitHub governor | 100k req/day, 13k GB-s/day is plenty if calls are batched | KV for counters | 1k writes/day |
+| Workflows for sync, split into ≤250-repo instances | Free 1,024-step cap; durability | One instance per full backfill | >1,024 steps for a big user |
+| `ratelimits` binding + Turnstile + AI Gateway | Free abuse/caching layer | Analytics Engine / Logpush | Paid / not free |
+| Workers Logs (200k events/day) + D1 quota counters | Free observability | Persistent AI Gateway logs for everything | 100k logs total, no retention control |
+
+### 4.2 Concrete adjustments to docs 08 / 10 / 12
+
+| Doc | Location | Change on free |
+|---|---|---|
+| [08](08-public-service-ux.md) | §2.3 guard table | Tier-0 concurrency 2→**1**; daily Tier-1 budget becomes **"free-quota headroom: min(neurons, steps, rows_written left)"**, not 40% of GitHub quota; keep per-IP limits |
+| [08](08-public-service-ux.md) | §2.1 tier model | Tier 1a is the only automatic semantic tier; **Tier 1b becomes explicit "index everything overnight/next days"** with honest multi-day ETA; add a `metadata only` default that is fully useful |
+| [08](08-public-service-ux.md) | §4.2 collections | Precompute collections per `index_version` (D1 table or Cache API); the request-time 3.4k-row scan is a read-budget trap |
+| [08](08-public-service-ux.md) | §1/§6 | Keep SSE; forbid progress polling; landing queue copy should show **daily capacity**, not just queue depth |
+| [10](10-multitenant-architecture.md) | §1, §2.2, §3, §5 | Add a **"free launch" column/paragraph**: single DB, metadata-first, no full namespaces; keep the paid topology as the scale path; §5 cost model becomes the paid-phase model |
+| [10](10-multitenant-architecture.md) | §3.1 | Promote option **(d) D1-only candidates + semantic re-rank** to the free-tier primary; namespaces only for recent/lite tiers |
+| [10](10-multitenant-architecture.md) | §4.1 | For the free pilot, **per-user FTS virtual tables are acceptable** (bounded users); revisit at the paid transition |
+| [10](10-multitenant-architecture.md) | §7 | Workflow per-user instance must chain **multiple instances per backfill** (1,024-step free cap); add step counting to `sync_runs` |
+| [12](12-hardening.md) | §0 A5 | Cost target is **$0 baseline**; rephrase "abuse that costs > a few $/mo" as "abuse that exhausts free quotas" |
+| [12](12-hardening.md) | §1.1, §2.3 | `daily_new_indexes ≤ 25` → **≤2–4** (rows written / steps / neurons); Queue retention is 24 h (fix `max_queued`/SLA copy) |
+| [12](12-hardening.md) | §2.1 GitHub governor | Keep the governor, but its admission input becomes **CF quota headroom** (rows/steps/neurons/R2) before GitHub windows; CF binds first at free scale |
+| [12](12-hardening.md) | §4.2/§4.3 | Keep the D1 ledger but alarm on **quota units** (rows, steps, neurons, dims), not dollars; soft = 50–80% of daily quota, hard = 95% + kill switches |
+| [12](12-hardening.md) | §7 | Add "free-quota dashboard + quota kill switches" to the ship-blocking checklist; Turnstile on sync is day 1, not v1.1 |
+
+### 4.3 Launch quota dashboard (ship-blocking; replaces the dollar ledger until paid)
+
+Expose these in `/api/stats` and the admin surface, recompute hourly from the D1 counters + provider APIs where available, and wire each to the existing doc-12 kill switches:
+
+| Counter | Free ceiling | Soft alarm | Hard action |
+|---|---|---|---|
+| D1 rows written/day | 100k | 70% | pause new indexes; drain queue |
+| D1 rows read/day | 5M | 70% | disable facets/collections; serve cached browse |
+| D1 storage / DB count | 5 GB / 10 DBs | 80% | evict cold users before admitting new |
+| Workflow steps/day | 3,000 | 70% | stop starting Tier 1b instances |
+| Workers AI neurons/day | 10,000 | 60% | semantic off, keyword-only |
+| Vectorize stored / queried dims (MTD) | 5M / 30M | 70% | semantic off (cache-only for repeat queries) |
+| Workers requests/day | 100k | 70% | tighten per-IP limits; disable browse |
+| R2 GB-month / Class A ops | 10 GB / 1M | 70% | GC pass; stop embedding-cache writes |
+| Queue ops/day + oldest message age | 10k / 24 h | 70% / 12 h | switch admission to DO-only |
+
+### 4.4 Free-tier designs explicitly rejected
+
+| Candidate | Rejected because |
+|---|---|
+| Per-user full Vectorize namespaces | 5M stored dims < 1 user; 30M queried dims ≈ 1.3 queries/month over a full namespace |
+| Per-chunk Queue messages | 10k ops/day ≈ 3,300 messages; one user is ~20k chunks |
+| 3 s progress polling | up to 28,800 requests/day/tab against a 100k/day ceiling |
+| Full README FTS in D1 beyond a pilot | 500 MB/DB and 100k writes/day; chunk text must live in R2 and FTS stay metadata-first |
+| Doc-12 `daily_new_indexes = 25` | free rows/steps/neurons support ~2–4/day, not 25 |
+| Whole-Worker Workers Cache | turns currently-free static-asset requests into chargeable/countable ones ⚠️ |
+| Persistent AI Gateway logs for every request | 100k logs total on free; sample or set stop-saving |
+| Analytics Engine-based abuse analytics | doc 12 assumes paid; free forensics = Workers Logs (200k/day) + D1 counters |
+
+## 5. Open questions
+
+1. **Vectorize free allocations** — is 5M stored dims a hard cap or a monthly usage number, and what happens on exceed (upsert error vs upgrade wall)? The docs don't say. Test in a free account before any design depends on it.
+2. **Queried-dims billing** — does one namespace query really bill the whole namespace (`(stored+queries)×dims`)? If yes (the examples imply it), semantic search needs aggressive response caching and tiny namespaces on **both** free and paid tiers.
+3. **FTS scan factor** — how many D1 rows does `MATCH ? AND user_id = ?` scan per search in practice, and does the free 50-queries/invocation cap count `db.batch()` statements individually?
+4. **How are FTS5 shadow writes counted?** The rows-written model (3.4k stars → 30–60k writes) is the sizing key for new-user capacity; measure a real listing before locking admission caps.
+5. **Workflows free edge cases** — do retries/rollbacks count toward 3,000 steps/day (pricing says no), and does chaining one user across multiple instances count as multiple executions against the shared 100k/day?
+6. **Workers Cache on free** — do cache HITs count against the 100k/day request quota (billing says yes), and does enabling only a non-asset entrypoint keep static assets free? Verify in the dashboard.
+7. **Limit increases** — can limits like D1 DB count or 500 MB/DB be raised on a free account, or is the form paid-only?
+8. **D1 read replication** — available on free, and does it help search latency without extra rows-read billing?
+9. **Effect v4 CPU overhead** — rc.112 per-request cost on workerd is unknown; profile before freezing the 10 ms operating point.
+10. **GitHub-side shape** — with free quotas this small, is a `MAX_STARS` listing cap below 5,000 and a "recent 1k stars semantic" cap the right product answer?
+11. **Free-tier eviction** — do we evict the least-visited user to admit a new one at 500 MB/DB, and how is that promised in the UX?
+12. **Analytics** — is Analytics Engine usable on free (doc 12 assumes paid), and if not, do Workers Logs + D1 counters suffice for abuse forensics?
+
+## Sources (verified 2026-09-13)
+
+Free-plan facts and page update dates:
+
+- Workers pricing (100k req/day, 10 ms CPU, static assets free, KV/Queues/Workflows/D1/DO/Vectorize free columns; updated 2026-08-28): <https://developers.cloudflare.com/workers/platform/pricing/>
+- Workers limits (subrequests 50/1,000, connections 6, cron 5, assets 20k, Cache API 50 calls; updated 2026-09-05): <https://developers.cloudflare.com/workers/platform/limits/>
+- Workers Cache (tiered, collapsing, cache-hit request billing; updated 2026-07-21) + limitations (static-asset and purge caveats; updated 2026-08-25): <https://developers.cloudflare.com/workers/cache/> · <https://developers.cloudflare.com/workers/cache/limitations/>
+- Cron triggers (updated 2026-09-04): <https://developers.cloudflare.com/workers/configuration/cron-triggers/> · workers.dev (updated 2026-08-14): <https://developers.cloudflare.com/workers/configuration/routing/workers-dev/>
+- Rate limiting binding (10/60 s, per-location; updated 2026-04-23): <https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/>
+- D1 pricing and limits (5 GB/account, 500 MB/DB, 10 DBs, 5M reads, 100k writes, 50 queries; updated 2026-04-21): <https://developers.cloudflare.com/d1/platform/pricing/> · <https://developers.cloudflare.com/d1/platform/limits/>
+- R2 pricing (10 GB, 1M Class A, 10M Class B; updated 2026-08-07): <https://developers.cloudflare.com/r2/pricing/>
+- KV pricing (updated 2026-04-21): <https://developers.cloudflare.com/kv/platform/pricing/>
+- Durable Objects pricing (100k req/day, 13k GB-s/day, SQLite-only free) and limits (5 GB/account; updated 2026-06-01): <https://developers.cloudflare.com/durable-objects/platform/pricing/> · <https://developers.cloudflare.com/durable-objects/platform/limits/>
+- Queues pricing and limits (10k ops/day, 24 h free retention; updated 2026-04-21): <https://developers.cloudflare.com/queues/platform/pricing/> · <https://developers.cloudflare.com/queues/platform/limits/>
+- Workflows pricing (3k steps/day, 1 GB-mo; updated 2026-07-21) and limits (1,024 steps/instance, 100 concurrent, 10 ms CPU/step; updated 2026-06-15): <https://developers.cloudflare.com/workflows/reference/pricing/> · <https://developers.cloudflare.com/workflows/reference/limits/>
+- Workers AI pricing (10k neurons/day, per-model rates; updated 2026-08-28) and limits (updated 2026-08-07): <https://developers.cloudflare.com/workers-ai/platform/pricing/> · <https://developers.cloudflare.com/workers-ai/platform/limits/>
+- Vectorize pricing (5M stored / 30M queried dims free; updated 2026-04-21), limits (Free columns: 100 indexes, 1,000 namespaces; updated 2026-08-05), intro (free plan supported; updated 2026-08-25): <https://developers.cloudflare.com/vectorize/platform/pricing/> · <https://developers.cloudflare.com/vectorize/platform/limits/> · <https://developers.cloudflare.com/vectorize/get-started/intro/>
+- Turnstile plans (free tier; updated 2026-08-14): <https://developers.cloudflare.com/turnstile/plans/>
+- AI Gateway pricing (core free; updated 2026-05-19) and limits (10 gateways, 100k logs free; updated 2026-05-27): <https://developers.cloudflare.com/ai-gateway/reference/pricing/> · <https://developers.cloudflare.com/ai-gateway/reference/limits/>
+- Workload numbers (5.7M tokens, 23k vectors, 26 MB READMEs, RRF, filters): [01 §5](01-search-and-index.md), [02 §5](02-stack-and-pipeline.md), [10 §3](10-multitenant-architecture.md); quota/queue policy: [12](12-hardening.md).

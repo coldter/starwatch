@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.wrangler/
+.alchemy/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+.DS_Store
+.idea/

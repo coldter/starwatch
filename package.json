@@ -1,0 +1,17 @@
+{
+  "name": "starwatch",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "plan": "pnpm --filter @starwatch/worker run plan",
+    "deploy": "pnpm --filter @starwatch/worker run deploy",
+    "dev": "pnpm --filter @starwatch/worker run dev"
+  }
+}

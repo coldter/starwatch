@@ -1,0 +1,21 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+
+catalog:
+  effect: 4.0.0-rc.112
+  "@effect/sql-d1": 4.0.0-rc.112
+  "@effect/platform-node": 4.0.0-rc.112
+  alchemy: 2.0.0-beta.77
+  typescript: 7.0.2
+
+# Keep every transitive Effect package on the same RC.
+# (pnpm 12 ignores `pnpm.overrides` in package.json — it must live here.)
+overrides:
+  "@effect/platform-node-shared": 4.0.0-rc.112
+  "@effect/sql-d1": 4.0.0-rc.112
+  "@effect/sql-sqlite-do": 4.0.0-rc.112
+
+allowBuilds:
+  msgpackr-extract: true
+  workerd: true

@@ -1,0 +1,287 @@
+# 14 — Abuse Protection: $0 Design
+
+> Status: **draft for discussion** · 2026-09-13 · Authoritative for **abuse protection, rate limits, admission control and degradation** on the public service while the budget is **$0** and the account stays on the **Workers Free plan**. Supersedes [12](12-hardening.md) wherever 12 assumes paid primitives (Workers Paid CPU, paid Analytics Engine, paid Workers Logs, a custom-domain zone with WAF/Bot Fight Mode, Flagship, Cloudflare Notifications; 12 remains the **scale-up plan** after an upgrade). Companion docs: [08](08-public-service-ux.md) (states/copy), [09](09-public-data-and-limits.md) (GitHub budget), [10](10-multitenant-architecture.md) (eviction, dedupe). All Cloudflare limits below were re-verified live on 2026-09-13; ⚠️ marks items to smoke-test at implementation.
+
+**Thesis:** `$0` is a *capacity decision*, not just a billing one. On Workers Free the binding constraints are **100k requests/day, 10 ms CPU/invocation, 50 subrequests/invocation, 100k D1 rows written/day and 10k AI neurons/day** — not `$`. Abuse protection must therefore protect *finite quotas* and degrade in named, user-visible steps rather than papering over them.
+
+## 0. $0 baseline
+
+### 0.1 What changed from doc 12
+
+| Doc 12 assumption | Free-tier reality (verified 2026-09-13) | Effect here |
+|---|---|---|
+| Workers Paid $5 base, 30 s CPU, 10M req | Free: **100k req/day**, **10 ms CPU**, 50 subrequests, 5 cron triggers | Budgets in §4 are request/CPU-bounded; heavy work is split or deferred |
+| Analytics Engine is paid | **Free: 100k data points/day + 10k read queries/day**, 3-month retention | Free custom telemetry is back on the table (sampled) |
+| Workers Logs is paid | **Free: 200k events/day, 3-day retention** | Structured logs are the primary forensics store |
+| WAF rate limiting needs a zone | Still true; Free zone = **1 rule, IP-only, 10 s/10 s** | `workers.dev` has **no configurable WAF**; `ratelimits` binding + DO are the edge |
+| Bot Fight Mode available | Zone-only | Turnstile is the only free bot gate without a domain |
+| Flagship for kill switches | ⚠️ plan availability unverified | Kill switches live in a **Durable Object** (`FeatureState`), alarms/flags in KV only as cache |
+| Cloudflare Notifications for alarms | Usage alerts need Pro+ | Self-alert via hourly cron + webhook (§5.4) |
+| Paid AI/Vectorize capacity | Free AI: **10k neurons/day**. Vectorize: ⚠️ docs conflict — pricing page says "only on Workers Paid" while its own Free column and the limits page define free allowances (30M queried dims/mo, 5M stored dims, 100 indexes, 1,000 namespaces) | Semantic is **opportunistic** in `$0` mode; keyword + cache must stand alone |
+
+### 0.2 Workers Free caps that shape every decision
+
+| Cap | Value (free) | Resets | Consumed by |
+|---|---|---|---|
+| Worker requests (account-wide) | 100,000/day (Error 1027 when hit; route fail-open/fail-closed) | 00:00 UTC | every API call; static assets are free/unlimited **unless Workers Caching is enabled** |
+| CPU | 10 ms/invocation | — | parsing, RRF, chunking — I/O is not billed |
+| Subrequests | 50/invocation (1,000 to internal services) | — | GitHub `fetch`, D1, R2, Vectorize, KV per invocation |
+| Simultaneous outbound connections | 6 | — | GitHub fan-out |
+| D1 | 5M rows read/day, 100k rows written/day, 5 GB total | daily/– | indexing writes, search reads, ledgers |
+| Durable Objects | 100k requests/day, 13,000 GB-s/day, 5 GB storage, 5M rows read + 100k rows written/day; SQLite-backed only | 00:00 UTC | authoritative counters/governor |
+| Queues | 10,000 operations/day (≈3,300 deliveries at 3 ops each), 24 h retention | 00:00 UTC | sync admission/job phases |
+| Workers AI | 10,000 neurons/day (bge-m3 = 1,075 neurons/M tokens; reranker = 283/M) | 00:00 UTC | embeddings, query embeds, rerank |
+| KV | 100k reads/day, **1k writes/day**, 1 GB; eventually consistent (≤60 s+) | 00:00 UTC | flags/config cache only, never authoritative |
+| R2 | 10 GB-month, 1M Class A/mo, 10M Class B/mo | monthly | README archive, packed embeddings |
+| Analytics Engine | 100k points/day, 10k SQL queries/day | daily | sampled telemetry (§5) |
+| Workflows | 3,000 steps/day, requests shared with Workers, 10 ms CPU | 00:00 UTC | avoid on free; queue consumers + cron + DO alarms instead |
+| Cron | 5 triggers/account, 1-minute resolution, 15 min wall | — | scheduler, alerting, maintenance |
+
+## 1. Threat model
+
+Attacker capability assumed: a script with many cheap IPs, no account, knowledge of our endpoints, and the ability to mint GitHub accounts/stars — so **popularity or account age never buys priority or budget** (inherits doc 12 A6).
+
+| # | Vector | Worst case on free | Primary control | Backstop |
+|---|---|---|---|---|
+| V1 | **Sync flood** — mass usernames enqueued | Burn 5,000 GitHub req/h + D1 writes + AI in minutes; queue backlog days long | Validate login *before* spend; Turnstile on trigger; per-IP/day + global/day new-user caps; one job per login | GithubGovernor reserve + L3 pause; per-username cooldowns |
+| V2 | **Expensive query flood** — hybrid + rerank | AI neurons + Vectorize query dims exhausted; CPU/latency spike | Per-IP burst + per-IP/day + global semantic/day; rerank only on descriptive queries | L1 keyword-only; Workers Cache collapsing |
+| V3 | **Enumeration / scraping** — bulk profile or search probing | 100k req/day consumed; GitHub profile probes | Canonical login validation; 24 h negative cache; no bulk export; per-IP/day; `robots.txt` + `X-Robots-Tag` | Global search/day cap; L2 cache-only |
+| V4 | **Cache-busting** (`&_=random`) | Every request runs the Worker and hits D1/AI | Strict param parsing; canonical key hash; `cf.cacheKey` via loopback; cache lock collapsing | Per-IP budget; TTLs |
+| V5 | **GitHub token exhaustion** | All indexing stops; user-visible failures if unhandled | Single `GithubGovernor` token bucket + reserve; ETag/304; cross-user repo dedupe | L3 "sync paused" with resume time |
+| V6 | **Storage bomb** — one 50k-star account, huge READMEs | D1 5 GB / R2 10 GB / DO 5 GB filled by one request | `MAX_STARS` cap; semantic window; per-repo/user FTS byte caps; weight in admission | Sentinel at 80/90/95%; LRU eviction (docs/10 §6) |
+| V7 | **Griefing** — one user or query pattern monopolizes budget | Starved fair users; one account's job runs for hours | Per-username ledger + cooldowns; per-job burst cap + requeue; FCFS+aging | Global caps; kill switches |
+| V8 | **L7 DDoS without paid WAF** | 100k req/day exhausted; Error 1027; Worker unavailable | Cloudflare edge absorbs network floods on `workers.dev` (unconfigurable; ⚠️ confirm posture at launch) + per-colo `ratelimits`; static assets stay free | DO global counters; maintenance page; 100k/day cap *is* the circuit breaker |
+
+## 2. Free-primitive toolkit
+
+### 2.1 What we can use ($0)
+
+| Primitive | Verified facts | Use here |
+|---|---|---|
+| **`ratelimits` binding** | `simple:{limit,period}`; period **10 or 60 s only**; counters **per Cloudflare location**, eventually consistent, "not an accurate accounting system"; no dashboard visibility; `namespace_id` shared across bindings; works without a zone | Per-IP burst filters on search/semantic/sync. ⚠️ docs state no plan gate, but confirm on the Free account at deploy |
+| **Durable Objects (Free)** | SQLite-backed only; **100k req/day, 13,000 GB-s/day, 5 GB storage, 5M rows read + 100k rows written/day**; alarms/websocket messages count as requests; single-threaded; ~1,000 req/s soft | Authoritative global + per-IP counters, token buckets, queue admission, kill switches. ⚠️ DO CPU on Free is ambiguous (Workers plan limits say 10 ms; DO limits page says 30 s default) — assume 10 ms until proven |
+| **Turnstile** | Free: **20 widgets, unlimited challenges**, 10 hostnames/widget, 7-day analytics; all widget types; server-side Siteverify mandatory; tokens 300 s, single-use | Gate `POST /api/sync` and purge-confirm. Invisible/managed widget; never on read-only search day 1 |
+| **Workers Cache** | Tiered by default; **request collapsing per cache key per colo** (cache lock); honors `Cache-Control`; `cf.cacheKey` on same-account loopback; `ctx.cache.purge({tags})`; **hits still count as requests, but consume no CPU** | Collapse identical concurrent searches; cache browse/keyword/hybrid responses 60–300 s; tags for purge-on-sync. ⚠️ Enabling it bills static-asset requests too — enable per-entrypoint only |
+| **Cache API** | 50 calls/request (free); **no request collapsing**; explicit key; per-colo | Fallback only when loopback caching is awkward |
+| **Queues (Free)** | 10k ops/day; 24 h retention; 3 ops per delivery; batch ≤100 | Admission buffer and phase dispatch; jobs must be idempotent and resume via cron/DO after 24 h |
+| **Cron** | 5 triggers/account; 1-minute resolution; 15 min wall; 10 ms CPU | Scheduler tick, hourly alerting, daily storage sentinel; changes propagate up to 15 min |
+| **Workers AI (Free)** | 10k neurons/day; bge-m3 1,075/M; reranker 283/M | Embedding + rerank budget; stop before exhaustion, never error mid-query |
+| **AI Gateway** | "Available on all plans"; caching, rate limiting, retries | Global backstop rate limit + exact-match cache for repeated queries |
+| **KV** | 100k reads/day, **1k writes/day**, 1 GB stored; **eventually consistent ≤60 s+, including negative lookups** | Feature-flag cache and owner-editable config; never counters/budgets |
+| **Analytics Engine** | Free **100k points/day + 10k SQL queries/day**, 3-month retention, 250 points/invocation max | Sampled abuse/budget/usage telemetry (§5) |
+| **Workers Logs** | Free **200k events/day, 3-day retention** | Anomaly/forensic log lines; `wrangler tail` live |
+| **Dashboard metrics** | Workers metrics up to **3 months** (requests/errors/CPU/subrequests); Cron Events = 100 most recent; zone analytics 30 days if a zone exists | Free manual dashboards; no alerting |
+| **Tail Workers / Logpush** | ❌ not needed | — |
+
+### 2.2 What cannot be done on $0 (and the compensation)
+
+| Not available | Why | Compensation |
+|---|---|---|
+| WAF rate-limiting rules, Bot Fight Mode, Managed Challenge | Require a proxied **zone**; a custom domain is a paid registration. Even with a free zone: 1 rule, **IP-only counting, 10 s period, 10 s mitigation**, expression limited to Path/Verified Bot | `ratelimits` bindings + DO global counters + Turnstile + login validation. Add a zone later as the force multiplier |
+| Usage-based Notifications / Workers alerting | Pro+ (or no Workers policy at all) | Own hourly cron + webhook + D1 `alerts` table (§5.4) |
+| Logpush to Axiom/Grafana, Tail Workers | Paid | Workers Logs 3-day window + AE SQL (3 months) |
+| Analytics Engine high volume / Grafana Cloud | Free caps: 100k points, 10k queries/day | Sample aggressively (target <5% of caps) |
+| Workers Paid CPU (30 s) and 10M req | Free is 10 ms/100k | Keep per-invocation work tiny; split sync into small, resumable invocations |
+| Vectorize at scale (⚠️ free caps: 5M stored dims ≈ **0.2 users** at 1024 d × 23k vectors) | Free allowance or paid-only | Semantic is a best-effort layer; keyword + browse + cache are the always-on product. Lite tier (summary + top-2 chunks, MRL dims) is the only free-viable semantic shape |
+| Multiple GitHub tokens/accounts | GitHub ToS §H (doc 09 §4.2) | One 5k/h bucket, cached/deduped aggressively (docs/10) |
+| Cloudflare Access for admin | Free tier ⚠️ unverified in 2026 | `STARWATCH_API_TOKEN` bearer + separate admin hostname/route; Access optional |
+
+## 3. Design
+
+### 3.1 Layering
+
+1. **Edge (cheap, per-colo, permissive):** `ratelimits` bindings on `/api/search`, `/api/similar`, `/api/sync` keyed by salted daily IP hash — absorb crude floods only.
+2. **Authoritative (global, transactional):** one `BudgetKeeper` DO (counters) and one `GithubGovernor` DO (token bucket/leases). Every budget check that protects real quota happens here.
+3. **Admission (queue):** new-user/day, queue caps, dedupe, cooldowns. Requests are *accepted into a visible queue* or rejected with `Retry-After`; never "accepted then silently dropped".
+4. **Product degradation (§3.5):** when a cap is hit, switch mode and say so, with a resume time.
+5. **Forensics (§5):** hashed identifiers only; log anomalies, sample the rest.
+
+### 3.2 Budget matrix (MVP defaults; knobs in §4)
+
+| Scope | Search (keyword) | Semantic / similar | Sync trigger | New usernames |
+|---|---|---|---|---|
+| Per-IP burst (`ratelimits`) | 30/60 s | 6/60 s | 2/60 s | — |
+| Per-IP/day (DO) | 300 | 60 | 5 | 3 |
+| Per-session/day (signed cookie, soft) | 150 | 30 | 3 | — |
+| Per-username | one active job; re-list **15 min**, full refresh **24 h**, capped accounts 7 d | semantic refresh 24 h | attach to existing job | — |
+| Global/day | **500** searched queries | **100** semantic queries | **50** sync triggers | **10** weighted new users |
+| Global/hour | — | — | — | GitHub: **5,000**, usable 4,700 after 300 reserve, paced ≤700/min |
+| Global/day | — | — | — | embeddings ≤6,000 neurons; query embeds+rerank ≤4,000 neurons |
+
+Rules: identifiers are `sha256(salt+day, ip)` and a random first-party `sw_s` cookie (HttpOnly, no PII). Cookies are trivially reset, so per-session is a politeness layer, never the only control. Every 429 carries `Retry-After` and `X-Starwatch-Limit`; values are rounded and never reveal exact remaining counts.
+
+### 3.3 Admission control, dedupe, honest ETA
+
+- **Validate before spending:** `^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$`, reserved-name reject, then one cached profile probe (24 h negative cache). Nothing else happens before this succeeds.
+- **Dedupe:** `sync_requests.login` unique; `POST /api/sync` while pending/running returns `202 {jobId, state, position, eta}` and attaches. Identical concurrent searches collapse in Workers Cache before the Worker runs.
+- **Queue caps:** Tier 0 depth ≤ 30, Tier 1 depth ≤ 20; over cap → `503 + Retry-After: 600` with the saturated copy from [08 §2.3](08-public-service-ux.md). Active jobs: **1 listing + 1 semantic** (owner health re-list may take the semantic slot).
+- **ETA:** rolling throughput of the last 20 completed jobs; always a range that rounds up; if depth > 10, replace any number with "busy — we'll start as soon as a slot frees" ([08 §2.3](08-public-service-ux.md) honesty rules).
+- **Tier 1 auto-start** only when `queue_depth(T1) < 5` and the global semantic/day and neuron budgets have headroom; otherwise enqueue with position, never reject. All state is visible at `/api/status` and `/api/queue/events`.
+
+### 3.4 `GithubGovernor` DO ($0-compatible)
+
+Singleton (`idFromName("github")`), SQLite state, alarm-driven. One DO request per batch, not per GitHub call, keeps us far under 100k DO req/day.
+
+```ts
+// state (SQLite): window(reset_at, observed_remaining), bucket(tokens, minute_start),
+// lease(id, user_id, class, expires_at), usage(user_id, day, requests), state(paused_until, refill_factor)
+
+acquire({ n, klass, userId, leaseId? }) -> { ok, waitMs, leaseId, remaining, resetAt }
+observe({ status, retryAfter?, headers? })   // reconcile from x-ratelimit-remaining/reset
+release(leaseId)
+```
+
+| Concern | Rule |
+|---|---|
+| Hourly bucket | 5,000 capacity, keyed to the **observed** `x-ratelimit-reset` (never wall-clock); reserve **300**; anonymous work stops at `remaining - n < 300` |
+| Minute pacing | 700/min refill (below GitHub's 900 pts/min secondary limit); burst ≤120 requests per job, then requeue |
+| Concurrency | 5 leases, 60 s TTL, renewed per batch; crashed jobs release in ≤60 s |
+| Pause | On `403/429` + secondary message: `paused_until = retryAfter`, refill halved for 10 min; jobs checkpoint and sleep; resume at `reset + 30 s` via alarm |
+| Fairness | FCFS from the queue + **15 min aging** into the interactive lane; deficit round-robin across ≤4 active users; **no priority for popular accounts** (stars are attacker-controlled); owner reserve (300) is for health/re-list only |
+| Free-plan fit | ~hundreds of DO calls/day, not 100k; alarms wake the bucket even if no job is running |
+
+Search-time AI calls (`semantic`) also acquire from `BudgetKeeper` (neurons/day, semantic queries/day), so a query flood cannot drain indexing quota. AI Gateway is configured with a coarse global rate limit as a bug backstop; a gateway 429 flips straight to L1.
+
+### 3.5 Degradation ladder
+
+Levels are flags, not a strict sequence: L3 (sync) is independent of L1/L2 (search); L4 overrides everything. Each transition is one-way until its exit condition holds for the hysteresis window.
+
+| Level | Flags | Enter when (exact) | Exit when | User-visible copy |
+|---|---|---|---|---|
+| **L0** full hybrid | all on | default | — | no banner; normal freshness chips |
+| **L1** keyword-only | `semantic=false`, `rerank=false` | AI neurons ≥ 8,000/day; AI 429/5xx twice in 5 min; semantic/day cap reached; rerank disabled by budget; ⚠️ optional p95 semantic > 1.5 s over 5 min | trigger clear 60 s | "Semantic results are paused — showing keyword results. They return automatically (usually within the hour)." Chip: `keyword only` |
+| **L2** cache-only | live search off; cached responses, browse and static pages only | Worker requests ≥ 90k/day; D1 rows read ≥ 4.5M/day; D1 error rate > 2% over 5 min; keyword error rate > 5%; distributed 429 storm (>100 distinct IPs in 5 min) | usage < 70% of cap or 00:00 UTC | `503` + `Retry-After` (to UTC midnight) on uncached search; "Search is resting to stay within today's free budget. Cached pages still work; live search resumes at 00:00 UTC." Header `X-Starwatch-Mode: cache-only` |
+| **L3** sync paused | `public_sync=false`; queued jobs drain or hold | GitHub remaining < reserve; any secondary pause; new-user or sync/day cap; D1 writes ≥ 90k/day; queue over cap > 1 h; embedding budget spent | GitHub `reset + 30 s` or 00:00 UTC or queue drained | [08](08-public-service-ux.md) paused card: "Waiting on GitHub's rate limit · resumes 14:32 UTC" / "We've hit today's indexing budget — resumes at 00:00 UTC; your queue spot is held." |
+| **L4** maintenance | everything off; static maintenance response | Worker quota exhausted (Error 1027 or ≥99%); any store ≥ 95% of 5 GB/10 GB; 5xx > 20% over 15 min; manual switch | 00:00 UTC reset (auto-ping) | "starwatch is taking a maintenance break — we'll be back at 00:00 UTC. Your searches and indexes are safe." |
+
+Every response carries `X-Starwatch-Mode: full|keyword|cache-only|maintenance`; explicit `mode=semantic` requests return `503` with the reason instead of silently degrading. Transitions are exercised once in staging (checklist §6).
+
+### 3.6 Storage-bomb protection
+
+| Control | Value | Protects |
+|---|---|---|
+| Listing cap | `MAX_STARS = 10,000` (200 pages); beyond → newest 10k, `over_limit` label | GitHub requests, D1 rows |
+| Semantic window | newest **1,500** repos; ≤12 chunks/repo; ≤25k vectors/user (free Vectorize shrinks this to a lite tier, §2.2) | AI neurons, Vectorize dims, DO/R2 |
+| Per-repo FTS text | **64 KB** of README text in D1 (full bytes live content-addressed in R2) | D1 5 GB; keeps the write bomb bounded |
+| Per-user FTS budget | **20 MB**; beyond → metadata-only rows | D1 5 GB |
+| New-user weight | `w(u) = 1 + ceil(stars/1000)`; `Σw(new)/day ≤ 10`, per-IP ≤ 3 | spreads heavy accounts over days |
+| Indexed-user soft cap | 50 full/warm users; at 80% demote cold (LRU >7 d) to lite; at 90% stop admission (`index_new_users=false`); at 95% → L4 | all stores |
+| Eviction (docs/10 §6) | cold = drop FTS + namespace, keep `user_stars`; rebuild from the R2 embedding cache with **zero GitHub/AI calls** on return; announced on the profile page | long-term survival on 5 GB |
+| Daily sentinel | cron compares D1/R2/DO usage; logs + alerts at 70/80/90/95% | early warning before errors |
+
+The 64 KB/20 MB FTS caps are a deliberate `$0`-mode amendment to [10 §4.3](10-multitenant-architecture.md)'s 35–65 MB/user sizing; paid mode can raise them. Full README text always lives in R2, so lowering the D1 cap loses recall only until the next re-index, never data.
+
+## 4. Numbers for the MVP and tuning knobs
+
+Defaults below are deliberately small; each maps to a finite free cap. Change one knob at a time and read the watch column before the next.
+
+| Knob | Default (`$0` mode) | Free cap it consumes | Raise when | Watch |
+|---|---|---|---|---|
+| Global searches/day | **500** | D1 rows read (5M), Worker req (100k) | D1 rows read < 50% for 3 days | `rows_read`/search, p95 |
+| Global semantic/day | **100** | AI neurons, Vectorize dims | Semantic daily neurons < 50% | neurons, queried dims |
+| Global sync triggers/day | **50** | GitHub req/h, queue ops | GitHub remaining > 50% at 20:00 UTC | queue depth, GitHub remaining |
+| New users/day (weighted) | **10 units** | AI embeddings (~1.6 full 3.4k-star users/day), D1 writes, GitHub | D1 writes < 50% and neurons < 60% for 3 days | neurons, rows written, new-user backlog |
+| Embeddings/day | **6,000 neurons** (≈5.6M tokens) | 10k neurons | never above 7,000 on free | neurons used; defer backfill (lane 1b) first |
+| Query embeds + rerank/day | **4,000 neurons** | 10k neurons | only with paid AI | 429s, rerank skips |
+| GitHub reserve | **300/h** | 5,000/h core | raise if health re-lists starve | "paused" duration |
+| `MAX_STARS` | **10,000** | D1/R2/AI per user | never on free; lower to 5k if rows written stay hot | per-user cost ledger |
+| Indexed-user cap | **50** warm/full | D1 5 GB / R2 10 GB | after measuring bytes/user; eviction must lead | storage %, rebuild hit rate |
+| Cache TTL | browse 60 s; keyword/hybrid 300 s | Worker requests (hits still count) | raise TTLs before raising search/day | `Cf-Cache-Status`, hit ratio |
+
+Cost mapping: **new users/day** is the only knob that spends all three scarce resources (GitHub + D1 writes + AI); **searches/day** spends D1 reads + (for hybrid) AI + Vectorize; **sync triggers/day** spends GitHub + queue ops; **MAX_STARS** multiplies everything per user. When a cap trips, lower the knob that maps to it — not the others.
+
+## 5. Monitoring without paid analytics
+
+### 5.1 What to log
+
+One structured line per anomaly, plus 1-in-10 sampled successes (target ≤50k of the 200k event/day allowance):
+
+```
+{ ev:"rate_limit", route:"/api/search", mode:"keyword", status:429,
+  ip_hash:"…", sid:"…", login:null, idx:412, retry_after:60, limit:"SEARCH_IP_DAY" }
+{ ev:"sync_result", job:"u123-441", phase:"readme", outcome:"ok", api_used:37, ms:8400 }
+{ ev:"degradation", from:"L0", to:"L1", reason:"neurons_80pct", until:1789… }
+{ ev:"turnstile", action:"sync", outcome:"fail", ip_hash:"…" }
+```
+
+Never log raw IPs, tokens, README bytes, or query text beyond a hash.
+
+### 5.2 Where it lives (all free)
+
+| Store | Retention/cap | Contents |
+|---|---|---|
+| Workers Logs | 3 days / 200k events/day | anomaly + sampled request lines; `wrangler tail` for live triage |
+| Analytics Engine | 3 months / 100k points + 10k queries/day | `budget_snapshot` every 5 min (288/day), `abuse_event`, `sync_result`, sampled `search_result` (target <5k points/day) |
+| D1 `usage_daily` | forever (tiny) | per-day counters rebuilt from DO/ledger: searches, syncs, new users, neurons est., rows read/written, storage % |
+| DO `BudgetKeeper` | live | source of truth for every cap and for `/api/status` |
+| Dashboard | Workers metrics up to 3 months | requests/errors/CPU/subrequests; Cron Events 100 most recent |
+
+### 5.3 Watchlist and thresholds
+
+| Metric | Source | Warn | Page |
+|---|---|---|---|
+| Queue depth / oldest job age | DO + Queue metrics | >20 or >30 min | >30 or >2 h |
+| GitHub remaining | Governor | <1,000 before 20:00 UTC | pause active, or <reserve |
+| New users vs day cap | BudgetKeeper | ≥70% by 12:00 UTC | cap reached before 18:00 UTC |
+| D1 rows written/read | `usage_daily` | ≥70% | ≥90% |
+| AI neurons | AI Gateway/ledger | ≥70% | ≥80% (auto-L1) |
+| Worker requests | dashboard/ledger | ≥70% | ≥90% (auto-L2) |
+| 429 ratio / Turnstile failures | AE | >30% per 15 min / >20 per min | two consecutive windows |
+| Error rate (5xx) | logs/AE | >5% per 15 min | >20% per 15 min (auto-L4) |
+| Cache hit ratio | `Cf-Cache-Status` | <20% with flat traffic (cache-busting) | — |
+| Storage % | sentinel cron | 70% | 90% (stop admission) |
+
+### 5.4 Alerting on free
+
+- Hourly cron (1 of 5 triggers): read BudgetKeeper + `usage_daily`, evaluate §5.3 with **two consecutive breaching checks** (anti-flap), POST to an ntfy/Discord webhook, and upsert one row in D1 `alerts` as the durable inbox. A breach of L1/L2/L3/L4 auto-transition is logged as `degradation` and included in the alert.
+- No dependency on Cloudflare Notifications (Pro+ for usage alerts). If a zone is added later, enable the free HTTP DDoS alert as a complement.
+- Runbook (doc 12 §6.2 applies with free substitutions): on abuse, the cheapest effective step is 429 profile → Turnstile escalation → `public_sync=false` → `semantic=false` → maintenance; never "wait and see" past a cap.
+
+## 6. Ship-blocking checklist (minimum viable hardening)
+
+1. `BudgetKeeper` DO: per-IP/session/username/global counters, transactional, alarm-refreshed, exposed on `/api/status`.
+2. Edge `ratelimits` bindings (search/semantic/sync) + salted daily IP hash; period 60 s only.
+3. Admission: login validation before any GitHub call; dedupe by login; 15 min/24 h cooldowns; queue caps; honest ETA; `503 + Retry-After` over cap.
+4. `GithubGovernor` DO: observed-window bucket, 300 reserve, 700/min pacing, 5 leases, pause/resume, fairness (§3.4).
+5. AI budget: stop embeddings at 6,000 neurons/day (defer lane 1b), semantics auto-off at 80%; AI Gateway rate limit configured.
+6. Degradation ladder implemented as DO flags; each transition and its copy tested once in staging.
+7. Turnstile on `POST /api/sync` and purge-confirm, with server-side Siteverify + hostname/action checks.
+8. Canonical cache keys (`sha256(canonical params + index_version + model_version)`), Workers Cache collapsing, purge-on-sync tags; static assets served without caching enabled.
+9. Storage caps (§3.6) + daily sentinel + LRU eviction job wired to docs/10 tiers.
+10. Log schema + hourly alert cron + D1 `alerts` + the runbook above.
+11. `robots.txt`, `X-Robots-Tag: noindex` on API, no bulk-export endpoint, server-side result caps (doc 12 §3.4).
+12. Maintenance response (static) + route fail mode decision (fail-closed vs fail-open) documented.
+
+**Later (paid/zone):** custom domain + Free zone WAF rule + Bot Fight Mode; Workers Paid upgrade (10M req, 30 s CPU, paid AI/Vectorize) — this is what unlocks L0 hybrid as the default; Workflows for sync; per-ASN heuristics; API keys with quotas; Access for admin.
+
+## 7. Open questions
+
+1. **Vectorize on Free** — docs conflict (paid-only sentence vs free allowances of 5M stored dims). Smoke-test create/insert/query on the Free account; if paid-only, is semantic a launch goal or a v1.5 feature?
+2. **`ratelimits` on Free** — no explicit plan statement; verify with a deployed 429 test.
+3. **DO CPU on Free** — 10 ms (Workers plan table) vs 30 s (DO limits page). Determines whether heavy work can be offloaded to DOs; assume 10 ms until proven.
+4. **10 ms CPU budget** — does RRF + result serialization fit? Benchmark with 50 results on day 1; if not, reduce result size or move ranking stages.
+5. **Workers Cache on Free** — hits still consume the 100k/day request quota and enable billing of static assets; is enabling it worth the collapsing benefit before a domain exists?
+6. **500 searches/day** — enough to demo, very low for a public service. What telemetry raises it, and to what first step (1,000? 5,000?)?
+7. **Route fail mode** — for a `workers.dev` deployment with no zone, what do users see at Error 1027, and should the maintenance page live on a separate free static host?
+8. **Session cookie** — is a first-party `sw_s` cookie acceptable privacy-wise, or should per-session budgets be dropped in favor of IP + global only?
+9. **Alert channel** — ntfy vs Discord vs GitHub issue; who owns the rotation of the webhook secret?
+10. **Upgrade trigger** — which metric crossing (queue wait? storage? neurons >X% for N days?) justifies the $5 Workers Paid step, and does that automatically re-scope this doc to doc 12 budgets?
+
+## Sources (verified live 2026-09-13)
+
+- Workers pricing (Free: 100k req/day, 10 ms CPU, Workers Logs 200k events/day + 3-day retention, KV 100k reads/1k writes, Queues 10k ops/day + 24 h, Workflows 3k steps/day, D1 5M reads/100k writes/5 GB, DO free limits, R2 10 GB/1M A/10M B, Vectorize free column ⚠️, Workers AI free 10k neurons): <https://developers.cloudflare.com/workers/platform/pricing/> (updated 2026-08-28)
+- Workers limits (50 subrequests, 6 connections, 5 cron triggers, 100k/day Error 1027 + route fail modes, Cache API 50 calls/request): <https://developers.cloudflare.com/workers/platform/limits/> (2026-09-05)
+- Rate limiting binding (period 10/60 s, per-location, eventually consistent, not an accounting system): <https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/> (2026-04-23)
+- WAF rate limiting rules availability (Free: 1 rule, IP counting, 10 s/10 s): <https://developers.cloudflare.com/waf/rate-limiting-rules/> (2026-08-25)
+- Turnstile plans (Free: 20 widgets, unlimited challenges, 10 hostnames/widget, 7-day analytics): <https://developers.cloudflare.com/turnstile/plans/> (2026-08-14)
+- Workers Cache (tiered, request collapsing per key per colo, cache keys, purge, hits billed as requests): <https://developers.cloudflare.com/workers/cache/> · <https://developers.cloudflare.com/workers/cache/cache-keys/> (2026-07-21)
+- Durable Objects pricing + limits (Free: 100k req/day, 13,000 GB-s/day, 5M reads/100k writes/day, 5 GB; SQLite-only; alarms count as requests): <https://developers.cloudflare.com/durable-objects/platform/pricing/> · <https://developers.cloudflare.com/durable-objects/platform/limits/> (2026-08-25 / 2026-06-01)
+- Queues pricing (Free: 10k ops/day, 24 h retention, 3 ops/delivery): <https://developers.cloudflare.com/queues/platform/pricing/> (2026-04-21)
+- KV consistency (≤60 s+, negative lookups cached): <https://developers.cloudflare.com/kv/concepts/how-kv-works/> (2026-04-21)
+- Analytics Engine pricing + limits (Free: 100k points, 10k read queries/day; 3-month retention): <https://developers.cloudflare.com/analytics/analytics-engine/pricing/> · <https://developers.cloudflare.com/analytics/analytics-engine/limits/> (2026-04-23)
+- Workers AI pricing (10k neurons/day; bge-m3 1,075/M; reranker 283/M): <https://developers.cloudflare.com/workers-ai/platform/pricing/> (2026-08-28)
+- AI Gateway (all plans; caching, rate limiting): <https://developers.cloudflare.com/ai-gateway/> (2026-04-20)
+- Workers metrics retention (3 months) + Cron Events (100 most recent): <https://developers.cloudflare.com/workers/observability/metrics-and-analytics/> · <https://developers.cloudflare.com/workers/configuration/cron-triggers/> (2026-07-01 / 2026-09-04)
+- Notifications availability (usage alerts Pro+; HTTP DDoS alerts all plans, zone required): <https://developers.cloudflare.com/notifications/notification-available/> (2026-04-24)
+- Vectorize limits (Free: 100 indexes, 1,000 namespaces; 20M vectors/index): <https://developers.cloudflare.com/vectorize/platform/limits/> (2026-08-05)
+- GitHub budget, ETag/304, token policy: [09](09-public-data-and-limits.md) §4/§6; eviction/rebuild-from-R2: [10](10-multitenant-architecture.md) §6.
