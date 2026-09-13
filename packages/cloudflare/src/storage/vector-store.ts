@@ -77,7 +77,14 @@ const trySync = <A>(
 
 /** Effect wrapper over a promise-based bucket (`env.BUCKET` in production). */
 export class R2VectorBlobStore implements VectorBlobStoreShape {
-  constructor(readonly bucket: VectorBlobBucket) {}
+  // Plain field + assignment instead of a parameter property: Node's
+  // strip-only TypeScript loader (used by `apps/worker` local dev) cannot
+  // parse parameter properties.
+  readonly bucket: VectorBlobBucket;
+
+  constructor(bucket: VectorBlobBucket) {
+    this.bucket = bucket;
+  }
 
   readonly putVectors = (login: string, vectors: ReadonlyArray<Float32Array>) => {
     const key = vectorBlobKey(login);

@@ -30,16 +30,20 @@
 
 ## How to run
 
+**Local (no Cloudflare account):**
+
 ```bash
 pnpm install
-pnpm -r typecheck && pnpm -r test
-pnpm --filter @starwatch/webui build        # required before worker deploy (assets)
-pnpm --filter @starwatch/worker dev         # alchemy dev (needs Cloudflare auth)
+pnpm --filter @starwatch/worker run dev:local   # API on :8787, SQLite + in-memory R2, fake embeddings
+pnpm --filter @starwatch/webui dev              # UI on :5173 (proxies /api → :8787)
 pnpm --filter @starwatch/cli dev -- search auth -u coldter --lang typescript
-pnpm plan && pnpm deploy                    # Alchemy plan/deploy
 ```
 
-Deploy requirements: Cloudflare account, `CLOUDFLARE_API_TOKEN` (+ account id or profile), a fine-grained GitHub PAT with public read (worker secret `GITHUB_TOKEN`), and `apps/webui/dist` present.
+**Tests:** `pnpm -r typecheck && pnpm -r test` · **Quality lab:** `pnpm --filter @starwatch/eval-lab run eval`
+
+**Deploy:** copy `apps/worker/.env.example` → `.env`, set credentials (env vars or `alchemy profile`), `pnpm --filter @starwatch/webui build`, then `pnpm plan && pnpm deploy`.
+
+**Verified end-to-end locally (2026-09-13):** synced `coldter` (3,449 repos, ~100 s) against the real GitHub API, then `auth --lang typescript` returned **1. better-auth/better-auth · 2. lucia-auth/lucia · 3. melody-auth · 5. voidauth · 7. logto-io/logto** — the docs/18 acceptance example passes. First-run bugs fixed: first-time sync now fetches the profile itself (previously required a prior lookup), and language/license filters are case-insensitive (`typescript` == `TypeScript`).
 
 ## Known gaps (deliberate, ordered)
 
@@ -51,6 +55,7 @@ Deploy requirements: Cloudflare account, `CLOUDFLARE_API_TOKEN` (+ account id or
 6. **WebUI stubs**: no sync cancel/queue position, no per-user SEO/OG tags, README not rendered in-app (links to GitHub).
 7. **Eval lab is not yet wired as a regression gate** in CI/local workflow; it remains a standalone lab.
 8. **Workflow limits** are pinned to `steps: 1_000` (free cap is 1,024; observed worst cases 107 and 195).
+9. **Local mode uses fake embeddings** — keyword/expansion ranking is real, semantic ranking is only plumbed (use the eval lab or a deploy to judge semantic quality).
 
 ## Next steps
 

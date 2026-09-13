@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
+    "dev:local": "node src/local/serve.ts",
     "plan": "alchemy plan",
     "deploy": "alchemy deploy",
     "dev": "alchemy dev",
@@ -15,12 +16,14 @@
     "@starwatch/core": "workspace:*",
     "@starwatch/domain": "workspace:*",
     "@effect/sql-d1": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
     "@effect/platform-node": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
     "typescript": "catalog:"
   }
 }

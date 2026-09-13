@@ -38,15 +38,27 @@ export class SyncDeps extends Context.Service<SyncDeps, SyncDepsShape>()("starwa
 export interface SyncDepsOptions {
   readonly rawD1: D1Database;
   readonly rawBucket: RawR2Bucket;
-  readonly rawAi: Ai;
+  readonly rawAi: Ai | undefined;
   /** Fine-grained PAT with no permissions; empty string = anonymous (dev). */
   readonly githubToken: string;
   readonly userAgent: string;
 }
 
-/** The `raw.run` overloads are model-typed; narrow to the embedder contract. */
-const toWorkersAiBinding = (raw: Ai): WorkersAiBinding => ({
-  run: raw.run as unknown as WorkersAiBinding["run"]
+/**
+ * The `raw.run` overloads are model-typed; narrow to the embedder contract.
+ * `raw` is `undefined` during the Alchemy **plan phase** (Node, no bindings),
+ * so the run function is resolved lazily and only rejects if it is actually
+ * used before isolate boot provides a real `env.AI`.
+ */
+const toWorkersAiBinding = (raw: Ai | undefined): WorkersAiBinding => ({
+  run: (model, input) => {
+    if (raw === undefined || typeof raw.run !== "function") {
+      return Promise.reject(
+        new Error("Workers AI binding unavailable (plan-time construction or missing AI binding)")
+      );
+    }
+    return (raw.run as unknown as WorkersAiBinding["run"])(model, input);
+  }
 });
 
 export const makeSyncDeps = (options: SyncDepsOptions): SyncDepsShape => {

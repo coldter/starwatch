@@ -138,9 +138,12 @@ describe("RepoStore", () => {
       const store = yield* RepoStore;
 
       expect(ids(yield* store.listReposForSearch(LOGIN, { language: "TypeScript" }))).toEqual([4, 1, 2]);
+      // Case-insensitive: CLI/WebUI send lowercase language and license values.
+      expect(ids(yield* store.listReposForSearch(LOGIN, { language: "typescript" }))).toEqual([4, 1, 2]);
       expect(ids(yield* store.listReposForSearch(LOGIN, { archived: true }))).toEqual([3]);
       expect(ids(yield* store.listReposForSearch(LOGIN, { archived: false }))).toEqual([4, 1, 2]);
       expect(ids(yield* store.listReposForSearch(LOGIN, { license: "MIT" }))).toEqual([1, 2]);
+      expect(ids(yield* store.listReposForSearch(LOGIN, { license: "mit" }))).toEqual([1, 2]);
       expect(
         ids(
           yield* store.listReposForSearch(LOGIN, {

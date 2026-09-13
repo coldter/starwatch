@@ -455,7 +455,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
       ) {
         const conditions: Array<Fragment> = [];
         if (filters.language !== undefined) {
-          conditions.push(sql`r.language = ${filters.language}`);
+          // Case-insensitive: GitHub returns "TypeScript", users type "typescript".
+          conditions.push(sql`LOWER(r.language) = LOWER(${filters.language})`);
         }
         if (filters.minStars !== undefined) {
           conditions.push(sql`r.stars >= ${filters.minStars}`);
@@ -467,7 +468,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
           conditions.push(sql`r.archived = ${boolToInt(filters.archived)}`);
         }
         if (filters.license !== undefined) {
-          conditions.push(sql`r.license = ${filters.license}`);
+          // SPDX ids are stored uppercase ("MIT"); accept any input casing.
+          conditions.push(sql`LOWER(COALESCE(r.license, '')) = LOWER(${filters.license})`);
         }
         if (filters.starredAfter !== undefined) {
           conditions.push(sql`s.starred_at >= ${filters.starredAfter}`);

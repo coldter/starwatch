@@ -5,9 +5,10 @@ import {
   SyncInProgress,
   UserNotFound
 } from "@starwatch/domain";
-import { canSync } from "@starwatch/core/sync";
+import { canSync, GithubClient } from "@starwatch/core/sync";
 import { RepoStore } from "@starwatch/cloudflare/storage";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Exit from "effect/Exit";
 import * as Stream from "effect/Stream";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
@@ -52,8 +53,19 @@ export const usersGroup = (deps: WorkerDeps) =>
 
           const login = normalizeLogin(params.login);
           const repos = yield* RepoStore;
-          const profile = yield* repos.getUser(login).pipe(Effect.orDie);
-          if (profile === null) return yield* new UserNotFound({ login });
+          // First-time indexing: fetch + persist the profile here so a brand
+          // new username can be synced without a prior lookup (docs/08 §1).
+          let profile = yield* repos.getUser(login).pipe(Effect.orDie);
+          if (profile === null) {
+            const github = yield* GithubClient;
+            profile = yield* github.getUserProfile(login).pipe(
+              Effect.catchTags({
+                GithubUpstream: (error) => Effect.die(error),
+                GithubRateLimited: (error) => Effect.die(error)
+              })
+            );
+            yield* repos.upsertUser(profile).pipe(Effect.orDie);
+          }
 
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
           const phase = stored?.phase ?? "idle";
@@ -118,7 +130,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             });
           }
           return { started: true, phase: "listing" as const };
-        }).pipe(Effect.provide(deps.sync.storage))
+        }).pipe(Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github)))
       )
       .handle("getSyncState", ({ params }) =>
         Effect.gen(function* () {
