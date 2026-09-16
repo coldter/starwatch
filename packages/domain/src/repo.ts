@@ -20,7 +20,7 @@ export const Repo = Schema.Struct({
   homepage: Schema.NullOr(Schema.String),
   pushedAt: Schema.NullOr(Schema.String),
   starredAt: Schema.NullOr(Schema.String),
-  htmlUrl: Schema.String
+  htmlUrl: Schema.String,
 });
 
 export type Repo = typeof Repo.Type;

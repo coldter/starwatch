@@ -11,7 +11,7 @@ export const UserProfile = Schema.Struct({
   location: Schema.NullOr(Schema.String),
   followers: Schema.Number,
   publicRepos: Schema.Number,
-  createdAt: Schema.String
+  createdAt: Schema.String,
 });
 
 export type UserProfile = typeof UserProfile.Type;

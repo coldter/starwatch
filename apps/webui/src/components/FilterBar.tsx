@@ -7,14 +7,14 @@ const MODE_LABELS: Record<SearchMode, string> = {
   auto: "Smart",
   keyword: "Keyword",
   hybrid: "Hybrid",
-  semantic: "Semantic"
+  semantic: "Semantic",
 };
 
 const MODE_TITLES: Record<SearchMode, string> = {
   auto: "starwatch picks the best strategy for this query",
   keyword: "Exact words: names, descriptions, topics, READMEs",
   hybrid: "Keyword results re-ranked by meaning",
-  semantic: "Meaning-based search over indexed READMEs"
+  semantic: "Meaning-based search over indexed READMEs",
 };
 
 export interface FilterBarProps {
@@ -39,7 +39,7 @@ export function FilterBar({
   onToggleGroup,
   onMinStars,
   onArchived,
-  onClear
+  onClear,
 }: FilterBarProps) {
   const [open, setOpen] = useState(false);
   const active = hasActiveFilters(state);
@@ -109,8 +109,11 @@ export function FilterBar({
             value={state.minStars ?? ""}
             disabled={disabled}
             onChange={(event) => {
-              const value = event.target.value === "" ? undefined : Number.parseInt(event.target.value, 10);
-              onMinStars(value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined);
+              const value =
+                event.target.value === "" ? undefined : Number.parseInt(event.target.value, 10);
+              onMinStars(
+                value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined,
+              );
             }}
           />
         </div>
@@ -152,7 +155,12 @@ export function FilterBar({
 
         {active ? (
           <div className="field field--clear">
-            <button type="button" className="btn btn--ghost btn--small" onClick={onClear} disabled={disabled}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--small"
+              onClick={onClear}
+              disabled={disabled}
+            >
               Clear filters
             </button>
           </div>

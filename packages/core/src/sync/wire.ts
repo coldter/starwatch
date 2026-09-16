@@ -23,20 +23,20 @@ import type { Group } from "@starwatch/domain";
 const OwnerLoginWire = Schema.Struct({ login: Schema.String }).pipe(
   Schema.decodeTo(Schema.String, {
     decode: SchemaGetter.transform((owner) => owner.login),
-    encode: SchemaGetter.transform((login) => ({ login }))
-  })
+    encode: SchemaGetter.transform((login) => ({ login })),
+  }),
 );
 
 /** `{ spdx_id } | null` -> `string | null`. */
 const LicenseWire = Schema.NullOr(
   Schema.Struct({ spdxId: Schema.NullOr(Schema.String) }).pipe(
-    Schema.encodeKeys({ spdxId: "spdx_id" })
-  )
+    Schema.encodeKeys({ spdxId: "spdx_id" }),
+  ),
 ).pipe(
   Schema.decodeTo(Schema.NullOr(Schema.String), {
     decode: SchemaGetter.transform((license) => license?.spdxId ?? null),
-    encode: SchemaGetter.transform((spdxId) => (spdxId === null ? null : { spdxId }))
-  })
+    encode: SchemaGetter.transform((spdxId) => (spdxId === null ? null : { spdxId })),
+  }),
 );
 
 /** The repo fields a star page carries, decoded straight into `Repo`. */
@@ -56,23 +56,21 @@ export const RepoWire = Schema.Struct({
   pushedAt: Schema.NullOr(Schema.String),
   htmlUrl: Schema.String,
   /** Not present on repo objects; the star envelope fills it in. */
-  starredAt: Schema.NullOr(Schema.String).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(null))
-  )
+  starredAt: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
 }).pipe(
   Schema.encodeKeys({
     fullName: "full_name",
     stars: "stargazers_count",
     forks: "forks_count",
     pushedAt: "pushed_at",
-    htmlUrl: "html_url"
-  })
+    htmlUrl: "html_url",
+  }),
 );
 
 /** One `{ starred_at, repo }` item from `Accept: application/vnd.github.star+json`. */
 export const StarItemWire = Schema.Struct({
   starredAt: Schema.String,
-  repo: RepoWire
+  repo: RepoWire,
 }).pipe(Schema.encodeKeys({ starredAt: "starred_at" }));
 
 /** `GET /users/{login}` -> `UserProfile`. */
@@ -86,19 +84,19 @@ export const UserWire = Schema.Struct({
   location: Schema.NullOr(Schema.String),
   followers: Schema.Number,
   publicRepos: Schema.Number,
-  createdAt: Schema.String
+  createdAt: Schema.String,
 }).pipe(
   Schema.encodeKeys({
     avatarUrl: "avatar_url",
     publicRepos: "public_repos",
-    createdAt: "created_at"
-  })
+    createdAt: "created_at",
+  }),
 );
 
 /** GraphQL connection cursor state. */
 export const PageInfoWire = Schema.Struct({
   hasNextPage: Schema.Boolean,
-  endCursor: Schema.NullOr(Schema.String)
+  endCursor: Schema.NullOr(Schema.String),
 });
 
 /** `items.nodes` element: the `Repository` member of the `UserListItems` union. */
@@ -106,7 +104,7 @@ export const ListItemWire = Schema.Struct({ databaseId: Schema.Number });
 
 export const ItemsConnectionWire = Schema.Struct({
   pageInfo: PageInfoWire,
-  nodes: Schema.Array(Schema.NullOr(ListItemWire))
+  nodes: Schema.Array(Schema.NullOr(ListItemWire)),
 });
 
 /** `UserList` node as selected by the lists query. */
@@ -114,22 +112,22 @@ export const UserListWire = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   isPrivate: Schema.Boolean,
-  items: ItemsConnectionWire
+  items: ItemsConnectionWire,
 });
 
 export const ListsConnectionWire = Schema.Struct({
   pageInfo: PageInfoWire,
-  nodes: Schema.Array(UserListWire)
+  nodes: Schema.Array(UserListWire),
 });
 
 /** `data` of the `user(login){ lists { ... } }` query. */
 export const UserListsWire = Schema.Struct({
-  user: Schema.NullOr(Schema.Struct({ lists: ListsConnectionWire }))
+  user: Schema.NullOr(Schema.Struct({ lists: ListsConnectionWire })),
 });
 
 /** `data` of the `node(id){ ... on UserList { items { ... } } }` continuation. */
 export const ListItemsPageWire = Schema.Struct({
-  node: Schema.NullOr(Schema.Struct({ items: ItemsConnectionWire }))
+  node: Schema.NullOr(Schema.Struct({ items: ItemsConnectionWire })),
 });
 
 /** GraphQL error entry (only `message` is load-bearing for us). */
@@ -138,7 +136,7 @@ export const GraphqlErrorWire = Schema.Struct({ message: Schema.String });
 /** GraphQL envelope; `data` stays unknown so it can be decoded per query. */
 export const GraphqlEnvelopeWire = Schema.Struct({
   data: Schema.optional(Schema.Unknown),
-  errors: Schema.optional(Schema.Array(GraphqlErrorWire))
+  errors: Schema.optional(Schema.Array(GraphqlErrorWire)),
 });
 
 export const decodeRepo = Schema.decodeUnknownEffect(RepoWire);
@@ -174,7 +172,7 @@ export type UserListWireType = (typeof UserListWire)["Type"];
 export const groupFromUserList = (
   node: UserListWireType,
   position: number,
-  extraRepoIds: ReadonlyArray<number> = []
+  extraRepoIds: ReadonlyArray<number> = [],
 ): Group => ({
   id: node.id,
   name: node.name,
@@ -182,6 +180,6 @@ export const groupFromUserList = (
   position,
   repoIds: [
     ...node.items.nodes.flatMap((item) => (item === null ? [] : [item.databaseId])),
-    ...extraRepoIds
-  ]
+    ...extraRepoIds,
+  ],
 });

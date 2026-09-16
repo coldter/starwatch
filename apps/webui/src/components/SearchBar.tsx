@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 export interface SearchBarProps {
   /** Current committed query (URL is the source of truth). */
@@ -13,7 +19,13 @@ export interface SearchBarProps {
  * Search input with the shared shortcuts: `/` or Cmd/Ctrl+K focus from
  * anywhere, Enter submits, Esc clears focus (docs/06 §3).
  */
-export function SearchBar({ value, onSubmit, placeholder, busy = false, autoFocus = false }: SearchBarProps) {
+export function SearchBar({
+  value,
+  onSubmit,
+  placeholder,
+  busy = false,
+  autoFocus = false,
+}: SearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(value);
 
@@ -31,9 +43,14 @@ export function SearchBar({ value, onSubmit, placeholder, busy = false, autoFocu
 
       const typing =
         target instanceof HTMLElement &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
 
-      if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
+      if (
+        (event.key === "k" || event.key === "K") &&
+        (event.metaKey || event.ctrlKey)
+      ) {
         event.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();

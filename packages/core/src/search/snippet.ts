@@ -37,7 +37,7 @@ export interface TermMatch {
 /** First whole-word occurrence of any term (earliest wins; ties keep term order). */
 export const findFirstTermMatch = (
   text: string,
-  terms: ReadonlyArray<string>
+  terms: ReadonlyArray<string>,
 ): TermMatch | undefined => {
   let best: TermMatch | undefined;
 
@@ -99,11 +99,7 @@ const windowAround = (text: string, match: TermMatch): string => {
  * case-insensitive; returns "" only when neither README nor description has
  * any usable text.
  */
-export const makeSnippet = (
-  repo: Repo,
-  terms: ReadonlyArray<string>,
-  readme?: string
-): string => {
+export const makeSnippet = (repo: Repo, terms: ReadonlyArray<string>, readme?: string): string => {
   const readmeText = readme ?? "";
 
   if (readmeText.length > 0) {

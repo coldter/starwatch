@@ -7,15 +7,15 @@
 
 ## 1. Recommendation at a glance
 
-| Question | Decision |
-|---|---|
-| Source of truth | **Local-first**: D1 owns groups; GitHub Lists are optional, never required |
-| Group kinds | **Manual** (stored membership) + **smart** (stored rules, evaluated live at query time) |
-| Hierarchy | **Flat**, many-to-many — no folders (see §3.2) |
-| Multiple `--group` | **OR** by default; `--group-all` switches to AND (§5.2) |
-| GitHub in v1 | Read-only **one-time import** of the 22 existing lists into local groups |
-| GitHub in v2 | Opt-in, per-group **one-way push mirror** (local → GitHub) |
-| Marginal cost | **≈ $0** — a full membership snapshot is 1 GraphQL point; Vectorize filter is free |
+| Question           | Decision                                                                                |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| Source of truth    | **Local-first**: D1 owns groups; GitHub Lists are optional, never required              |
+| Group kinds        | **Manual** (stored membership) + **smart** (stored rules, evaluated live at query time) |
+| Hierarchy          | **Flat**, many-to-many — no folders (see §3.2)                                          |
+| Multiple `--group` | **OR** by default; `--group-all` switches to AND (§5.2)                                 |
+| GitHub in v1       | Read-only **one-time import** of the 22 existing lists into local groups                |
+| GitHub in v2       | Opt-in, per-group **one-way push mirror** (local → GitHub)                              |
+| Marginal cost      | **≈ $0** — a full membership snapshot is 1 GraphQL point; Vectorize filter is free      |
 
 Local-first is the only option that supports unlimited groups, smart rules, colors/order, and stays safe while GitHub Lists remain in public preview.
 
@@ -23,17 +23,17 @@ Local-first is the only option that supports unlimited groups, smart rules, colo
 
 ### 2.1 What exists today (schema-verified live)
 
-GraphQL only — **no REST endpoints** (checked against the official `api.github.com` OpenAPI description: no `/user/*list*` path). The types were added to the schema on **2023-11-30** and are still documented as *"Lists are currently in public preview and subject to change."*
+GraphQL only — **no REST endpoints** (checked against the official `api.github.com` OpenAPI description: no `/user/*list*` path). The types were added to the schema on **2023-11-30** and are still documented as _"Lists are currently in public preview and subject to change."_
 
-| Operation | GraphQL shape (verified by introspection + live calls) | Notes |
-|---|---|---|
-| Read lists | `viewer.lists(first/last/after/before) → UserListConnection` | args are pagination only — **no `orderBy`** |
-| Read items | `UserList.items(first/last/after/before) → UserListItems` | union `UserListItems = Repository` only |
-| Create | `createUserList(input: {name, description, isPrivate}) → {list, viewer}` | returns the new `UL_…` id |
-| Update | `updateUserList(input: {listId, name, description, isPrivate}) → {list, viewer}` | id stable across rename |
-| Delete | `deleteUserList(input: {listId}) → {user}` | list gone; stars untouched |
+| Operation           | GraphQL shape (verified by introspection + live calls)                                     | Notes                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Read lists          | `viewer.lists(first/last/after/before) → UserListConnection`                               | args are pagination only — **no `orderBy`**                                         |
+| Read items          | `UserList.items(first/last/after/before) → UserListItems`                                  | union `UserListItems = Repository` only                                             |
+| Create              | `createUserList(input: {name, description, isPrivate}) → {list, viewer}`                   | returns the new `UL_…` id                                                           |
+| Update              | `updateUserList(input: {listId, name, description, isPrivate}) → {list, viewer}`           | id stable across rename                                                             |
+| Delete              | `deleteUserList(input: {listId}) → {user}`                                                 | list gone; stars untouched                                                          |
 | Set item membership | `updateUserListsForItem(input: {itemId, listIds, suggestedListIds}) → {item, lists, user}` | **replace semantics**: `listIds` = "the lists to which this item **should belong**" |
-| Suggestions | `viewer.suggestedListNames → [UserListSuggestion!]!` (`{id, name}`) | GitHub-provided names, e.g. 🔮 Future ideas |
+| Suggestions         | `viewer.suggestedListNames → [UserListSuggestion!]!` (`{id, name}`)                        | GitHub-provided names, e.g. 🔮 Future ideas                                         |
 
 `UserList` fields: `id, slug, name, description, isPrivate, createdAt, updatedAt, lastAddedAt, items, user` — there is **no `position`** field, and `lastAddedAt` only tracks "created or last item added".
 
@@ -47,27 +47,27 @@ Other verified behavior:
 
 ### 2.2 Limits, scopes, costs
 
-| Fact | Value | Confidence |
-|---|---|---|
-| Max lists per account | **32** | ⚠️ community-reported (multiple staff-adjacent threads), not in official docs |
-| Max items per list | undocumented; 52 observed; long lists paginate in the UI | ⚠️ validate with a 500+ item list |
-| Pagination | `first/last` 1–100; ≤500k nodes/call; 10 s timeout | docs |
-| Query cost | min **1 point**; snapshot = 1 pt; nightly sync negligible vs 5,000 pt/h | docs + live |
-| Mutation budget | 5 secondary points/request; ≤80 content-generating req/min; **≤500/h**; ≥1 s spacing advised | docs |
-| Read scopes | ✅ works with a `gh` OAuth token holding only `gist, read:org, repo, workflow` (**no `user` scope**) | live |
-| Write scopes | undocumented ⚠️ — conservative choice is classic PAT `user`; fine-grained PATs may call GraphQL (since 2023-04-27) but no "Lists" fine-grained permission is documented | ⚠️ test before building |
-| Private lists | `isPrivate` is real (5 private lists on the account), though the help page only describes public lists | live |
-| Availability | all users except enterprise managed users | 2021 changelog |
+| Fact                  | Value                                                                                                                                                                   | Confidence                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Max lists per account | **32**                                                                                                                                                                  | ⚠️ community-reported (multiple staff-adjacent threads), not in official docs |
+| Max items per list    | undocumented; 52 observed; long lists paginate in the UI                                                                                                                | ⚠️ validate with a 500+ item list                                             |
+| Pagination            | `first/last` 1–100; ≤500k nodes/call; 10 s timeout                                                                                                                      | docs                                                                          |
+| Query cost            | min **1 point**; snapshot = 1 pt; nightly sync negligible vs 5,000 pt/h                                                                                                 | docs + live                                                                   |
+| Mutation budget       | 5 secondary points/request; ≤80 content-generating req/min; **≤500/h**; ≥1 s spacing advised                                                                            | docs                                                                          |
+| Read scopes           | ✅ works with a `gh` OAuth token holding only `gist, read:org, repo, workflow` (**no `user` scope**)                                                                    | live                                                                          |
+| Write scopes          | undocumented ⚠️ — conservative choice is classic PAT `user`; fine-grained PATs may call GraphQL (since 2023-04-27) but no "Lists" fine-grained permission is documented | ⚠️ test before building                                                       |
+| Private lists         | `isPrivate` is real (5 private lists on the account), though the help page only describes public lists                                                                  | live                                                                          |
+| Availability          | all users except enterprise managed users                                                                                                                               | 2021 changelog                                                                |
 
 ⚠️ The project's existing fine-grained PAT ("Starring: Read", 02 §5) may cover reads/import; a push mirror likely needs a second secret. Decide after a one-time staging mutation test (create → delete a throwaway list) at implementation time.
 
 ### 2.3 Feasibility: three options
 
-| Option | Meaning | Pros | Cons | Verdict |
-|---|---|---|---|---|
-| **(a) GitHub = source of truth** | starwatch reads/writes lists; no local groups | zero dual-write; GitHub UI is the editor | 32-list cap; no smart rules/colors/order; preview API; per-item replace mutations; unstar coupling; search still needs a local sync anyway | ✗ |
-| **(b) Optional mirror** | local first: import once; opt-in push per group | unlimited local groups + all features; reuses existing 279-item curation; GitHub UI for the mirrored subset; degrades safely | dual-write conflicts; mutation budget; preview-API risk; unstar coupling | ✅ **recommended** |
-| **(c) Not used** | ignore Lists entirely | simplest, zero API risk | discards existing lists; no round-trip | ✗ (v1 runs a read-only variant of (b)) |
+| Option                           | Meaning                                         | Pros                                                                                                                         | Cons                                                                                                                                       | Verdict                                |
+| -------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| **(a) GitHub = source of truth** | starwatch reads/writes lists; no local groups   | zero dual-write; GitHub UI is the editor                                                                                     | 32-list cap; no smart rules/colors/order; preview API; per-item replace mutations; unstar coupling; search still needs a local sync anyway | ✗                                      |
+| **(b) Optional mirror**          | local first: import once; opt-in push per group | unlimited local groups + all features; reuses existing 279-item curation; GitHub UI for the mirrored subset; degrades safely | dual-write conflicts; mutation budget; preview-API risk; unstar coupling                                                                   | ✅ **recommended**                     |
+| **(c) Not used**                 | ignore Lists entirely                           | simplest, zero API risk                                                                                                      | discards existing lists; no round-trip                                                                                                     | ✗ (v1 runs a read-only variant of (b)) |
 
 **Recommendation:** (b), staged — v1 ships local-first groups plus a **read-only one-time import** (cheap, immediately useful, no mutation risk); v2 adds an explicit per-group **push mirror** for the subset the user wants visible in GitHub's UI.
 
@@ -84,10 +84,10 @@ Groups stay fully functional because D1 is authoritative. Rules for the mirror a
 
 ### 3.1 Group kinds
 
-| Kind | Membership | Evaluated | Typical use |
-|---|---|---|---|
-| `manual` | rows in `group_members` | static, at write time | "weekend projects", "to try next" |
-| `smart` | none stored; optional `q` + filter rules | live SQL/FTS at query time | `language:rust stars>=500 topic:tui archived:false` |
+| Kind     | Membership                               | Evaluated                  | Typical use                                         |
+| -------- | ---------------------------------------- | -------------------------- | --------------------------------------------------- |
+| `manual` | rows in `group_members`                  | static, at write time      | "weekend projects", "to try next"                   |
+| `smart`  | none stored; optional `q` + filter rules | live SQL/FTS at query time | `language:rust stars>=500 topic:tui archived:false` |
 
 Manual XOR smart in v1. Mixed groups ("rule plus pinned/blocked repos") are a v2 idea — the override semantics cause confusion and are not worth it yet. Smart groups are inherently self-maintaining: metadata changes (language, stars, archived) move repos, which is the point.
 
@@ -109,15 +109,15 @@ Revisit only if a real corpus of 100+ groups emerges.
 
 ### 3.4 Group metadata
 
-| Field | Type | Notes |
-|---|---|---|
-| `name` | display string | unicode + emoji allowed; max ~60 chars |
-| `slug` | ascii id | unique; `[a-z0-9][a-z0-9-]*`, ≤40 chars, **stable after creation** (renames keep slug) |
-| `color` | palette token or `#rrggbb` | UI dot/chip color |
-| `icon` | one emoji (grapheme) | optional, shown in chips |
-| `description` | string | optional, shown in group detail |
-| `position` | integer | local ordering only (GitHub has none); reorder rewrites 100-step positions |
-| `kind`, `rules_json` | see §4.2 | smart only |
+| Field                | Type                       | Notes                                                                                  |
+| -------------------- | -------------------------- | -------------------------------------------------------------------------------------- |
+| `name`               | display string             | unicode + emoji allowed; max ~60 chars                                                 |
+| `slug`               | ascii id                   | unique; `[a-z0-9][a-z0-9-]*`, ≤40 chars, **stable after creation** (renames keep slug) |
+| `color`              | palette token or `#rrggbb` | UI dot/chip color                                                                      |
+| `icon`               | one emoji (grapheme)       | optional, shown in chips                                                               |
+| `description`        | string                     | optional, shown in group detail                                                        |
+| `position`           | integer                    | local ordering only (GitHub has none); reorder rewrites 100-step positions             |
+| `kind`, `rules_json` | see §4.2                   | smart only                                                                             |
 
 ### 3.5 Auto-suggested groups (v2)
 
@@ -176,11 +176,11 @@ Versioned JSON on `groups.rules_json`:
   "q": "durable jobs",
   "match": "all",
   "filters": [
-    { "field": "language",    "op": "eq",  "value": "rust" },
-    { "field": "stars",       "op": "gte", "value": 500 },
-    { "field": "topics",      "op": "has", "value": "tui" },
-    { "field": "starred_at",  "op": "gte", "value": "2024-01-01" },
-    { "field": "archived",    "op": "eq",  "value": false }
+    { "field": "language", "op": "eq", "value": "rust" },
+    { "field": "stars", "op": "gte", "value": 500 },
+    { "field": "topics", "op": "has", "value": "tui" },
+    { "field": "starred_at", "op": "gte", "value": "2024-01-01" },
+    { "field": "archived", "op": "eq", "value": false }
   ]
 }
 ```
@@ -193,23 +193,23 @@ Versioned JSON on `groups.rules_json`:
 
 ### 4.3 Query patterns
 
-| Need | Query |
-|---|---|
-| Group list + counts | `SELECT … FROM groups` + count join (3.3k rows, live count is fine; no cache needed) |
-| Strict membership filter | `EXISTS (SELECT 1 FROM group_members m WHERE m.repo_id = repos.id AND m.group_id IN (…))` |
-| Smart group members | `SELECT id FROM repos WHERE …` from compiled rules |
+| Need                          | Query                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| Group list + counts           | `SELECT … FROM groups` + count join (3.3k rows, live count is fine; no cache needed)         |
+| Strict membership filter      | `EXISTS (SELECT 1 FROM group_members m WHERE m.repo_id = repos.id AND m.group_id IN (…))`    |
+| Smart group members           | `SELECT id FROM repos WHERE …` from compiled rules                                           |
 | Repo → groups (chips, `show`) | `SELECT group_id FROM group_members WHERE repo_id = ?` + smart rules evaluated for that repo |
-| Page a large group | keyset on `(added_at DESC, repo_id DESC)` — limit ≤100 |
+| Page a large group            | keyset on `(added_at DESC, repo_id DESC)` — limit ≤100                                       |
 
 ### 4.4 Lifecycle
 
-| Event | Behavior |
-|---|---|
-| Repo **unstarred** | GitHub also removes it from any mirrored lists. Local membership **stays** in `group_members`; group queries join `repos.is_starred = 1` by default. If the repo row is purged 90 days later (02 §5), CASCADE removes memberships; re-starring within the window restores group membership for free. |
-| Repo **renamed/transferred** | id-stable (`repos.id`, `node_id`); membership untouched, display name follows `repos.full_name`. |
-| Repo **deleted** | sync soft-deletes; mirror push skips it; memberships die with the repo row after retention. |
-| Group **deleted** | `DELETE FROM groups` cascades memberships (one batch); smart groups delete only the rule row. |
-| Group **renamed** | slug immutable; mirror matches by `github_list_id`, so rename pushes cleanly (v2). |
+| Event                        | Behavior                                                                                                                                                                                                                                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo **unstarred**           | GitHub also removes it from any mirrored lists. Local membership **stays** in `group_members`; group queries join `repos.is_starred = 1` by default. If the repo row is purged 90 days later (02 §5), CASCADE removes memberships; re-starring within the window restores group membership for free. |
+| Repo **renamed/transferred** | id-stable (`repos.id`, `node_id`); membership untouched, display name follows `repos.full_name`.                                                                                                                                                                                                     |
+| Repo **deleted**             | sync soft-deletes; mirror push skips it; memberships die with the repo row after retention.                                                                                                                                                                                                          |
+| Group **deleted**            | `DELETE FROM groups` cascades memberships (one batch); smart groups delete only the rule row.                                                                                                                                                                                                        |
+| Group **renamed**            | slug immutable; mirror matches by `github_list_id`, so rename pushes cleanly (v2).                                                                                                                                                                                                                   |
 
 ### 4.5 Mirror state table (v2 only)
 
@@ -219,13 +219,13 @@ Versioned JSON on `groups.rules_json`:
 
 ### 5.1 Flags
 
-| Flag | Effect |
-|---|---|
-| `--group <slug>` (repeatable) | **strict filter**: repo must be in at least one listed group (OR) |
-| `--group-all` | strict filter with AND: repo must be in **every** listed group |
-| `--boost-group <slug>` (repeatable) | ranking-only boost; never filters |
-| `--ungrouped` | repos in no manual group and matching no smart group |
-| output | every result carries `groups: [{slug, name, color, icon, kind}]` chips |
+| Flag                                | Effect                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| `--group <slug>` (repeatable)       | **strict filter**: repo must be in at least one listed group (OR)      |
+| `--group-all`                       | strict filter with AND: repo must be in **every** listed group         |
+| `--boost-group <slug>` (repeatable) | ranking-only boost; never filters                                      |
+| `--ungrouped`                       | repos in no manual group and matching no smart group                   |
+| output                              | every result carries `groups: [{slug, name, color, icon, kind}]` chips |
 
 All group flags compose with the docs/01 §4 filters (same AND across facets).
 
@@ -244,7 +244,7 @@ Both kinds resolve to a **candidate repo-id set in D1 first** (manual: `group_me
 
 1. **Lexical leg (D1/FTS5):** `EXISTS`/`IN` as in §4.3 — exact, cheap.
 2. **Semantic leg (Vectorize):** pre-filter with `{ "repo_id": { "$in": [...] } }` **iff** the compact JSON stays under the **2,048-byte filter limit** — roughly ≤150 nine-digit ids. Otherwise post-filter the unfiltered top-50 (metadata) / top-100 (ids-only) by membership and fuse normally. Small groups therefore get exact recall; mid-size groups accept some recall loss (⚠️ the main quality caveat; could be revisited with a `primary_group` metadata field later).
-3. **Vectorize prerequisite:** add `repo_id` as a **number metadata index from day 1** (6th of 10 allowed). Metadata indexes only cover vectors upserted *after* creation — adding it later forces a 23k-vector re-upsert. Nearly free at our scale, but avoid the retrofit.
+3. **Vectorize prerequisite:** add `repo_id` as a **number metadata index from day 1** (6th of 10 allowed). Metadata indexes only cover vectors upserted _after_ creation — adding it later forces a 23k-vector re-upsert. Nearly free at our scale, but avoid the retrofit.
 
 ### 5.4 Ranking boost
 
@@ -259,19 +259,19 @@ Both kinds resolve to a **candidate repo-id set in D1 first** (manual: `group_me
 
 ### 6.1 Contract surface (RPC for CLI + HttpApi for WebUI, per 02 §2/§6)
 
-| Operation | Contract name | HTTP route | Data model |
-|---|---|---|---|
-| List groups (+counts) | `groups.list` | `GET /groups` | `groups` + counts/rules eval |
-| Create | `groups.create` | `POST /groups` | insert `groups` |
-| Get one | `groups.get` | `GET /groups/:slug` | group + members (paged) |
-| Edit metadata/rules | `groups.update` | `PATCH /groups/:slug` | update `groups`; kind change resets members for smart |
-| Delete | `groups.delete` | `DELETE /groups/:slug` | delete cascade |
-| Add members (bulk) | `groups.addMembers` | `POST /groups/:slug/members` | `INSERT OR IGNORE` batch; rejects smart groups |
-| Remove members (bulk) | `groups.removeMembers` | `DELETE /groups/:slug/members` | delete batch; rejects smart groups |
-| List members | `groups.members` | `GET /groups/:slug/members?limit&cursor` | keyset paging (§4.3) |
-| Reorder | `groups.reorder` | `PUT /groups/reorder` | rewrite 100-step positions in one batch |
-| Import from GitHub | `groups.importGithub` | `POST /groups/import` | read-only Lists snapshot → local groups |
-| Mirror toggle/sync (v2) | `groups.mirror` | `POST /groups/:slug/mirror` | `github_mirror`/state + adapter |
+| Operation               | Contract name          | HTTP route                               | Data model                                            |
+| ----------------------- | ---------------------- | ---------------------------------------- | ----------------------------------------------------- |
+| List groups (+counts)   | `groups.list`          | `GET /groups`                            | `groups` + counts/rules eval                          |
+| Create                  | `groups.create`        | `POST /groups`                           | insert `groups`                                       |
+| Get one                 | `groups.get`           | `GET /groups/:slug`                      | group + members (paged)                               |
+| Edit metadata/rules     | `groups.update`        | `PATCH /groups/:slug`                    | update `groups`; kind change resets members for smart |
+| Delete                  | `groups.delete`        | `DELETE /groups/:slug`                   | delete cascade                                        |
+| Add members (bulk)      | `groups.addMembers`    | `POST /groups/:slug/members`             | `INSERT OR IGNORE` batch; rejects smart groups        |
+| Remove members (bulk)   | `groups.removeMembers` | `DELETE /groups/:slug/members`           | delete batch; rejects smart groups                    |
+| List members            | `groups.members`       | `GET /groups/:slug/members?limit&cursor` | keyset paging (§4.3)                                  |
+| Reorder                 | `groups.reorder`       | `PUT /groups/reorder`                    | rewrite 100-step positions in one batch               |
+| Import from GitHub      | `groups.importGithub`  | `POST /groups/import`                    | read-only Lists snapshot → local groups               |
+| Mirror toggle/sync (v2) | `groups.mirror`        | `POST /groups/:slug/mirror`              | `github_mirror`/state + adapter                       |
 
 Bulk add accepts `full_name` or numeric id (resolved server-side); payloads deduped and idempotent. Membership writes are D1 batches (no transactions available).
 
@@ -306,33 +306,33 @@ starwatch show <repo>                         # includes its groups
 
 ## 7. Edge cases & workarounds
 
-| Case | Behavior / workaround |
-|---|---|
-| >32 groups vs GitHub cap | local groups unlimited; mirror flag only on ≤32 selected groups; sync checks `lists.totalCount` and marks overflow `off` — never auto-deletes or merges |
-| GitHub list deleted remotely | snapshot diff finds the `UL_…` id missing → `github_sync_state='missing'`, local group intact; user chooses unlink or recreate |
-| GitHub list renamed/private toggled remotely | matched by id; local name wins on push; surface a drift notice with both names |
-| Name collisions | local: `slugify` (NFKD, casefold, strip emoji/punctuation, collapse `-`, ≤40 chars as in 05-cli.md) + `-2` suffix; remote duplicate names unverified ⚠️ — always match by id |
-| Unstar vs membership | GitHub drops membership on unstar; local keeps rows (soft) and hides unstarred repos from results; mirror push **skips** unstarred repos so it cannot fight GitHub |
-| Smart rules + changing metadata | intended churn (stars crossing a threshold, language reclassification); chips computed live; `group show` warns on rules matching 0 repos or unknown values |
-| Empty groups | allowed; count 0; WebUI empty state; smart empty due to over-restrictive rules gets a hint |
-| Duplicate memberships | PK `(group_id, repo_id)` + `INSERT OR IGNORE`; bulk ops idempotent |
-| Mirror push conflicts | one-way push only; before each sync re-snapshot remote, diff against `github_list_items`; unpushed remote changes → `drift`, require `--force` to overwrite (no two-way automerge in v1/v2) |
-| Large-group pagination | keyset cursor (≤100/page); search never materializes members, it joins/exists |
-| Mirror mutation budget | ≤500 content requests/h, ≥1 s spacing; a 300-item group push ≈ 300 mutations (fits one hour); initial mirror is a deliberate, resumable job |
-| Stale Vectorize membership index | membership changes only touch D1; the `repo_id` metadata filter is an id-based pre-filter, so no re-embedding on group edits |
+| Case                                         | Behavior / workaround                                                                                                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| >32 groups vs GitHub cap                     | local groups unlimited; mirror flag only on ≤32 selected groups; sync checks `lists.totalCount` and marks overflow `off` — never auto-deletes or merges                                     |
+| GitHub list deleted remotely                 | snapshot diff finds the `UL_…` id missing → `github_sync_state='missing'`, local group intact; user chooses unlink or recreate                                                              |
+| GitHub list renamed/private toggled remotely | matched by id; local name wins on push; surface a drift notice with both names                                                                                                              |
+| Name collisions                              | local: `slugify` (NFKD, casefold, strip emoji/punctuation, collapse `-`, ≤40 chars as in 05-cli.md) + `-2` suffix; remote duplicate names unverified ⚠️ — always match by id                |
+| Unstar vs membership                         | GitHub drops membership on unstar; local keeps rows (soft) and hides unstarred repos from results; mirror push **skips** unstarred repos so it cannot fight GitHub                          |
+| Smart rules + changing metadata              | intended churn (stars crossing a threshold, language reclassification); chips computed live; `group show` warns on rules matching 0 repos or unknown values                                 |
+| Empty groups                                 | allowed; count 0; WebUI empty state; smart empty due to over-restrictive rules gets a hint                                                                                                  |
+| Duplicate memberships                        | PK `(group_id, repo_id)` + `INSERT OR IGNORE`; bulk ops idempotent                                                                                                                          |
+| Mirror push conflicts                        | one-way push only; before each sync re-snapshot remote, diff against `github_list_items`; unpushed remote changes → `drift`, require `--force` to overwrite (no two-way automerge in v1/v2) |
+| Large-group pagination                       | keyset cursor (≤100/page); search never materializes members, it joins/exists                                                                                                               |
+| Mirror mutation budget                       | ≤500 content requests/h, ≥1 s spacing; a 300-item group push ≈ 300 mutations (fits one hour); initial mirror is a deliberate, resumable job                                                 |
+| Stale Vectorize membership index             | membership changes only touch D1; the `repo_id` metadata filter is an id-based pre-filter, so no re-embedding on group edits                                                                |
 
 ## 8. Recommended scope
 
-| | v1 | v2 |
-|---|---|---|
-| Data model + indexes | ✅ `0002_groups.sql`, `repo_id` Vectorize index from day 1 | — |
-| Manual groups | ✅ CRUD, bulk add/remove, reorder, colors/emoji | pinned/blocked overrides for smart groups |
-| Smart groups | ✅ metadata rules + optional `q` (saved search) | mixed rules + manual overrides |
-| Search | ✅ `--group` (OR/`--group-all`), `--boost-group`, `--ungrouped`, chips | smarter mid-size group semantic recall |
-| Interfaces | ✅ HTTP/RPC + CLI + WebUI | MCP read tools + `add_to_group` (write) |
-| GitHub | ✅ read-only one-time import | opt-in push mirror + drift reports |
-| AI | — | suggested groups (GitHub `suggestedListNames` + Workers AI classification, reviewed before commit) |
-| Nested groups | — | not recommended; revisit only at 100+ groups |
+|                      | v1                                                                     | v2                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Data model + indexes | ✅ `0002_groups.sql`, `repo_id` Vectorize index from day 1             | —                                                                                                  |
+| Manual groups        | ✅ CRUD, bulk add/remove, reorder, colors/emoji                        | pinned/blocked overrides for smart groups                                                          |
+| Smart groups         | ✅ metadata rules + optional `q` (saved search)                        | mixed rules + manual overrides                                                                     |
+| Search               | ✅ `--group` (OR/`--group-all`), `--boost-group`, `--ungrouped`, chips | smarter mid-size group semantic recall                                                             |
+| Interfaces           | ✅ HTTP/RPC + CLI + WebUI                                              | MCP read tools + `add_to_group` (write)                                                            |
+| GitHub               | ✅ read-only one-time import                                           | opt-in push mirror + drift reports                                                                 |
+| AI                   | —                                                                      | suggested groups (GitHub `suggestedListNames` + Workers AI classification, reviewed before commit) |
+| Nested groups        | —                                                                      | not recommended; revisit only at 100+ groups                                                       |
 
 ## 9. Open questions
 

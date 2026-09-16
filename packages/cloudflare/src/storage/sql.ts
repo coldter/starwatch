@@ -14,13 +14,18 @@ import { SyncPhase } from "@starwatch/domain";
 
 /** `snake_case` → `camelCase`; used as `transformResultNames`. */
 export const camelize = (name: string): string =>
-  name.replace(/_([a-z0-9])/gi, (_match: string, char: string) => char.toUpperCase());
+  name.replace(/_([a-z0-9])/gi, (_match: string, char: string) =>
+    char.toUpperCase(),
+  );
 
 /** Single ISO-8601 timestamp source for every `*_at` column. */
 export const nowIso = (): string => new Date().toISOString();
 
 /** Split an array into chunks of at most `size` (D1 allows 100 bound params). */
-export const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<ReadonlyArray<A>> => {
+export const chunk = <A>(
+  items: ReadonlyArray<A>,
+  size: number,
+): ReadonlyArray<ReadonlyArray<A>> => {
   if (size <= 0) {
     throw new Error(`chunk size must be positive, got ${size}`);
   }
@@ -50,7 +55,13 @@ export const parseTopicsJson = (topicsJson: string): ReadonlyArray<string> => {
 };
 
 /** README lifecycle states written by the sync pipeline (docs/03). */
-export const ReadmeState = Schema.Literals(["unknown", "present", "missing", "too_big", "error"]);
+export const ReadmeState = Schema.Literals([
+  "unknown",
+  "present",
+  "missing",
+  "too_big",
+  "error",
+]);
 
 export type ReadmeState = typeof ReadmeState.Type;
 
@@ -74,7 +85,7 @@ export const UserRow = Schema.Struct({
   followers: Schema.Number,
   publicRepos: Schema.Number,
   createdAtGh: Schema.NullOr(Schema.String),
-  fetchedAt: Schema.String
+  fetchedAt: Schema.String,
 });
 
 export type UserRow = typeof UserRow.Type;
@@ -100,7 +111,7 @@ export const RepoRow = Schema.Struct({
   readmeCheckedAt: Schema.NullOr(Schema.String),
   firstSeenAt: Schema.String,
   updatedAt: Schema.String,
-  starredAt: Schema.NullOr(Schema.String)
+  starredAt: Schema.NullOr(Schema.String),
 });
 
 export type RepoRow = typeof RepoRow.Type;
@@ -114,13 +125,13 @@ export const IndexStateRow = Schema.Struct({
   semanticDocs: Schema.Number,
   lastSyncedAt: Schema.NullOr(Schema.String),
   lastError: Schema.NullOr(Schema.String),
-  updatedAt: Schema.String
+  updatedAt: Schema.String,
 });
 
 export type IndexStateRow = typeof IndexStateRow.Type;
 
 export const StarEtagRow = Schema.Struct({
-  etag: Schema.String
+  etag: Schema.String,
 });
 
 export type StarEtagRow = typeof StarEtagRow.Type;
@@ -131,14 +142,14 @@ export const GroupRow = Schema.Struct({
   name: Schema.String,
   slug: Schema.String,
   position: Schema.Number,
-  updatedAt: Schema.String
+  updatedAt: Schema.String,
 });
 
 export type GroupRow = typeof GroupRow.Type;
 
 export const GroupRepoRow = Schema.Struct({
   groupId: Schema.String,
-  repoId: Schema.Number
+  repoId: Schema.Number,
 });
 
 export type GroupRepoRow = typeof GroupRepoRow.Type;
@@ -147,14 +158,14 @@ export const VectorBlobRow = Schema.Struct({
   login: Schema.String,
   dims: Schema.Number,
   bytesLen: Schema.Number,
-  updatedAt: Schema.String
+  updatedAt: Schema.String,
 });
 
 export type VectorBlobRow = typeof VectorBlobRow.Type;
 
 export const GroupSlugRow = Schema.Struct({
   repoId: Schema.Number,
-  slug: Schema.String
+  slug: Schema.String,
 });
 
 export type GroupSlugRow = typeof GroupSlugRow.Type;
@@ -162,7 +173,7 @@ export type GroupSlugRow = typeof GroupSlugRow.Type;
 /** `readme_text` for a set of repos (snippet hydration on the search path). */
 export const ReadmeTextRow = Schema.Struct({
   repoId: Schema.Number,
-  readmeText: Schema.NullOr(Schema.String)
+  readmeText: Schema.NullOr(Schema.String),
 });
 
 export type ReadmeTextRow = typeof ReadmeTextRow.Type;
@@ -171,7 +182,7 @@ export type ReadmeTextRow = typeof ReadmeTextRow.Type;
 export const ReadmeStateRow = Schema.Struct({
   repoId: Schema.Number,
   pushedAt: Schema.NullOr(Schema.String),
-  readmeState: Schema.String
+  readmeState: Schema.String,
 });
 
 export type ReadmeStateRow = typeof ReadmeStateRow.Type;
@@ -179,19 +190,19 @@ export type ReadmeStateRow = typeof ReadmeStateRow.Type;
 /** One `user_stars` row's listing page (`NULL` when unattributed). */
 export const StarPageRow = Schema.Struct({
   starPage: Schema.NullOr(Schema.Number),
-  repoId: Schema.Number
+  repoId: Schema.Number,
 });
 
 export type StarPageRow = typeof StarPageRow.Type;
 
 export const RepoIdRow = Schema.Struct({
-  repoId: Schema.Number
+  repoId: Schema.Number,
 });
 
 export type RepoIdRow = typeof RepoIdRow.Type;
 
 export const GroupIdRow = Schema.Struct({
-  id: Schema.String
+  id: Schema.String,
 });
 
 export type GroupIdRow = typeof GroupIdRow.Type;
@@ -199,14 +210,14 @@ export type GroupIdRow = typeof GroupIdRow.Type;
 export const RepoStatsRow = Schema.Struct({
   starsTotal: Schema.Number,
   reposMetadata: Schema.Number,
-  readmesFetched: Schema.Number
+  readmesFetched: Schema.Number,
 });
 
 export type RepoStatsRow = typeof RepoStatsRow.Type;
 
 export const FtsHitRow = Schema.Struct({
   repoId: Schema.Number,
-  score: Schema.Number
+  score: Schema.Number,
 });
 
 export type FtsHitRow = typeof FtsHitRow.Type;

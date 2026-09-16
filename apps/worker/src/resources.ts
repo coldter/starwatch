@@ -12,11 +12,11 @@ import * as Cloudflare from "alchemy/Cloudflare";
 export const Database = Cloudflare.D1.Database("StarwatchDatabase", {
   // Canonical schema lives in ./migrations (0001_init.sql); Alchemy applies
   // pending files on deploy under its own `__alchemy_migrations` table.
-  migrations: "./migrations"
+  migrations: "./migrations",
 });
 
 export const Bucket = Cloudflare.R2.Bucket("StarwatchBucket", {
   // Allow `alchemy destroy` to empty the bucket first (R2 refuses to delete
   // non-empty buckets).
-  forceDestroy: true
+  forceDestroy: true,
 });

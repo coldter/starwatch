@@ -4,7 +4,7 @@ import type { ApiError } from "../api";
 export function EmptyState({
   title,
   body,
-  children
+  children,
 }: {
   title: string;
   body?: string;
@@ -19,13 +19,7 @@ export function EmptyState({
   );
 }
 
-export function NoResultsState({
-  query,
-  suggestions
-}: {
-  query: string;
-  suggestions?: ReactNode;
-}) {
+export function NoResultsState({ query, suggestions }: { query: string; suggestions?: ReactNode }) {
   return (
     <section className="state-card">
       <h2 className="state-card__title">No matches for “{query}”</h2>
@@ -41,7 +35,7 @@ export function ErrorState({
   title = "Something went wrong",
   error,
   onRetry,
-  children
+  children,
 }: {
   title?: string;
   error: ApiError;
@@ -86,7 +80,7 @@ export function UserNotFoundState({ login }: { login: string }) {
 export function NotIndexedState({
   login,
   onIndex,
-  busy
+  busy,
 }: {
   login: string;
   onIndex: () => void;
@@ -96,8 +90,8 @@ export function NotIndexedState({
     <section className="state-card">
       <h2 className="state-card__title">@{login} isn&apos;t indexed yet</h2>
       <p className="state-card__body">
-        Indexing reads the public star list first (searchable in seconds), then fills in READMEs
-        and semantic search in the background.
+        Indexing reads the public star list first (searchable in seconds), then fills in READMEs and
+        semantic search in the background.
       </p>
       <div className="state-card__actions">
         <button type="button" className="btn btn--small" onClick={onIndex} disabled={busy === true}>

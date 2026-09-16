@@ -7,31 +7,31 @@
 
 ## 1. Recommendation at a glance
 
-| Area | Decision |
-|---|---|
-| App shape | **SPA** (Vite + React 19), client-side routing; served as Worker static assets |
-| Serving | **Same API Worker** via the `assets` prop — *not* Cloudflare Pages, *not* a second Worker |
-| Router | TanStack Router (typed search params) — low-stakes; React Router 8 is a fine fallback |
-| Data fetching | **`@effect/atom-react` + `AtomHttpApi`** (`effect/unstable/reactivity`), not TanStack Query |
-| Live sync progress | **SSE** via `HttpApiSchema.StreamSse` (typed Effect `Stream` on both ends); polling as fallback |
-| Auth | **Cloudflare Access** (GitHub IdP), wired through Alchemy's `access` prop — no app-level token |
-| Avatars | GitHub CDN directly + `github.com/identicons/{login}.png` fallback; no proxy in v1 |
-| Results | **Paginated** (25/page), not infinite scroll; all search state in the URL |
-| Groups | docs/04 model: local-first manual groups + smart groups (saved searches); flat, slug-keyed |
-| Group API | docs/04 §6.1 routes, mounted under `/api/*` (e.g. `GET /api/groups`) to avoid SPA-route collisions |
+| Area               | Decision                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------- |
+| App shape          | **SPA** (Vite + React 19), client-side routing; served as Worker static assets                     |
+| Serving            | **Same API Worker** via the `assets` prop — _not_ Cloudflare Pages, _not_ a second Worker          |
+| Router             | TanStack Router (typed search params) — low-stakes; React Router 8 is a fine fallback              |
+| Data fetching      | **`@effect/atom-react` + `AtomHttpApi`** (`effect/unstable/reactivity`), not TanStack Query        |
+| Live sync progress | **SSE** via `HttpApiSchema.StreamSse` (typed Effect `Stream` on both ends); polling as fallback    |
+| Auth               | **Cloudflare Access** (GitHub IdP), wired through Alchemy's `access` prop — no app-level token     |
+| Avatars            | GitHub CDN directly + `github.com/identicons/{login}.png` fallback; no proxy in v1                 |
+| Results            | **Paginated** (25/page), not infinite scroll; all search state in the URL                          |
+| Groups             | docs/04 model: local-first manual groups + smart groups (saved searches); flat, slug-keyed         |
+| Group API          | docs/04 §6.1 routes, mounted under `/api/*` (e.g. `GET /api/groups`) to avoid SPA-route collisions |
 
 `apps/webui/` is a pure client package; it imports only `packages/contracts` (HttpApi spec + schemas) and `packages/domain` types, never Worker code (docs/02 §6).
 
 ## 2. Information architecture & route map
 
-| Route | Screens | Purpose |
-|---|---|---|
-| `/` | Search | Main query surface with filter rail and results (default landing) |
-| `/repo/:owner/:name` | Repo detail | Metadata, README, groups, similar repos |
-| `/groups` | Groups manager | Create / edit / reorder / delete groups |
-| `/groups/:slug` | Group context | Search pre-scoped to a group; smart groups show their rule |
-| `/sync` | Sync status | Live progress, history, errors, rate-limit state |
-| `/settings` | Settings | Auth, index, appearance, danger zone; deep-linkable tabs `?tab=` |
+| Route                | Screens        | Purpose                                                           |
+| -------------------- | -------------- | ----------------------------------------------------------------- |
+| `/`                  | Search         | Main query surface with filter rail and results (default landing) |
+| `/repo/:owner/:name` | Repo detail    | Metadata, README, groups, similar repos                           |
+| `/groups`            | Groups manager | Create / edit / reorder / delete groups                           |
+| `/groups/:slug`      | Group context  | Search pre-scoped to a group; smart groups show their rule        |
+| `/sync`              | Sync status    | Live progress, history, errors, rate-limit state                  |
+| `/settings`          | Settings       | Auth, index, appearance, danger zone; deep-linkable tabs `?tab=`  |
 
 **SPA, not MPA.** One shell, instant mode/filter changes, and URL-addressable state; there is no server rendering or SEO need (single user, behind Access). Static assets make this a single deploy unit with the API already.
 
@@ -93,18 +93,20 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
   ```
 
   Defaults (`mode=auto`, `sort=relevance`, `page=1`, no filters) are omitted. Every search is bookmarkable and shareable — this is the single largest UX win of the URL-first design.
+
 - **Keyboard shortcuts** (shown in a `?` help overlay):
 
-  | Key | Action |
-  |---|---|
-  | `/` or `Cmd/Ctrl+K` | Focus search |
-  | `j` / `k` / `↑` / `↓` | Move selection between result cards |
-  | `Enter` | Open selected repo detail |
-  | `o` | Open selected repo on github.com |
-  | `g` | Jump to groups manager (`g s` sync, `g ,` settings) |
-  | `s` | Open `similar` for selected repo |
-  | `Esc` | Blur search → clear draft → close popovers (in that order) |
-- **States**: (1) skeleton cards while loading (never a blank flash); (2) *empty query* — recent stars, top groups, corpus stats (`3,277 repos · 23k chunks · last sync 2h`); (3) *no results* — keep filters visible, offer “switch to semantic”, “remove language filter” (the single most likely culprit), and a link to GitHub search; (4) *error* — human message, `Retry`, and “search keyword-only” recovery when the semantic leg is down; (5) *degraded* — a slim banner “vector leg unavailable — showing keyword results” without hiding results.
+  | Key                   | Action                                                     |
+  | --------------------- | ---------------------------------------------------------- |
+  | `/` or `Cmd/Ctrl+K`   | Focus search                                               |
+  | `j` / `k` / `↑` / `↓` | Move selection between result cards                        |
+  | `Enter`               | Open selected repo detail                                  |
+  | `o`                   | Open selected repo on github.com                           |
+  | `g`                   | Jump to groups manager (`g s` sync, `g ,` settings)        |
+  | `s`                   | Open `similar` for selected repo                           |
+  | `Esc`                 | Blur search → clear draft → close popovers (in that order) |
+
+- **States**: (1) skeleton cards while loading (never a blank flash); (2) _empty query_ — recent stars, top groups, corpus stats (`3,277 repos · 23k chunks · last sync 2h`); (3) _no results_ — keep filters visible, offer “switch to semantic”, “remove language filter” (the single most likely culprit), and a link to GitHub search; (4) _error_ — human message, `Retry`, and “search keyword-only” recovery when the semantic leg is down; (5) _degraded_ — a slim banner “vector leg unavailable — showing keyword results” without hiding results.
 
 ## 4. Repo detail (`/repo/:owner/:name`)
 
@@ -191,13 +193,13 @@ Banner/chip in the header (always visible), expanded page at `/sync`:
 
 ## 7. Settings (`/settings`)
 
-| Tab | Contents |
-|---|---|
-| General | Theme (dark / light / system), density (comfortable/compact), reduce motion, default search mode, rerank flag |
-| Index | `GET /api/stats` — repos / chunks / vectors / last sync / unstars pending cleanup; **Rebuild index** (confirm + SSE progress, reuses the sync UI); “prune soft-deleted repos” |
-| Sync | Schedule display (from Alchemy config; read-only in v1), link to `/sync`, “sync on app open if stale > 24 h” toggle |
-| Access | Signed-in identity when available (`ctx.access` — ⚠️ may be `undefined` behind the static-assets router, see §8.5), endpoint URL, “Sign out” (Access logout URL) |
-| Danger zone | Clear local prefs (localStorage), full re-embed, remove all non-starred repos — each behind a typed confirmation |
+| Tab         | Contents                                                                                                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| General     | Theme (dark / light / system), density (comfortable/compact), reduce motion, default search mode, rerank flag                                                                 |
+| Index       | `GET /api/stats` — repos / chunks / vectors / last sync / unstars pending cleanup; **Rebuild index** (confirm + SSE progress, reuses the sync UI); “prune soft-deleted repos” |
+| Sync        | Schedule display (from Alchemy config; read-only in v1), link to `/sync`, “sync on app open if stale > 24 h” toggle                                                           |
+| Access      | Signed-in identity when available (`ctx.access` — ⚠️ may be `undefined` behind the static-assets router, see §8.5), endpoint URL, “Sign out” (Access logout URL)              |
+| Danger zone | Clear local prefs (localStorage), full re-embed, remove all non-starred repos — each behind a typed confirmation                                                              |
 
 ## 8. Technology decisions
 
@@ -206,17 +208,20 @@ Banner/chip in the header (always visible), expanded page at `/sync`:
 **Verified in the installed `alchemy@2.0.0-beta.77`:** `Cloudflare.Worker` supports `assets` (string | `AssetsProps` with `directory`, `notFoundHandling`, `runWorkerFirst`, `htmlHandling`, `base`, plus `headers`/`redirects` sourced from `_headers`/`_redirects` files) and `Cloudflare.Website.Vite` **does not exist in beta.77** (the alchemy.run frontend docs describe a newer release) — so the `assets` prop is the only beta.77 path, and it happens to be the right one:
 
 ```ts
-export default Cloudflare.Worker("StarwatchWorker", {
-  main: import.meta.url,
-  assets: {
-    directory: "../../apps/webui/dist",
-    notFoundHandling: "single-page-application", // deep links → index.html
-    runWorkerFirst: ["/api/*"]                    // API first; everything else = assets
-  }
-}, /* … */);
+export default Cloudflare.Worker(
+  "StarwatchWorker",
+  {
+    main: import.meta.url,
+    assets: {
+      directory: "../../apps/webui/dist",
+      notFoundHandling: "single-page-application", // deep links → index.html
+      runWorkerFirst: ["/api/*"], // API first; everything else = assets
+    },
+  } /* … */,
+);
 ```
 
-One deploy, one origin (no CORS, no second URL, cookies work for Access/SSE). `runWorkerFirst: ["/api/*"]` means **all app endpoints move under `/api/`**: without an explicit worker-first rule, a *browser navigation* to a non-asset path (`Sec-Fetch-Mode: navigate`, compat date ≥ 2025-04-01) is served `index.html` **without invoking the Worker** — great for client routes, wrong for API routes. Non-navigation `fetch()` calls always reach the Worker, but explicit rules keep the routing predictable; move the current `/health`, `/db/time` stubs under `/api/` while wiring this up. Static assets on Workers support up to 100k files / 25 MiB each on Paid (limits, Sep 2026). Security headers (CSP, `X-Content-Type-Options`) ship as a `_headers` file in `dist/`. Pages remains supported but adds a second project, a second origin, and a second deploy target for zero benefit ⚠️ Pages not deprecated, just redundant here.
+One deploy, one origin (no CORS, no second URL, cookies work for Access/SSE). `runWorkerFirst: ["/api/*"]` means **all app endpoints move under `/api/`**: without an explicit worker-first rule, a _browser navigation_ to a non-asset path (`Sec-Fetch-Mode: navigate`, compat date ≥ 2025-04-01) is served `index.html` **without invoking the Worker** — great for client routes, wrong for API routes. Non-navigation `fetch()` calls always reach the Worker, but explicit rules keep the routing predictable; move the current `/health`, `/db/time` stubs under `/api/` while wiring this up. Static assets on Workers support up to 100k files / 25 MiB each on Paid (limits, Sep 2026). Security headers (CSP, `X-Content-Type-Options`) ship as a `_headers` file in `dist/`. Pages remains supported but adds a second project, a second origin, and a second deploy target for zero benefit ⚠️ Pages not deprecated, just redundant here.
 
 ### 8.2 Vite 8 + React 19 + TypeScript
 
@@ -226,7 +231,7 @@ One deploy, one origin (no CORS, no second URL, cookies work for Access/SSE). `r
 
 **Recommend `@effect/atom-react@4.0.0-rc.112` + `AtomHttpApi`** (verified: the package's peers are `effect ^4.0.0-rc.112`, `react >=19 <20`, `scheduler` — add `scheduler` explicitly under pnpm ⚠️). Rationale:
 
-- The typed client is *derived from the same `HttpApi` spec* the Worker implements (`packages/contracts`) — queries, params, errors, and stream responses are compile-checked end-to-end; TanStack Query would need hand-written types/parsers duplicating the schemas.
+- The typed client is _derived from the same `HttpApi` spec_ the Worker implements (`packages/contracts`) — queries, params, errors, and stream responses are compile-checked end-to-end; TanStack Query would need hand-written types/parsers duplicating the schemas.
 - `AtomHttpApi.Service` gives `query()` atoms with caching/`timeToLive` and `mutation()` `AtomResultFn`s with `reactivityKeys`, so “assign group → invalidate repo + facet atoms” is declarative.
 - `AsyncResult` maps 1:1 onto the UI states (Initial / Success / Failure) for skeletons and error surfaces without a second result abstraction.
 - It's the same Effect runtime as Worker/CLI — typed errors cross the wire instead of becoming `unknown`.
@@ -237,9 +242,9 @@ One deploy, one origin (no CORS, no second URL, cookies work for Access/SSE). `r
 Verified in rc.112: `HttpApiSchema.StreamSse({ data })` makes the success type `Stream<SyncEvent>` for the client; `HttpApiClient.SuccessType` special-cases it; `Atom.pull` turns a stream into a `Writable<PullResult>` atom. Sketch:
 
 ```ts
-export const SyncEvent = Schema.Union([ /* phase | counts | done | error | ping */ ]);
+export const SyncEvent = Schema.Union([/* phase | counts | done | error | ping */]);
 export const syncEvents = HttpApiEndpoint.get("syncEvents", "/api/sync/events", {
-  success: HttpApiSchema.StreamSse({ data: SyncEvent })
+  success: HttpApiSchema.StreamSse({ data: SyncEvent }),
 });
 // handler: return Stream.fromQueue(queue) — fed by the Workflow, file-backed in D1/R2
 // client:  const progress = Atom.pull(client.sync.syncEvents({}))
@@ -249,7 +254,7 @@ SSE beats polling for a 1–40 min backfill (instant phase changes, no wasted re
 
 ### 8.5 Auth: Cloudflare Access (GitHub IdP)
 
-**Recommend Access**, wired via Alchemy's `access` prop (verified in beta.77: `policies`, `sessionDuration`, `allowedIdps`, `autoRedirectToIdentity`, `previews`). Zero Trust + a GitHub OAuth app as IdP (documented flow), one allow policy for the owner's GitHub account/email. Why not a bearer token in localStorage: it must be injected into `fetch` wrappers, breaks `EventSource` (no headers), leaks under XSS, and needs rotation — all to protect a single-user app Access already gates at the edge, including static assets and SSE. Notes: worker-level Access doesn't support WebSockets (irrelevant: SSE is plain HTTP); `ctx.access` is **not forwarded to the user Worker when static assets are attached** (documented 2026-08-18) — so don't depend on identity in v1; if needed later, expose identity under a `runWorkerFirst` path. Local dev: simulate with `dev: { access: { aud, identity } }`. **Reconciling with docs/05 §6.2 (CLI token model):** the `sw_…` bearer remains the *application-level* credential for CLI/scripts, but because Access sits in front of the whole Worker, machine clients must also present Cloudflare **Access service-token headers** (or hit an explicitly bypassed path) — otherwise they get the Access login page instead of JSON. Browser + Access session cookie + SSE stays the simplest path for the WebUI. The CLI/MCP surface should plan for service tokens in v2 ⚠️ and docs/05 §6.3's `/auth/exchange` needs an Access-aware call path.
+**Recommend Access**, wired via Alchemy's `access` prop (verified in beta.77: `policies`, `sessionDuration`, `allowedIdps`, `autoRedirectToIdentity`, `previews`). Zero Trust + a GitHub OAuth app as IdP (documented flow), one allow policy for the owner's GitHub account/email. Why not a bearer token in localStorage: it must be injected into `fetch` wrappers, breaks `EventSource` (no headers), leaks under XSS, and needs rotation — all to protect a single-user app Access already gates at the edge, including static assets and SSE. Notes: worker-level Access doesn't support WebSockets (irrelevant: SSE is plain HTTP); `ctx.access` is **not forwarded to the user Worker when static assets are attached** (documented 2026-08-18) — so don't depend on identity in v1; if needed later, expose identity under a `runWorkerFirst` path. Local dev: simulate with `dev: { access: { aud, identity } }`. **Reconciling with docs/05 §6.2 (CLI token model):** the `sw_…` bearer remains the _application-level_ credential for CLI/scripts, but because Access sits in front of the whole Worker, machine clients must also present Cloudflare **Access service-token headers** (or hit an explicitly bypassed path) — otherwise they get the Access login page instead of JSON. Browser + Access session cookie + SSE stays the simplest path for the WebUI. The CLI/MCP surface should plan for service tokens in v2 ⚠️ and docs/05 §6.3's `/auth/exchange` needs an Access-aware call path.
 
 ### 8.6 Avatars
 
@@ -263,53 +268,53 @@ Use `https://avatars.githubusercontent.com/u/{id}?s=64&v=4` directly: verified `
 
 ## 9. Prior art (patterns worth borrowing)
 
-**GithubStarsManager** (AI-star-manager, Electron/web) proves that a category sidebar with colors, drag-reorder, and *locking* (so AI/sync never overwrites user organization) is the workhorse of star management — plus a per-card “Find similar” action and a Settings panel that warns “rebuild the index after changing embedding models”. **Starcat** (macOS) shows the three-column shell done well, FTS5 + embeddings with RRF and chunk-level citations (`⇧⌘K` RAG workspace), smart collections (“Needs review”, “No tags”), and a clean separation between the public star and the private knowledge base. **Astral** is the minimal ancestor: tags, drag-to-tag, bulk assign, and a very legible list UI. **Sourcegraph's search UI** is the best model for our search page: filters as first-class chips that can be clicked from results (“interactive filters”), language/repo metadata shown inline, keyboard-first navigation, and streaming results with a result-count header. starwatch should steal: lockable user categories, click-to-filter facets, selection-first bulk assignment, and chunk-reason snippets — while skipping their AI-summary surface in v1.
+**GithubStarsManager** (AI-star-manager, Electron/web) proves that a category sidebar with colors, drag-reorder, and _locking_ (so AI/sync never overwrites user organization) is the workhorse of star management — plus a per-card “Find similar” action and a Settings panel that warns “rebuild the index after changing embedding models”. **Starcat** (macOS) shows the three-column shell done well, FTS5 + embeddings with RRF and chunk-level citations (`⇧⌘K` RAG workspace), smart collections (“Needs review”, “No tags”), and a clean separation between the public star and the private knowledge base. **Astral** is the minimal ancestor: tags, drag-to-tag, bulk assign, and a very legible list UI. **Sourcegraph's search UI** is the best model for our search page: filters as first-class chips that can be clicked from results (“interactive filters”), language/repo metadata shown inline, keyboard-first navigation, and streaming results with a result-count header. starwatch should steal: lockable user categories, click-to-filter facets, selection-first bulk assignment, and chunk-reason snippets — while skipping their AI-summary surface in v1.
 
 ## 10. Component inventory
 
-| Component | Purpose |
-|---|---|
-| `AppShell` | Header + outlet + toast host + shortcut provider |
-| `HeaderBar` | Logo, search trigger, `SyncChip`, theme toggle, settings link |
-| `SyncChip` | Compact sync state in the header (synced / syncing% / paused / failed) |
-| `SearchBar` | Combobox input, debounce, scope label, `⌘K` handling |
-| `SearchModeToggle` | auto/keyword/semantic/hybrid segmented control |
-| `FilterRail` | Container for facets + “clear all” + active-filter chips |
-| `FacetGroup` | Collapsible facet section with live counts |
-| `LanguageFacet` / `LanguageDot` | Top-N language chips; Linguist-colored dot |
-| `StarsHistogram` / `StarsRange` | Bucketed histogram + dual-thumb range/number inputs |
-| `GroupFacet` | Multi-select group chips |
-| `TopicAutocomplete` | Tag input backed by `GET /api/suggest/topics` |
-| `DateRangeFacet` | Starred-date range + presets |
-| `ArchivedToggle` | hide / include / only |
-| `SortSelect` | relevance / stars / recently starred / recently pushed |
-| `ResultList` | Selection state, `j/k`, bulk-select mode |
-| `ResultCard` | Repo name, description, meta row, snippet, matched-by badge, actions |
-| `Snippet` | Sanitized highlighted text (~200 chars) |
-| `MatchedByBadge` | keyword / semantic / both indicator |
-| `GroupChips` | Read-only group membership chips |
-| `Pagination` | Page controls + page-size selector (URL-driven) |
-| `SkeletonCard` | Loading placeholder |
-| `EmptyState` / `NoResultsState` / `ErrorState` | Recovery-oriented empty/error surfaces |
-| `ShortcutHelp` | `?` overlay listing keys |
-| `RepoDetailPage` | Header, metadata, README, groups, similar |
-| `ReadmeView` | Sanitized markdown renderer + relative-link rewriting + image opt-in |
-| `MetadataBlock` | Stars/forks/license/topics/branch/dates grid |
-| `CloneUrlCopy` | HTTPS/SSH clone URL with copy + toast |
-| `GroupEditor` | Popover checklist for repo membership |
-| `SimilarRepos` | Summary-vector neighbors list |
-| `UnstarBanner` | Soft-deleted warning + removal action |
-| `GroupsPage` / `GroupRow` | Manager list with reorder affordances |
-| `GroupFormDialog` | Create/rename + color/icon picker |
-| `SmartRuleEditor` | Form-based AND-rule builder for smart groups |
-| `BulkAssignBar` | Appears on multi-select: add/remove group actions |
-| `SyncPage` / `SyncProgress` | Status card, phase label, progress bar, counters |
-| `SyncHistoryTable` | Past runs with outcome + counts |
-| `RateLimitPanel` | Countdown to GitHub reset time |
-| `SettingsPage` / `SettingsTab` | Tabbed settings shell |
-| `DangerZone` | Confirm-gated destructive actions |
-| `Toast` / `ConfirmDialog` | Feedback + destructive confirmations |
-| `ThemeProvider` | Theme resolution, persistence, FOUC guard |
+| Component                                      | Purpose                                                                |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `AppShell`                                     | Header + outlet + toast host + shortcut provider                       |
+| `HeaderBar`                                    | Logo, search trigger, `SyncChip`, theme toggle, settings link          |
+| `SyncChip`                                     | Compact sync state in the header (synced / syncing% / paused / failed) |
+| `SearchBar`                                    | Combobox input, debounce, scope label, `⌘K` handling                   |
+| `SearchModeToggle`                             | auto/keyword/semantic/hybrid segmented control                         |
+| `FilterRail`                                   | Container for facets + “clear all” + active-filter chips               |
+| `FacetGroup`                                   | Collapsible facet section with live counts                             |
+| `LanguageFacet` / `LanguageDot`                | Top-N language chips; Linguist-colored dot                             |
+| `StarsHistogram` / `StarsRange`                | Bucketed histogram + dual-thumb range/number inputs                    |
+| `GroupFacet`                                   | Multi-select group chips                                               |
+| `TopicAutocomplete`                            | Tag input backed by `GET /api/suggest/topics`                          |
+| `DateRangeFacet`                               | Starred-date range + presets                                           |
+| `ArchivedToggle`                               | hide / include / only                                                  |
+| `SortSelect`                                   | relevance / stars / recently starred / recently pushed                 |
+| `ResultList`                                   | Selection state, `j/k`, bulk-select mode                               |
+| `ResultCard`                                   | Repo name, description, meta row, snippet, matched-by badge, actions   |
+| `Snippet`                                      | Sanitized highlighted text (~200 chars)                                |
+| `MatchedByBadge`                               | keyword / semantic / both indicator                                    |
+| `GroupChips`                                   | Read-only group membership chips                                       |
+| `Pagination`                                   | Page controls + page-size selector (URL-driven)                        |
+| `SkeletonCard`                                 | Loading placeholder                                                    |
+| `EmptyState` / `NoResultsState` / `ErrorState` | Recovery-oriented empty/error surfaces                                 |
+| `ShortcutHelp`                                 | `?` overlay listing keys                                               |
+| `RepoDetailPage`                               | Header, metadata, README, groups, similar                              |
+| `ReadmeView`                                   | Sanitized markdown renderer + relative-link rewriting + image opt-in   |
+| `MetadataBlock`                                | Stars/forks/license/topics/branch/dates grid                           |
+| `CloneUrlCopy`                                 | HTTPS/SSH clone URL with copy + toast                                  |
+| `GroupEditor`                                  | Popover checklist for repo membership                                  |
+| `SimilarRepos`                                 | Summary-vector neighbors list                                          |
+| `UnstarBanner`                                 | Soft-deleted warning + removal action                                  |
+| `GroupsPage` / `GroupRow`                      | Manager list with reorder affordances                                  |
+| `GroupFormDialog`                              | Create/rename + color/icon picker                                      |
+| `SmartRuleEditor`                              | Form-based AND-rule builder for smart groups                           |
+| `BulkAssignBar`                                | Appears on multi-select: add/remove group actions                      |
+| `SyncPage` / `SyncProgress`                    | Status card, phase label, progress bar, counters                       |
+| `SyncHistoryTable`                             | Past runs with outcome + counts                                        |
+| `RateLimitPanel`                               | Countdown to GitHub reset time                                         |
+| `SettingsPage` / `SettingsTab`                 | Tabbed settings shell                                                  |
+| `DangerZone`                                   | Confirm-gated destructive actions                                      |
+| `Toast` / `ConfirmDialog`                      | Feedback + destructive confirmations                                   |
+| `ThemeProvider`                                | Theme resolution, persistence, FOUC guard                              |
 
 ## 11. Open questions
 

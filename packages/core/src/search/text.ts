@@ -72,10 +72,7 @@ export const escapeFtsTerm = (term: string): string =>
  * repetition. Returns an empty string when there is nothing to match, which
  * callers must treat as "skip this leg" (FTS5 rejects `MATCH ''`).
  */
-export const buildMatchExpression = (
-  tokens: ReadonlyArray<string>,
-  mode: "and" | "or"
-): string => {
+export const buildMatchExpression = (tokens: ReadonlyArray<string>, mode: "and" | "or"): string => {
   const seen = new Set<string>();
   const terms: string[] = [];
 

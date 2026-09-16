@@ -59,7 +59,12 @@ function RepoCardBase({ hit, groupNames, onOpen }: RepoCardProps) {
           <button type="button" className="btn btn--small" onClick={() => onOpen(hit)}>
             Details
           </button>
-          <a className="btn btn--small btn--ghost" href={repo.htmlUrl} target="_blank" rel="noreferrer noopener">
+          <a
+            className="btn btn--small btn--ghost"
+            href={repo.htmlUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
             GitHub ↗
           </a>
         </span>

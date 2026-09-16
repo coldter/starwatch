@@ -54,7 +54,7 @@ export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   parseSearch,
-  stringifySearch
+  stringifySearch,
 });
 
 declare module "@tanstack/react-router" {

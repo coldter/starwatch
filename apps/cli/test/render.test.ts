@@ -1,5 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { Group, Repo, SearchHit, SearchResponse, UserIndexState, UserProfile } from "@starwatch/domain";
+import type {
+  Group,
+  Repo,
+  SearchHit,
+  SearchResponse,
+  UserIndexState,
+  UserProfile,
+} from "@starwatch/domain";
 import {
   bold,
   dim,
@@ -24,7 +31,7 @@ import {
   renderSyncState,
   resolveWidth,
   shouldUseColor,
-  truncate
+  truncate,
 } from "../src/render.ts";
 
 const repo: Repo = {
@@ -42,19 +49,32 @@ const repo: Repo = {
   homepage: null,
   pushedAt: "2026-09-12T00:00:00Z",
   starredAt: "2024-03-18T00:00:00Z",
-  htmlUrl: "https://github.com/effect-ts/effect"
+  htmlUrl: "https://github.com/effect-ts/effect",
 };
 
-const inbox: Group = { id: "g1", name: "inbox", slug: "inbox", position: 0, repoIds: [1, 2] };
+const inbox: Group = {
+  id: "g1",
+  name: "inbox",
+  slug: "inbox",
+  position: 0,
+  repoIds: [1, 2],
+};
 
-const rustTools: Group = { id: "g2", name: "rust-tools", slug: "rust-tools", position: 1, repoIds: [3] };
+const rustTools: Group = {
+  id: "g2",
+  name: "rust-tools",
+  slug: "rust-tools",
+  position: 1,
+  repoIds: [3],
+};
 
 const hit: SearchHit = {
   repo,
   score: 0.0325,
-  snippet: "…retries, timers and durable background jobs with deterministic replay…",
+  snippet:
+    "…retries, timers and durable background jobs with deterministic replay…",
   matchedBy: ["keyword", "semantic"],
-  groups: ["inbox", "work"]
+  groups: ["inbox", "work"],
 };
 
 const response: SearchResponse = {
@@ -62,7 +82,7 @@ const response: SearchResponse = {
   mode: "hybrid",
   hits: [hit],
   tookMs: 128,
-  semanticCoverage: 42
+  semanticCoverage: 42,
 };
 
 const profile: UserProfile = {
@@ -75,7 +95,7 @@ const profile: UserProfile = {
   location: null,
   followers: 10,
   publicRepos: 5,
-  createdAt: "2011-01-01T00:00:00Z"
+  createdAt: "2011-01-01T00:00:00Z",
 };
 
 const state: UserIndexState = {
@@ -87,7 +107,7 @@ const state: UserIndexState = {
   semanticDocs: 1500,
   lastSyncedAt: "2026-09-13T03:00:00Z",
   lastError: null,
-  updatedAt: "2026-09-13T03:00:00Z"
+  updatedAt: "2026-09-13T03:00:00Z",
 };
 
 describe("color and width", () => {
@@ -156,17 +176,23 @@ describe("search output", () => {
     expect(output).toBe(
       [
         "effect-ts/effect  ★8.2k  TypeScript  [inbox, work]",
-        "  …retries, timers and durable background jobs with deterministic replay…"
-      ].join("\n")
+        "  …retries, timers and durable background jobs with deterministic replay…",
+      ].join("\n"),
     );
   });
 
   it("adds leg presence and score under --explain", () => {
     expect(formatExplain(["keyword", "semantic"], 0.0325)).toBe(
-      "kw:+ exp:- sem:+ name:- · score 0.0325"
+      "kw:+ exp:- sem:+ name:- · score 0.0325",
     );
-    const output = renderSearchHit(hit, { color: false, width: 120, explain: true });
-    expect(output.split("\n")[2]).toBe("  kw:+ exp:- sem:+ name:- · score 0.0325");
+    const output = renderSearchHit(hit, {
+      color: false,
+      width: 120,
+      explain: true,
+    });
+    expect(output.split("\n")[2]).toBe(
+      "  kw:+ exp:- sem:+ name:- · score 0.0325",
+    );
   });
 
   it("keeps every rendered line within the width cap", () => {
@@ -185,10 +211,12 @@ describe("search output", () => {
   });
 
   it("renders the summary and the empty-result hint", () => {
-    expect(renderSearchSummary(response)).toBe("1 result · 128 ms · mode hybrid · semantic 42%");
-    expect(renderSearchSummary({ ...response, hits: [], semanticCoverage: 1 })).toBe(
-      "0 results · 128 ms · mode hybrid"
+    expect(renderSearchSummary(response)).toBe(
+      "1 result · 128 ms · mode hybrid · semantic 42%",
     );
+    expect(
+      renderSearchSummary({ ...response, hits: [], semanticCoverage: 1 }),
+    ).toBe("0 results · 128 ms · mode hybrid");
     const hint = renderEmptyHint("quantum toaster", "hybrid");
     expect(hint).toContain('No results for "quantum toaster" in hybrid mode.');
     expect(hint).toContain("--mode semantic");
@@ -202,34 +230,45 @@ describe("search output", () => {
 
 describe("repo, status and groups output", () => {
   it("renders a repo page", () => {
-    const output = renderRepoPage({ repo, groups: [inbox, rustTools] }, { color: false });
+    const output = renderRepoPage(
+      { repo, groups: [inbox, rustTools] },
+      { color: false },
+    );
     expect(output).toBe(
       [
         "effect-ts/effect  ★8.2k  TypeScript  MIT  not archived",
         "A toolkit to build production-grade TypeScript applications.",
         "Starred 2024-03-18 · Pushed 2026-09-12 · Groups: inbox, rust-tools",
-        "Topics: effect, typescript · https://github.com/effect-ts/effect"
-      ].join("\n")
+        "Topics: effect, typescript · https://github.com/effect-ts/effect",
+      ].join("\n"),
     );
   });
 
   it("renders status with coverage counters", () => {
-    const output = renderStatusPage({ profile, state, groups: [] }, { color: false });
+    const output = renderStatusPage(
+      { profile, state, groups: [] },
+      { color: false },
+    );
     expect(output).toBe(
       [
         "@alice  Alice Example",
         "● ready · 3,448 stars · metadata 3,448 · readmes 3,201 · semantic 1,500",
-        "Last synced 2026-09-13 UTC"
-      ].join("\n")
+        "Last synced 2026-09-13 UTC",
+      ].join("\n"),
     );
 
     const failed = renderStatusPage(
       {
         profile,
-        state: { ...state, phase: "failed", lastSyncedAt: null, lastError: "github 502" },
-        groups: []
+        state: {
+          ...state,
+          phase: "failed",
+          lastSyncedAt: null,
+          lastError: "github 502",
+        },
+        groups: [],
       },
-      { color: false }
+      { color: false },
     );
 
     expect(failed).toContain("⚠ failed");
@@ -239,7 +278,7 @@ describe("repo, status and groups output", () => {
 
   it("renders groups aligned with correct pluralization", () => {
     expect(renderGroups([inbox, rustTools])).toBe(
-      ["inbox       2 repos", "rust-tools  1 repo"].join("\n")
+      ["inbox       2 repos", "rust-tools  1 repo"].join("\n"),
     );
     expect(renderGroups([])).toBe("(no groups)");
   });
@@ -247,26 +286,33 @@ describe("repo, status and groups output", () => {
 
 describe("sync and health output", () => {
   it("renders sync start, progress and final state", () => {
-    expect(renderSyncStart({ started: true, phase: "listing" })).toBe("Sync started · phase listing");
+    expect(renderSyncStart({ started: true, phase: "listing" })).toBe(
+      "Sync started · phase listing",
+    );
     expect(renderSyncStart({ started: false, phase: "embedding" })).toBe(
-      "Sync already running · phase embedding"
+      "Sync already running · phase embedding",
     );
     expect(renderSyncProgress(state)).toBe(
-      "● ready · 3,448/3,448 metadata · semantic 1,500"
+      "● ready · 3,448/3,448 metadata · semantic 1,500",
     );
     expect(renderSyncState(state).split("\n")[0]).toBe("@alice");
   });
 
   it("renders health with the target URL", () => {
     expect(
-      renderHealth({ ok: true, service: "starwatch", version: "1.2.3" }, "http://127.0.0.1:8787")
+      renderHealth(
+        { ok: true, service: "starwatch", version: "1.2.3" },
+        "http://127.0.0.1:8787",
+      ),
     ).toBe("starwatch 1.2.3 · ok · http://127.0.0.1:8787");
   });
 
   it("renders errors as one line plus a named fix", () => {
-    expect(renderError({ message: "Could not reach the API." })).toBe("✗ Could not reach the API.");
-    expect(renderError({ message: "Missing --user.", hint: "Pass --user alice." })).toBe(
-      "✗ Missing --user.\n  Pass --user alice."
+    expect(renderError({ message: "Could not reach the API." })).toBe(
+      "✗ Could not reach the API.",
     );
+    expect(
+      renderError({ message: "Missing --user.", hint: "Pass --user alice." }),
+    ).toBe("✗ Missing --user.\n  Pass --user alice.");
   });
 });

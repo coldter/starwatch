@@ -9,7 +9,7 @@ import {
   isAbortError,
   startUserSync,
   userSyncEventsUrl,
-  type UserPayload
+  type UserPayload,
 } from "../api";
 import { isActivePhase, isTerminalPhase } from "../lib/state";
 import { rememberUser } from "../lib/recent";
@@ -77,7 +77,7 @@ export function useUserIndex(login: string): UserIndexResult {
         }
       }
     },
-    [login]
+    [login],
   );
 
   useEffect(() => {
@@ -108,8 +108,8 @@ export function useUserIndex(login: string): UserIndexResult {
             ? prev
             : {
                 ...prev,
-                state: { ...prev.state, phase: result.phase, updatedAt: new Date().toISOString() }
-              }
+                state: { ...prev.state, phase: result.phase, updatedAt: new Date().toISOString() },
+              },
         );
 
         if (result.started || isActivePhase(result.phase)) setForceWatch(true);
@@ -126,7 +126,7 @@ export function useUserIndex(login: string): UserIndexResult {
         setSyncPending(false);
       }
     },
-    [login]
+    [login],
   );
 
   const phase = data?.state.phase;

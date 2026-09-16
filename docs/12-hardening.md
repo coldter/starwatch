@@ -20,31 +20,31 @@
 - **Sync:** per-user Workflows must chain ≤250-repo instances (free cap 1,024 steps/instance); the `GithubGovernor` (§2.1) still owns the 5,000/h token but admission is CF-headroom-first ([13 §2(b)](13-free-tier-feasibility.md), [15 §2.5](15-free-semantic-search.md)).
 - **Semantic:** repo-level R2 blobs + in-Worker kNN replace Vectorize on free ([15 §1](15-free-semantic-search.md)); §3–§4 below are the paid path.
 
-| # | Assumption | Consequence |
-|---|---|---|
-| A1 | Anonymous public web UI + public HTTP API (`/api/search`, `/api/similar`, `/api/sync`, `/api/stats`) | Every endpoint is hostile-input and hostile-volume; no endpoint may trust a client-supplied cap |
-| A2 | One shared GitHub token (5,000 req/h core, 900 pts/min secondary) | GitHub budget is a **global serial resource**; all jobs must be admitted and paced by one authority |
-| A3 | Public data only: star metadata + READMEs of public repos | No private-repo indexing, no user OAuth, no secret in public responses |
-| A4 | Owner/admin surface (kill switches, purge, cost ledger) stays behind Cloudflare Access | Admin actions are authenticated; public surface never is |
-| A5 | $0 while on Workers Free (§0.0); the ~$5/mo baseline + single-digit marginal target ([00 R15](00-requirements.md)) is the paid-mode ceiling after upgrade ([13](13-free-tier-feasibility.md), [14](14-abuse-protection.md)) | Abuse that exhausts a finite free quota is a security incident, not a scaling event |
-| A6 | Attackers can mint GitHub accounts and stars cheaply | Popularity/star count is **not** a trust signal and must not buy priority or budget |
+| #   | Assumption                                                                                                                                                                                                                  | Consequence                                                                                         |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| A1  | Anonymous public web UI + public HTTP API (`/api/search`, `/api/similar`, `/api/sync`, `/api/stats`)                                                                                                                        | Every endpoint is hostile-input and hostile-volume; no endpoint may trust a client-supplied cap     |
+| A2  | One shared GitHub token (5,000 req/h core, 900 pts/min secondary)                                                                                                                                                           | GitHub budget is a **global serial resource**; all jobs must be admitted and paced by one authority |
+| A3  | Public data only: star metadata + READMEs of public repos                                                                                                                                                                   | No private-repo indexing, no user OAuth, no secret in public responses                              |
+| A4  | Owner/admin surface (kill switches, purge, cost ledger) stays behind Cloudflare Access                                                                                                                                      | Admin actions are authenticated; public surface never is                                            |
+| A5  | $0 while on Workers Free (§0.0); the ~$5/mo baseline + single-digit marginal target ([00 R15](00-requirements.md)) is the paid-mode ceiling after upgrade ([13](13-free-tier-feasibility.md), [14](14-abuse-protection.md)) | Abuse that exhausts a finite free quota is a security incident, not a scaling event                 |
+| A6  | Attackers can mint GitHub accounts and stars cheaply                                                                                                                                                                        | Popularity/star count is **not** a trust signal and must not buy priority or budget                 |
 
 **Current CF primitives inventory (verified 2026-09-13):**
 
-| Primitive | What it is | Limits that bind us | Where used |
-|---|---|---|---|
-| Workers `ratelimits` binding | In-Worker token bucket, same infra as WAF rate limiting rules; config `{namespace_id, simple:{limit, period}}`, call `env.X.limit({key}) → {success}` | `period` must be **10 or 60 s only**; counters are **per Cloudflare location**, eventually consistent, "not an accurate accounting system"; config counts are not dashboard-visible ⚠️ no documented max bindings/limit value | Per-IP burst control on search/trigger |
-| WAF rate limiting rules | Zone-level rules in the new security dashboard: expression + characteristics + period + mitigation | **Requires a proxied zone (custom domain)**; Free: **1 rule, 10 s window/counting, IP only, 10 s mitigation**; Pro: 2 rules, windows ≤ 1 min, fields + method/UA; custom counting expression from Business up | Later (needs custom domain) |
-| Turnstile | Privacy-preserving challenge; client widget + **mandatory server-side Siteverify** | Free plan: **20 widgets, unlimited challenges**, 10 hostnames/widget, 7-day analytics; token valid **300 s, single-use**; Enterprise only adds ephemeral IDs/branding | Sync triggers, purge challenge, optional search-after-N |
-| Bot Fight Mode (Bots Free) | Challenges simple bots from hosting/headless browsers; domain-wide, zone-required; includes Block-AI-bots, AI Labyrinth, managed `robots.txt` | No fine-grained control; can challenge legitimate API clients ⚠️ test CLI path | Later (needs custom domain) |
-| Workers Cache | Response cache in front of the Worker; **tiered by default**, **request collapsing** per cache key per colo | Key = entrypoint + **path + query string (order-sensitive)** + Worker version + `ctx.props` (service-binding calls); `Authorization`/`Set-Cookie` auto-bypass; `cf.cacheKey` honored only on same-account loopback; `ctx.cache.purge({tags, …})`; billed at standard request rate, CPU only on miss | Anonymous search/browse caching |
-| Cache API (`caches.default`) | Programmatic per-colo cache, explicit key, 512 MB/object, 1,000 calls/request, no request collapsing; not available when fronted by Access ([03 §2c](03-sync-and-limits.md)) | Secondary fallback where an explicit hash key is needed | Keyword/browse cache fallback |
-| Durable Objects (SQLite) | Single-threaded coordinator with transactional storage; alarms | 1M req + 400k GB-s/mo included; storage $0.20/GB-mo | GitHub token budget, global search budget, abuse counters |
-| Cloudflare Queues | Durable job buffer; batch ≤ 100 msgs, 128 KB/msg, **25 GB backlog/queue**, 5,000 msg/s, retention ≤ 14 d, 250 concurrent push consumers | Backlog metrics via `queuesBacklogAdaptiveGroups`, `queueConsumerMetricsAdaptiveGroups`, `queueMessageOperationsAdaptiveGroups`, and `metrics()` (realtime `backlog_count`) | Sync-request admission control |
-| AI Gateway (+ Workers AI binding) | `env.AI.run(model, input, {gateway:{id, cacheKey, cacheTtl, skipCache, metadata}})`; per-gateway **fixed/sliding rate limiting** → 429; exact-match response caching; cost analytics | Caching exact-match only; rate limit is **uniform per gateway**, not per user | Global semantic cap, embedding/rerank cost tracking + caching |
-| Cloudflare Flagship | Feature flags with a native Workers binding (`env.FLAGS.getBooleanValue("x", false, {userId})`), KV-backed, dashboard-managed | ⚠️ New (docs 2026-06); plan availability/pricing unverified | Kill switches |
-| Analytics Engine | `writeDataPoint()` from Workers + SQL API | Paid: 10M points/mo + 1M read queries included (not yet billed as of Apr 2026); **free: 100k points/day + 10k read queries/day** ([14 §2.1](14-abuse-protection.md)) | Custom metrics/abuse forensics (sample aggressively on free) |
-| Workers Logs | Invocation logs | Paid: 20M events/mo + $0.60/M, 7-day retention | Debug/audit |
+| Primitive                         | What it is                                                                                                                                                                           | Limits that bind us                                                                                                                                                                                                                                                                                 | Where used                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Workers `ratelimits` binding      | In-Worker token bucket, same infra as WAF rate limiting rules; config `{namespace_id, simple:{limit, period}}`, call `env.X.limit({key}) → {success}`                                | `period` must be **10 or 60 s only**; counters are **per Cloudflare location**, eventually consistent, "not an accurate accounting system"; config counts are not dashboard-visible ⚠️ no documented max bindings/limit value                                                                       | Per-IP burst control on search/trigger                        |
+| WAF rate limiting rules           | Zone-level rules in the new security dashboard: expression + characteristics + period + mitigation                                                                                   | **Requires a proxied zone (custom domain)**; Free: **1 rule, 10 s window/counting, IP only, 10 s mitigation**; Pro: 2 rules, windows ≤ 1 min, fields + method/UA; custom counting expression from Business up                                                                                       | Later (needs custom domain)                                   |
+| Turnstile                         | Privacy-preserving challenge; client widget + **mandatory server-side Siteverify**                                                                                                   | Free plan: **20 widgets, unlimited challenges**, 10 hostnames/widget, 7-day analytics; token valid **300 s, single-use**; Enterprise only adds ephemeral IDs/branding                                                                                                                               | Sync triggers, purge challenge, optional search-after-N       |
+| Bot Fight Mode (Bots Free)        | Challenges simple bots from hosting/headless browsers; domain-wide, zone-required; includes Block-AI-bots, AI Labyrinth, managed `robots.txt`                                        | No fine-grained control; can challenge legitimate API clients ⚠️ test CLI path                                                                                                                                                                                                                      | Later (needs custom domain)                                   |
+| Workers Cache                     | Response cache in front of the Worker; **tiered by default**, **request collapsing** per cache key per colo                                                                          | Key = entrypoint + **path + query string (order-sensitive)** + Worker version + `ctx.props` (service-binding calls); `Authorization`/`Set-Cookie` auto-bypass; `cf.cacheKey` honored only on same-account loopback; `ctx.cache.purge({tags, …})`; billed at standard request rate, CPU only on miss | Anonymous search/browse caching                               |
+| Cache API (`caches.default`)      | Programmatic per-colo cache, explicit key, 512 MB/object, 1,000 calls/request, no request collapsing; not available when fronted by Access ([03 §2c](03-sync-and-limits.md))         | Secondary fallback where an explicit hash key is needed                                                                                                                                                                                                                                             | Keyword/browse cache fallback                                 |
+| Durable Objects (SQLite)          | Single-threaded coordinator with transactional storage; alarms                                                                                                                       | 1M req + 400k GB-s/mo included; storage $0.20/GB-mo                                                                                                                                                                                                                                                 | GitHub token budget, global search budget, abuse counters     |
+| Cloudflare Queues                 | Durable job buffer; batch ≤ 100 msgs, 128 KB/msg, **25 GB backlog/queue**, 5,000 msg/s, retention ≤ 14 d, 250 concurrent push consumers                                              | Backlog metrics via `queuesBacklogAdaptiveGroups`, `queueConsumerMetricsAdaptiveGroups`, `queueMessageOperationsAdaptiveGroups`, and `metrics()` (realtime `backlog_count`)                                                                                                                         | Sync-request admission control                                |
+| AI Gateway (+ Workers AI binding) | `env.AI.run(model, input, {gateway:{id, cacheKey, cacheTtl, skipCache, metadata}})`; per-gateway **fixed/sliding rate limiting** → 429; exact-match response caching; cost analytics | Caching exact-match only; rate limit is **uniform per gateway**, not per user                                                                                                                                                                                                                       | Global semantic cap, embedding/rerank cost tracking + caching |
+| Cloudflare Flagship               | Feature flags with a native Workers binding (`env.FLAGS.getBooleanValue("x", false, {userId})`), KV-backed, dashboard-managed                                                        | ⚠️ New (docs 2026-06); plan availability/pricing unverified                                                                                                                                                                                                                                         | Kill switches                                                 |
+| Analytics Engine                  | `writeDataPoint()` from Workers + SQL API                                                                                                                                            | Paid: 10M points/mo + 1M read queries included (not yet billed as of Apr 2026); **free: 100k points/day + 10k read queries/day** ([14 §2.1](14-abuse-protection.md))                                                                                                                                | Custom metrics/abuse forensics (sample aggressively on free)  |
+| Workers Logs                      | Invocation logs                                                                                                                                                                      | Paid: 20M events/mo + $0.60/M, 7-day retention                                                                                                                                                                                                                                                      | Debug/audit                                                   |
 
 Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.003/M tokens; Workers AI free tier 10,000 neurons/day; Vectorize $0.01/M queried dims + $0.05/100M stored dims/mo; Workers 10M req + 30M CPU-ms included, then $0.30/M req + $0.02/M CPU-ms.
 
@@ -52,15 +52,15 @@ Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.0
 
 **Layering rule:** edge controls (`ratelimits`, Bot Fight Mode) absorb crude floods; **Durable Object budgets are authoritative** for anything that costs real money or GitHub quota; Turnstile gates work that is worth challenging. Never rely on a client-side or per-colo counter for a global budget.
 
-| # | Vector | Primary mitigation | Backstop |
-|---|---|---|---|
-| V1 | Sync-trigger flood (thousands of usernames) | Turnstile + per-IP binding + queue admission + dedupe | Global daily new-index cap; DO budget |
-| V2 | Huge-star account (50k–200k stars) | Page cap (5,000 stars listed), README cap (1,500 newest), chunk/vector caps | Metadata-only above cap; per-user cost ledger |
-| V3 | Query flooding (semantic + rerank) | Per-IP binding + DO global semantic bucket + AI Gateway rate limit | Degraded keyword-only mode |
-| V4 | Cache-busting (`&_=random`) | Canonical key via loopback entrypoint; ignore unknown params | Per-IP budget; request collapsing |
-| V5 | Scraping our API | `robots.txt` + `X-Robots-Tag` + no bulk-export endpoint + caps | IP/ASN rate limits; Bot Fight Mode later |
-| V6 | Griefing/heavy users | Per-username ledger + eviction + no priority for size | Global caps + kill switches |
-| V7 | Coordinated bots (distributed IPs) | Global DO buckets + aging/FCFS fairness + Turnstile escalation | ASN heuristics in Analytics Engine; WAF ASN rules later |
+| #   | Vector                                      | Primary mitigation                                                          | Backstop                                                |
+| --- | ------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------- |
+| V1  | Sync-trigger flood (thousands of usernames) | Turnstile + per-IP binding + queue admission + dedupe                       | Global daily new-index cap; DO budget                   |
+| V2  | Huge-star account (50k–200k stars)          | Page cap (5,000 stars listed), README cap (1,500 newest), chunk/vector caps | Metadata-only above cap; per-user cost ledger           |
+| V3  | Query flooding (semantic + rerank)          | Per-IP binding + DO global semantic bucket + AI Gateway rate limit          | Degraded keyword-only mode                              |
+| V4  | Cache-busting (`&_=random`)                 | Canonical key via loopback entrypoint; ignore unknown params                | Per-IP budget; request collapsing                       |
+| V5  | Scraping our API                            | `robots.txt` + `X-Robots-Tag` + no bulk-export endpoint + caps              | IP/ASN rate limits; Bot Fight Mode later                |
+| V6  | Griefing/heavy users                        | Per-username ledger + eviction + no priority for size                       | Global caps + kill switches                             |
+| V7  | Coordinated bots (distributed IPs)          | Global DO buckets + aging/FCFS fairness + Turnstile escalation              | ASN heuristics in Analytics Engine; WAF ASN rules later |
 
 ### 1.1 V1 — Sync-trigger floods
 
@@ -76,7 +76,7 @@ Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.0
 
 - Listing is `GET /users/{login}/starred?per_page=100&sort=created&direction=desc` (public; **not** affected by the 2026-06-30 stargazers restriction, which covers `/repos/{o}/{r}/stargazers` — never call that). 100k stars = 1,000 listing pages = 20% of an hourly window before a single README.
 - **Caps (proposed defaults, configurable):** `MAX_LIST_PAGES = 50` (5,000 stars) → 50 requests; `MAX_README_FETCHES = 1,500` (newest-first by `starred_at`); beyond that the user is `index_state = 'metadata'`; README truncation at 1 MB; `MAX_CHUNKS_PER_REPO = 40`; `MAX_VECTORS_PER_USER = 25,000`. **Free-mode caps are authoritative in [14 §3.6](14-abuse-protection.md):** `MAX_STARS = 10,000`, semantic window newest 1,500, 64 KB/repo + 20 MB/user FTS, 50 full/warm users; the values in this bullet are paid-topology defaults.
-- **Cost of a capped index:** 50 listing + 1,500 README + ~200 embed/upsert calls ≈ 1,750 requests (~35% of one window) and ~3M embedding tokens (~$0.04). At `active_jobs ≤ 2` and `daily_new_indexes ≤ 25`, GitHub budget and AI spend stay bounded.
+- **Cost of a capped index:** 50 listing + 1,500 README + ~200 embed/upsert calls ≈ 1,750 requests (~35% of one window) and ~~3M embedding tokens (~~$0.04). At `active_jobs ≤ 2` and `daily_new_indexes ≤ 25`, GitHub budget and AI spend stay bounded.
 - The UI marks capped users: “metadata-only index for accounts with > 5,000 stars”.
 - Cooldown for capped users is longer (7 days) because a re-check still costs 50 listing requests.
 
@@ -121,39 +121,68 @@ Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.0
 // wrangler.jsonc — edge bursts (per-colo, eventual), plus queue bindings
 {
   "ratelimits": [
-    { "name": "SEARCH_BURST",  "namespace_id": "1201", "simple": { "limit": 30, "period": 60 } },
-    { "name": "SEMANTIC_BURST","namespace_id": "1202", "simple": { "limit": 6,  "period": 60 } },
-    { "name": "SYNC_BURST",    "namespace_id": "1203", "simple": { "limit": 3,  "period": 60 } }
+    {
+      "name": "SEARCH_BURST",
+      "namespace_id": "1201",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "SEMANTIC_BURST",
+      "namespace_id": "1202",
+      "simple": { "limit": 6, "period": 60 },
+    },
+    {
+      "name": "SYNC_BURST",
+      "namespace_id": "1203",
+      "simple": { "limit": 3, "period": 60 },
+    },
   ],
-  "queues": { "producers": [{ "binding": "SYNC_QUEUE", "queue": "sync-queue" }] },
-  "durable_objects": { "bindings": [
-    { "name": "GITHUB_QUOTA", "class_name": "GithubQuota" },
-    { "name": "SEARCH_BUDGET", "class_name": "SearchBudget" }
-  ]},
-  "flagship": [{ "binding": "FLAGS", "app_id": "<APP_ID>" }]
+  "queues": {
+    "producers": [{ "binding": "SYNC_QUEUE", "queue": "sync-queue" }],
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "GITHUB_QUOTA", "class_name": "GithubQuota" },
+      { "name": "SEARCH_BUDGET", "class_name": "SearchBudget" },
+    ],
+  },
+  "flagship": [{ "binding": "FLAGS", "app_id": "<APP_ID>" }],
 }
 ```
 
 ```ts
 // per-request gate (Effect: wrap in Effect.tryPromise in the cloudflare package)
-const key = await saltedIpHash(req);                       // rotate salt daily; never store raw IP
+const key = await saltedIpHash(req); // rotate salt daily; never store raw IP
 const { success } = await env.SEMANTIC_BURST.limit({ key }); // 6/60s per colo
-if (!success) return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
+if (!success)
+  return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
 
 // authoritative global budget (single DO)
 const budget = env.SEARCH_BUDGET.get(env.SEARCH_BUDGET.idFromName("global"));
-const gate = await budget.acquire({ semantic: 1, rerank: mode !== "known-item" });
+const gate = await budget.acquire({
+  semantic: 1,
+  rerank: mode !== "known-item",
+});
 if (!gate.ok) return degradedKeyword(req, { reason: "budget" });
 ```
 
 ```ts
 // Turnstile: mandatory server-side validation before enqueueing a sync
-const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-  method: "POST", headers: { "content-type": "application/json" },
-  body: JSON.stringify({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip })
-});
+const r = await fetch(
+  "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      secret: env.TURNSTILE_SECRET,
+      response: token,
+      remoteip: ip,
+    }),
+  },
+);
 const v = await r.json();
-if (!v.success || v.action !== "sync" || v.hostname !== PUBLIC_HOST) return badRequest();
+if (!v.success || v.action !== "sync" || v.hostname !== PUBLIC_HOST)
+  return badRequest();
 ```
 
 ## 2. Global GitHub quota governance
@@ -175,19 +204,19 @@ All GitHub calls made on behalf of any user go through a single Durable Object i
 1. Public jobs FCFS from the `sync-queue`, one active + one queued per user.
 2. **Aging:** after 15 min queued, a job is promoted to the interactive lane (small max slots) so large backfills cannot starve small users.
 3. **Owner reserve:** nightly owner sync has a reserved 800-request window at 03:00 UTC; anonymous work uses the rest.
-4. **Recently searched** users get *re-prioritized on staleness*, not on popularity: a re-sync for a user whose index is > 7 days stale jumps the FCFS queue.
+4. **Recently searched** users get _re-prioritized on staleness_, not on popularity: a re-sync for a user whose index is > 7 days stale jumps the FCFS queue.
 5. Starvation can't persist because every job is capped (V2) and the daily new-index cap is a global ceiling, not per-user.
 
 ### 2.3 Dedupe, cooldowns, caps
 
-| Control | Rule |
-|---|---|
-| Dedupe | `sync_requests.login` unique; `INSERT … ON CONFLICT` → join existing run; Queue consumers are idempotent by `login + requested_at` |
-| Cooldown | initial index once; re-index after 24 h (normal) / 7 d (capped account); owner bypass |
-| Queue depth | own `max_queued = 200`; alert at backlog > 50 messages or > 500 MB (GraphQL/`metrics()`) |
-| Active jobs | `active ≤ 2` public + 1 owner |
+| Control         | Rule                                                                                                                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dedupe          | `sync_requests.login` unique; `INSERT … ON CONFLICT` → join existing run; Queue consumers are idempotent by `login + requested_at`                                     |
+| Cooldown        | initial index once; re-index after 24 h (normal) / 7 d (capped account); owner bypass                                                                                  |
+| Queue depth     | own `max_queued = 200`; alert at backlog > 50 messages or > 500 MB (GraphQL/`metrics()`)                                                                               |
+| Active jobs     | `active ≤ 2` public + 1 owner                                                                                                                                          |
 | New indexes/day | Paid: `daily_new_indexes ≤ 25` (≈ $1 embedding + ~44k GitHub requests ≈ 9 hourly windows/day). Free ($0): ≤**10 weighted units/day** ([14 §4](14-abuse-protection.md)) |
-| GitHub reserve | anonymous work may not consume the last 200 requests of a window |
+| GitHub reserve  | anonymous work may not consume the last 200 requests of a window                                                                                                       |
 
 ### 2.4 What the UI shows
 
@@ -197,14 +226,14 @@ All GitHub calls made on behalf of any user go through a single Durable Object i
 
 ### 3.1 Budgets (proposed defaults, all server-side)
 
-| Layer | Keyword / browse | Hybrid / semantic | Similar | Where enforced |
-|---|---|---|---|---|
-| Per IP-hash burst | 30/60 s | 6/60 s | 6/60 s | `ratelimits` bindings |
-| Per IP-hash sustained ⚠️ | 300/h, 1,000/day | 60/h, 200/day | 60/h, 100/day | Sharded `AbuseCounters` DO per IP shard, daily keys |
-| Per user (API key, v2) | 60/min | 30/min | 30/min | DO keyed by key id |
-| Global semantic | — | 300/min, burst 60 | 300/min | `SearchBudget` DO |
-| Global rerank | — | 120/min | — | `SearchBudget` DO |
-| Global AI requests (backstop) | — | 600/min gateway-wide | — | AI Gateway rate limit |
+| Layer                         | Keyword / browse | Hybrid / semantic    | Similar       | Where enforced                                      |
+| ----------------------------- | ---------------- | -------------------- | ------------- | --------------------------------------------------- |
+| Per IP-hash burst             | 30/60 s          | 6/60 s               | 6/60 s        | `ratelimits` bindings                               |
+| Per IP-hash sustained ⚠️      | 300/h, 1,000/day | 60/h, 200/day        | 60/h, 100/day | Sharded `AbuseCounters` DO per IP shard, daily keys |
+| Per user (API key, v2)        | 60/min           | 30/min               | 30/min        | DO keyed by key id                                  |
+| Global semantic               | —                | 300/min, burst 60    | 300/min       | `SearchBudget` DO                                   |
+| Global rerank                 | —                | 120/min              | —             | `SearchBudget` DO                                   |
+| Global AI requests (backstop) | —                | 600/min gateway-wide | —             | AI Gateway rate limit                               |
 
 Budget refill uses monotonic time in the DO; the DO also records cumulative usage so `cost_ledger` stays authoritative even when Analytics Engine points are sampled.
 
@@ -228,14 +257,14 @@ Exit when the trigger is clear for 60 s (hysteresis). Responses carry `X-Starwat
 
 ### 3.4 Server-side caps (never trust the client)
 
-| Parameter | Clamp |
-|---|---|
-| `q` | 512 chars / 64 tokens ([07 §7.6](07-search-contract.md)) |
-| `limit` | 1–50 hybrid/semantic; 1–100 keyword/browse |
-| `--rerank-depth` | ≤ 50; passages ≤ 60 |
-| `filters` | ≤ 8 distinct facets, each ≤ 20 values |
-| `page` | hybrid/semantic ≤ 1 (top-50 ceiling); keyword keyset-paginated |
-| `mode` | unknown → `400`; `semantic` while degraded → `503` |
+| Parameter        | Clamp                                                          |
+| ---------------- | -------------------------------------------------------------- |
+| `q`              | 512 chars / 64 tokens ([07 §7.6](07-search-contract.md))       |
+| `limit`          | 1–50 hybrid/semantic; 1–100 keyword/browse                     |
+| `--rerank-depth` | ≤ 50; passages ≤ 60                                            |
+| `filters`        | ≤ 8 distinct facets, each ≤ 20 values                          |
+| `page`           | hybrid/semantic ≤ 1 (top-50 ceiling); keyword keyset-paginated |
+| `mode`           | unknown → `400`; `semantic` while degraded → `503`             |
 
 ## 4. Cost guardrails
 
@@ -245,13 +274,13 @@ Metadata-only above 5,000 stars; ≤ 40 chunks/repo; ≤ 25,000 vectors/user; �
 
 ### 4.2 Spend visibility
 
-| Source | What it gives | Notes |
-|---|---|---|
-| `cost_ledger` (D1) | Per-user/per-day tokens, dims, requests, computed $ using pinned rates | Authoritative for caps and alarms; small writes, batched |
-| AI Gateway analytics + costs | Per-gateway request counts, errors, cost estimates, logs (`env.AI.aiGatewayLogId`) | Best UI for AI spend; set `metadata: {user, route}` on every run ⚠️ cost figures are estimates |
-| Workers AI dashboard | Neuron usage/day (free-tier headroom) | No documented GraphQL dataset for neurons ⚠️ verify before dashboards depend on it |
-| GraphQL Analytics API | D1 (`d1AnalyticsAdaptiveGroups`), Queues (`queuesBacklogAdaptiveGroups`, …), Workers requests | 31-day retention for D1 metrics |
-| Cloudflare Notifications | Usage-based billing alerts | Requires **Professional plan or higher** + pay-as-you-go — likely unavailable on Workers Paid ⚠️; build our own alerts |
+| Source                       | What it gives                                                                                 | Notes                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `cost_ledger` (D1)           | Per-user/per-day tokens, dims, requests, computed $ using pinned rates                        | Authoritative for caps and alarms; small writes, batched                                                               |
+| AI Gateway analytics + costs | Per-gateway request counts, errors, cost estimates, logs (`env.AI.aiGatewayLogId`)            | Best UI for AI spend; set `metadata: {user, route}` on every run ⚠️ cost figures are estimates                         |
+| Workers AI dashboard         | Neuron usage/day (free-tier headroom)                                                         | No documented GraphQL dataset for neurons ⚠️ verify before dashboards depend on it                                     |
+| GraphQL Analytics API        | D1 (`d1AnalyticsAdaptiveGroups`), Queues (`queuesBacklogAdaptiveGroups`, …), Workers requests | 31-day retention for D1 metrics                                                                                        |
+| Cloudflare Notifications     | Usage-based billing alerts                                                                    | Requires **Professional plan or higher** + pay-as-you-go — likely unavailable on Workers Paid ⚠️; build our own alerts |
 
 ### 4.3 Alarms, soft/hard budgets
 
@@ -265,14 +294,14 @@ Metadata-only above 5,000 stars; ≤ 40 chunks/repo; ≤ 25,000 vectors/user; �
 
 Flagship flags (dashboard-flippable, no deploy), fetched per request with safe defaults:
 
-| Flag | Default | Effect when false |
-|---|---|---|
-| `public_search` | true | Whole public API returns 503 (owner Access path unaffected) |
-| `semantic` | true | Hybrid falls back to keyword; explicit semantic → 503 |
-| `rerank` | true | Skips rerank stage; latency and cost drop |
-| `public_sync` | true | `POST /api/sync` returns 503; queued jobs still drain |
-| `index_new_users` | true | Existing users can re-sync; no new usernames |
-| `spend_mode` | `normal` | `conservative` = caps at 50% targets; `frozen` = semantic+sync off |
+| Flag              | Default  | Effect when false                                                  |
+| ----------------- | -------- | ------------------------------------------------------------------ |
+| `public_search`   | true     | Whole public API returns 503 (owner Access path unaffected)        |
+| `semantic`        | true     | Hybrid falls back to keyword; explicit semantic → 503              |
+| `rerank`          | true     | Skips rerank stage; latency and cost drop                          |
+| `public_sync`     | true     | `POST /api/sync` returns 503; queued jobs still drain              |
+| `index_new_users` | true     | Existing users can re-sync; no new usernames                       |
+| `spend_mode`      | `normal` | `conservative` = caps at 50% targets; `frozen` = semantic+sync off |
 
 Fallback when Flagship is unavailable or misconfigured: (1) DO `FeatureState` row read at request time (no deploy, single point of truth if Flagship down), (2) `wrangler` vars + deploy (minutes), (3) AI Gateway rate limit set to its minimum (immediate, coarse). Document the order in the runbook and test it once in staging ⚠️.
 
@@ -308,15 +337,15 @@ If GitHub restricts `/users/{login}/starred` the way it restricted stargazers (2
 
 ### 6.1 Metrics → source → alert
 
-| Metric | Source | Alert threshold (proposed) |
-|---|---|---|
-| Queue depth / oldest message age | Queue `metrics()` + `queuesBacklogAdaptiveGroups` | > 50 msgs or > 30 min lag (warn); > 150 (page) |
-| Sync success/failure by class, phase duration | `sync_runs` + Analytics Engine `sync_result` | 3 consecutive failures of the nightly owner sync; public failure rate > 20%/h |
-| GitHub `remaining`/`reset`, 403/429, secondary hits | DO state + `sync_runs` | remaining < 500 before 03:00 UTC; any secondary hit > 5/h |
-| Semantic/rerank tokens, $/day, degraded activations | ledger + AE `search_result` | degraded on > 5% of queries over 15 min; projected month > soft cap |
-| p50/p95 latency by mode, error rate by status | AE `search_result` (or Logpush→Grafana/Axiom, [02 §7](02-stack-and-pipeline.md)) | p95 > 700 ms or 5xx > 1% over 5 min |
-| 429s by binding/route, Turnstile failures, distinct IPs/ASN | AE `abuse_event` | 429 ratio > 20%/5 min; Turnstile failure > 50/min |
-| Cost per endpoint/day | ledger + AI Gateway analytics | week-over-week +50% |
+| Metric                                                      | Source                                                                           | Alert threshold (proposed)                                                    |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Queue depth / oldest message age                            | Queue `metrics()` + `queuesBacklogAdaptiveGroups`                                | > 50 msgs or > 30 min lag (warn); > 150 (page)                                |
+| Sync success/failure by class, phase duration               | `sync_runs` + Analytics Engine `sync_result`                                     | 3 consecutive failures of the nightly owner sync; public failure rate > 20%/h |
+| GitHub `remaining`/`reset`, 403/429, secondary hits         | DO state + `sync_runs`                                                           | remaining < 500 before 03:00 UTC; any secondary hit > 5/h                     |
+| Semantic/rerank tokens, $/day, degraded activations         | ledger + AE `search_result`                                                      | degraded on > 5% of queries over 15 min; projected month > soft cap           |
+| p50/p95 latency by mode, error rate by status               | AE `search_result` (or Logpush→Grafana/Axiom, [02 §7](02-stack-and-pipeline.md)) | p95 > 700 ms or 5xx > 1% over 5 min                                           |
+| 429s by binding/route, Turnstile failures, distinct IPs/ASN | AE `abuse_event`                                                                 | 429 ratio > 20%/5 min; Turnstile failure > 50/min                             |
+| Cost per endpoint/day                                       | ledger + AI Gateway analytics                                                    | week-over-week +50%                                                           |
 
 Every event carries `route`, `outcome`, `ms`, `mode`, `ip_hash` (never raw IP), `user_login`, `index_version`; written with one `writeDataPoint()` per request in a `ctx.waitUntil` batch.
 

@@ -5,7 +5,11 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import { SyncDeps, type SyncDepsService } from "../deps.ts";
-import { StarRefreshWorkflow, type StarRefreshInput, type StarRefreshResult } from "./refresh-workflow.ts";
+import {
+  StarRefreshWorkflow,
+  type StarRefreshInput,
+  type StarRefreshResult,
+} from "./refresh-workflow.ts";
 import { describeGithubError, nowIso, patchState } from "./state.ts";
 
 /**
@@ -54,7 +58,7 @@ type PageOutcome =
 
 const makeListingBody = (
   deps: SyncDepsService,
-  refresh: Cloudflare.WorkflowHandle<StarRefreshInput, StarRefreshResult>
+  refresh: Cloudflare.WorkflowHandle<StarRefreshInput, StarRefreshResult>,
 ) =>
   Effect.fn("StarListingWorkflow.body")(function* (input: StarListingInput) {
     const login = input.login;
@@ -69,8 +73,9 @@ const makeListingBody = (
         const fetched = yield* github.getUserProfile(login).pipe(
           Effect.matchEffect({
             onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-            onFailure: (error) => Effect.succeed({ ok: false as const, message: describeGithubError(error) })
-          })
+            onFailure: (error) =>
+              Effect.succeed({ ok: false as const, message: describeGithubError(error) }),
+          }),
         );
 
         if (!fetched.ok) {
@@ -87,7 +92,7 @@ const makeListingBody = (
 
         return { ok: true as const, starsHint: previous?.starsTotal ?? 0 };
       }),
-      { retries: { limit: 3, delay: "5 seconds" } }
+      { retries: { limit: 3, delay: "5 seconds" } },
     );
 
     if (!profile.ok) {
@@ -101,13 +106,13 @@ const makeListingBody = (
         const groups = yield* github.listGroups(login).pipe(
           Effect.matchEffect({
             onSuccess: (value) => Effect.succeed(value),
-            onFailure: () => Effect.succeed([] as const)
-          })
+            onFailure: () => Effect.succeed([] as const),
+          }),
         );
 
         yield* repos.replaceGroups(login, groups).pipe(Effect.ignore);
       }),
-      { retries: { limit: 1, delay: "5 seconds" } }
+      { retries: { limit: 1, delay: "5 seconds" } },
     );
 
     // ---- star pages --------------------------------------------------------
@@ -129,13 +134,14 @@ const makeListingBody = (
             .listStarPage(login, {
               page: pageNumber,
               perPage: PER_PAGE,
-              etag: etag ?? undefined
+              etag: etag ?? undefined,
             })
             .pipe(
               Effect.matchEffect({
                 onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-                onFailure: (error) => Effect.succeed({ ok: false as const, message: describeGithubError(error) })
-              })
+                onFailure: (error) =>
+                  Effect.succeed({ ok: false as const, message: describeGithubError(error) }),
+              }),
             );
 
           if (!fetched.ok) {
@@ -164,8 +170,8 @@ const makeListingBody = (
                   fullName: repo.fullName,
                   description: repo.description,
                   topics: repo.topics,
-                  readme: readmes.get(repo.id) ?? ""
-                }))
+                  readme: readmes.get(repo.id) ?? "",
+                })),
               )
               .pipe(Effect.orDie);
           }
@@ -181,7 +187,7 @@ const makeListingBody = (
             phase: "listing",
             starsTotal: seen,
             reposMetadata: seen,
-            lastError: null
+            lastError: null,
           });
 
           const stop = starPage.repos.length < PER_PAGE || starPage.nextPage === undefined;
@@ -189,10 +195,10 @@ const makeListingBody = (
           return {
             kind: "fresh",
             ids: starPage.repos.map((repo) => repo.id),
-            stop
+            stop,
           } satisfies PageOutcome;
         }),
-        { retries: { limit: 3, delay: "5 seconds" } }
+        { retries: { limit: 3, delay: "5 seconds" } },
       );
 
       if (outcome.kind === "error") {
@@ -233,7 +239,7 @@ const makeListingBody = (
 
         return diffStars(dbIds, [...listed]).removed;
       }),
-      { retries: { limit: 2, delay: "5 seconds" } }
+      { retries: { limit: 2, delay: "5 seconds" } },
     );
 
     const removedChunks = chunk(removed, UNSTAR_CHUNK);
@@ -241,7 +247,7 @@ const makeListingBody = (
     for (let index = 0; index < removedChunks.length; index++) {
       yield* Cloudflare.Workflows.task(
         `unstar-${index}`,
-        repos.markUnstarred(login, removedChunks[index] ?? []).pipe(Effect.orDie)
+        repos.markUnstarred(login, removedChunks[index] ?? []).pipe(Effect.orDie),
       );
     }
 
@@ -257,10 +263,10 @@ const makeListingBody = (
           reposMetadata: stats.reposMetadata,
           readmesFetched: stats.readmesFetched,
           lastSyncedAt: nowIso(),
-          lastError: null
+          lastError: null,
         });
       }),
-      { retries: { limit: 3, delay: "5 seconds" } }
+      { retries: { limit: 3, delay: "5 seconds" } },
     );
 
     // ---- chain Tier 1 (dedupes per user per UTC day) -----------------------
@@ -275,7 +281,7 @@ const makeListingBody = (
       listed: listedCount,
       removed: removed.length,
       pages: freshPages.size,
-      notModified: notModifiedPages.size
+      notModified: notModifiedPages.size,
     };
   });
 
@@ -296,10 +302,10 @@ export class StarListingWorkflow extends Cloudflare.Workflow<StarListingWorkflow
       if (Exit.isSuccess(exit)) return exit.value;
       yield* patchState(input.login, { phase: "failed", lastError: "listing failed" }).pipe(
         Effect.provide(deps.runLayers),
-        Effect.ignore
+        Effect.ignore,
       );
 
       return { ok: false, reason: "internal" };
     });
-  })
+  }),
 ) {}

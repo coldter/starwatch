@@ -13,18 +13,18 @@ const seedDocs = Effect.gen(function* () {
     makeFtsDoc(1, "better-auth/better-auth", {
       description: "The most comprehensive authentication framework",
       topics: ["auth", "oauth"],
-      readme: "Authentication, OAuth and session management."
+      readme: "Authentication, OAuth and session management.",
     }),
     makeFtsDoc(2, "nuxflare/auth", {
       description: "Tiny auth server",
       topics: ["auth"],
-      readme: "auth for everyone"
+      readme: "auth for everyone",
     }),
     makeFtsDoc(3, "vector-db/vectordb", {
       description: "vector database",
       topics: ["vector"],
-      readme: "semantic search over embeddings"
-    })
+      readme: "semantic search over embeddings",
+    }),
   ]);
 });
 
@@ -38,7 +38,7 @@ describe("UserFts", () => {
       expect(ftsTableName("a-b")).not.toBe(ftsTableName("ab"));
       expect(ftsTableName("a--b")).not.toBe(ftsTableName("a-b"));
       expect(ftsTrigramTableName("Cold-Ter")).toBe("fts_u_cold_ter_tri");
-    })
+    }),
   );
 
   it.effect("ensures both tables idempotently", () =>
@@ -49,7 +49,7 @@ describe("UserFts", () => {
       yield* fts.ensureUserFts(LOGIN);
       yield* fts.replaceUserDocs(LOGIN, [makeFtsDoc(1, "owner/one", { readme: "hello" })]);
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"hello"'))).toEqual([1]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("searches the porter index with stemming and ranked bm25 scores", () =>
@@ -71,7 +71,7 @@ describe("UserFts", () => {
 
       // A readme-only token is found by the porter index.
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"embeddings"'))).toEqual([3]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("searches the trigram index for substrings and ignores readmes", () =>
@@ -85,10 +85,10 @@ describe("UserFts", () => {
 
       // README text is deliberately absent from the trigram table.
       yield* fts.replaceUserDocs(LOGIN, [
-        makeFtsDoc(1, "owner/plain", { description: null, topics: [], readme: "zebra" })
+        makeFtsDoc(1, "owner/plain", { description: null, topics: [], readme: "zebra" }),
       ]);
       expect(hitIds(yield* fts.searchTrigram(LOGIN, '"zeb"'))).toEqual([]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("respects the limit option", () =>
@@ -97,7 +97,7 @@ describe("UserFts", () => {
       yield* seedDocs;
       const fts = yield* UserFts;
       expect((yield* fts.searchKeyword(LOGIN, '"auth"', { limit: 1 })).length).toBe(1);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("accepts explicit bm25 column weights", () =>
@@ -111,7 +111,7 @@ describe("UserFts", () => {
 
       const trigram = yield* fts.searchTrigram(LOGIN, '"flar"', { weights: [3, 2, 1] });
       expect(hitIds(trigram)).toEqual([2]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("isolates per-user indexes", () =>
@@ -120,7 +120,9 @@ describe("UserFts", () => {
       const fts = yield* UserFts;
 
       // The same repo_id exists in both users' indexes with different text.
-      yield* fts.replaceUserDocs("alice", [makeFtsDoc(1, "alice/alpha", { readme: "alpha content" })]);
+      yield* fts.replaceUserDocs("alice", [
+        makeFtsDoc(1, "alice/alpha", { readme: "alpha content" }),
+      ]);
       yield* fts.replaceUserDocs("bob", [makeFtsDoc(1, "bob/beta", { readme: "beta content" })]);
 
       expect(hitIds(yield* fts.searchKeyword("alice", '"alpha"'))).toEqual([1]);
@@ -135,7 +137,7 @@ describe("UserFts", () => {
       // Dropping one user's tables leaves the other intact.
       yield* fts.deleteUserFts("alice");
       expect(hitIds(yield* fts.searchKeyword("bob", '"beta"'))).toEqual([1]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("restricts matches to candidate repo ids, chunking past the parameter limit", () =>
@@ -153,8 +155,10 @@ describe("UserFts", () => {
       const chunked = yield* fts.searchKeyword(LOGIN, '"auth"', { candidateIds: candidates });
       expect(new Set(hitIds(chunked))).toEqual(new Set([1, 2]));
       expect(chunked.map((hit) => hit.rank)).toEqual([1, 2]);
-      expect(hitIds(yield* fts.searchTrigram(LOGIN, '"flar"', { candidateIds: candidates }))).toEqual([2]);
-    }).pipe(Effect.provide(testLive()))
+      expect(
+        hitIds(yield* fts.searchTrigram(LOGIN, '"flar"', { candidateIds: candidates })),
+      ).toEqual([2]);
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("dropping a user index is idempotent and rebuildable", () =>
@@ -166,7 +170,7 @@ describe("UserFts", () => {
       yield* fts.deleteUserFts(LOGIN);
       yield* fts.replaceUserDocs(LOGIN, [makeFtsDoc(1, "owner/one", { readme: "hello again" })]);
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"hello"'))).toEqual([1]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("upserts docs incrementally, replacing only the listed rows", () =>
@@ -181,9 +185,9 @@ describe("UserFts", () => {
         makeFtsDoc(2, "nuxflare/auth", {
           description: "rewritten",
           topics: [],
-          readme: "totally different"
+          readme: "totally different",
         }),
-        makeFtsDoc(4, "fresh/one", { readme: "brand new" })
+        makeFtsDoc(4, "fresh/one", { readme: "brand new" }),
       ]);
 
       // Doc 2's old readme terms are gone (its name still matches "auth").
@@ -194,7 +198,7 @@ describe("UserFts", () => {
       // The trigram row for doc 2 was replaced (name unchanged, description gone).
       expect(hitIds(yield* fts.searchTrigram(LOGIN, '"rewritten"'))).toEqual([2]);
       expect(hitIds(yield* fts.searchTrigram(LOGIN, '"vector"'))).toEqual([3]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("upserts multi-row batches beyond the 19-row statement chunk", () =>
@@ -203,7 +207,7 @@ describe("UserFts", () => {
       const fts = yield* UserFts;
 
       const docs = Array.from({ length: 45 }, (_, index) =>
-        makeFtsDoc(index + 1, `bulk/repo-${index + 1}`, { readme: `token${index + 1} shared` })
+        makeFtsDoc(index + 1, `bulk/repo-${index + 1}`, { readme: `token${index + 1} shared` }),
       );
 
       yield* fts.upsertUserDocs(LOGIN, docs);
@@ -211,7 +215,7 @@ describe("UserFts", () => {
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"token45"'))).toEqual([45]);
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"token1"'))).toEqual([1]);
       expect((yield* fts.searchKeyword(LOGIN, '"shared"', { limit: 50 })).length).toBe(45);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 
   it.effect("caps README text at 64 KB per repo", () =>
@@ -221,10 +225,10 @@ describe("UserFts", () => {
       const filler = "z".repeat(64 * 1024);
 
       yield* fts.replaceUserDocs(LOGIN, [
-        makeFtsDoc(1, "owner/big", { readme: `headertoken ${filler} tailtoken` })
+        makeFtsDoc(1, "owner/big", { readme: `headertoken ${filler} tailtoken` }),
       ]);
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"headertoken"'))).toEqual([1]);
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"tailtoken"'))).toEqual([]);
-    }).pipe(Effect.provide(testLive()))
+    }).pipe(Effect.provide(testLive())),
   );
 });

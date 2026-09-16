@@ -10,16 +10,16 @@
 
 ## 1. Recommendation at a glance
 
-| Question | Decision |
-|---|---|
-| Repo-level sharing | **Global `repos` + `repo_chunks` corpus**, deduped by GitHub `repo_id` and content hash; READMEs and embeddings fetched/embedded **once ever** |
-| Per-user data | `users`/`user_stars` join + per-user FTS rows + per-user Vectorize namespace + groups |
-| Lexical | **One FTS5 table per D1 user shard** with a `user_id` UNINDEXED column; ~150–250 users/shard |
-| Semantic | **Vector sharding first**: one Vectorize namespace per user (≈23k vectors), one query per search, no fan-out; ~700 users/index (20M vector cap) |
-| Sync | Global cron dispatcher → **per-user Workflow** instances; a single **`GithubGovernor` Durable Object** owns the shared 5,000 req/h token bucket, concurrency leases, and fairness |
-| Freshness / eviction | **Tiered TTL/LRU**: hot = daily + full index, warm = weekly + lite namespace, cold = sync-on-visit with FTS/vectors evicted; refresh only when `pushed_at > readme_checked_at` |
-| Scale ceiling in v1 | 1 core DB + 1 corpus DB + 1 user shard + 1 Vectorize index; all four have a documented sharding path before they fill |
-| Marginal cost | ≈ **$0.06/user/mo** steady state, dominated by D1 storage; one-time embed ≈ **$0.07/user**, largely absorbed by the 10k neurons/day free pool |
+| Question             | Decision                                                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo-level sharing   | **Global `repos` + `repo_chunks` corpus**, deduped by GitHub `repo_id` and content hash; READMEs and embeddings fetched/embedded **once ever**                                    |
+| Per-user data        | `users`/`user_stars` join + per-user FTS rows + per-user Vectorize namespace + groups                                                                                             |
+| Lexical              | **One FTS5 table per D1 user shard** with a `user_id` UNINDEXED column; ~150–250 users/shard                                                                                      |
+| Semantic             | **Vector sharding first**: one Vectorize namespace per user (≈23k vectors), one query per search, no fan-out; ~700 users/index (20M vector cap)                                   |
+| Sync                 | Global cron dispatcher → **per-user Workflow** instances; a single **`GithubGovernor` Durable Object** owns the shared 5,000 req/h token bucket, concurrency leases, and fairness |
+| Freshness / eviction | **Tiered TTL/LRU**: hot = daily + full index, warm = weekly + lite namespace, cold = sync-on-visit with FTS/vectors evicted; refresh only when `pushed_at > readme_checked_at`    |
+| Scale ceiling in v1  | 1 core DB + 1 corpus DB + 1 user shard + 1 Vectorize index; all four have a documented sharding path before they fill                                                             |
+| Marginal cost        | ≈ **$0.06/user/mo** steady state, dominated by D1 storage; one-time embed ≈ **$0.07/user**, largely absorbed by the 10k neurons/day free pool                                     |
 
 ### 1.1 Free-tier deltas applied
 
@@ -35,15 +35,15 @@ The **$0 launch** ([13 §4.2](13-free-tier-feasibility.md), [14 §3.6](14-abuse-
 
 ### 2.1 Shared vs per-user artifacts
 
-| Artifact | Home | Duplicated per user? |
-|---|---|---|
-| Repo metadata + README state (`repos`, `repo_readmes`) | corpus DB | no |
-| README bytes + embedding values (content-addressed) | R2, GC on last reference | no (reused to fill namespaces) |
-| Chunk text + hashes (`repo_chunks`) | corpus DB | no |
-| Vectors | per-user R2 blob on free ([15 §2.3](15-free-semantic-search.md)); Vectorize namespace on paid (§3) | **yes** (one copy per indexed user; evictable) |
-| FTS5 index rows | user shard DB | **yes** (FTS stores indexed text; evictable) |
-| `user_stars` + `starred_at` + filter snapshot | user shard DB | n/a (~1 MB/user, refreshed on sync) |
-| Groups / memberships / listing ETags | user shard DB | n/a |
+| Artifact                                               | Home                                                                                               | Duplicated per user?                           |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Repo metadata + README state (`repos`, `repo_readmes`) | corpus DB                                                                                          | no                                             |
+| README bytes + embedding values (content-addressed)    | R2, GC on last reference                                                                           | no (reused to fill namespaces)                 |
+| Chunk text + hashes (`repo_chunks`)                    | corpus DB                                                                                          | no                                             |
+| Vectors                                                | per-user R2 blob on free ([15 §2.3](15-free-semantic-search.md)); Vectorize namespace on paid (§3) | **yes** (one copy per indexed user; evictable) |
+| FTS5 index rows                                        | user shard DB                                                                                      | **yes** (FTS stores indexed text; evictable)   |
+| `user_stars` + `starred_at` + filter snapshot          | user shard DB                                                                                      | n/a (~1 MB/user, refreshed on sync)            |
+| Groups / memberships / listing ETags                   | user shard DB                                                                                      | n/a                                            |
 
 Two intentional duplications remain: **Vectorize storage** (§3) and **FTS text** (§4). Both buy exact per-user recall with a single scoped query; both are evictable caches, which keeps them bounded (§6).
 
@@ -262,13 +262,13 @@ starwatch-readmes/
 
 ### 2.7 Shared-repo lifecycle
 
-| Event | Shared work (once) | Per-user work |
-|---|---|---|
-| New repo enters corpus | metadata upsert; README fetch → chunk → hash → embedding cache | FTS row + vectors for each starrer |
+| Event                                          | Shared work (once)                                               | Per-user work                                                              |
+| ---------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| New repo enters corpus                         | metadata upsert; README fetch → chunk → hash → embedding cache   | FTS row + vectors for each starrer                                         |
 | README changed (`pushed_at > checked_at`, 200) | refetch/chunk; re-embed only changed hashes; `refreshed_at` bump | FTS refresh (hot eager, others `user_dirty`); vector upsert changed chunks |
-| Repo renamed/moved (301) | update `full_name` by stable `id` | snapshot update on next sync |
-| Repo unstarred by user | nothing | `is_starred=0`, FTS delete, vector `deleteByIds`, keep row 90 d |
-| Repo deleted upstream | soft-delete + retention, then GC | rows drop after user retention window |
+| Repo renamed/moved (301)                       | update `full_name` by stable `id`                                | snapshot update on next sync                                               |
+| Repo unstarred by user                         | nothing                                                          | `is_starred=0`, FTS delete, vector `deleteByIds`, keep row 90 d            |
+| Repo deleted upstream                          | soft-delete + retention, then GC                                 | rows drop after user retention window                                      |
 
 ## 3. Vectorize multi-tenancy — the core trade-off
 
@@ -280,12 +280,12 @@ starwatch-readmes/
 
 ### 3.1 Options
 
-| | (a) Namespace per user | (b) Global index + post-filter membership | (c) Global index + `repo_id $in` pre-filter | (d) D1-only candidates + semantic re-rank |
-|---|---|---|---|---|
-| Recall | **exact** (namespace = user corpus) | collapses: expected hits in top-50 ≈ `50 × user_vectors / global_vectors` → **usually 0** at ≥1k users | exact *within the filter set*, but the set is capped | only re-ranks what D1 found; pure-paraphrase queries lose semantic reach |
-| Query count/search | **1** | 1 | `ceil(k/≈200)` (2,048 B filter ≈ 200 nine-digit ids; 3.4k stars → **~17 queries**) | 1 (over ≤200 lexical candidates) |
-| Storage / isolation | vectors duplicated per user; per-user delete by deterministic ids | one copy, no vector-layer isolation | one copy | one copy |
-| Verdict | ✅ **paid primary** (not free-viable, [15 §1](15-free-semantic-search.md)) | ❌ | ❌ as a primary; useful as the paid `lite` tier | ✅ **free-tier primary** ([15 §2](15-free-semantic-search.md)); fallback/degraded tier on paid |
+|                     | (a) Namespace per user                                                     | (b) Global index + post-filter membership                                                              | (c) Global index + `repo_id $in` pre-filter                                        | (d) D1-only candidates + semantic re-rank                                                      |
+| ------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Recall              | **exact** (namespace = user corpus)                                        | collapses: expected hits in top-50 ≈ `50 × user_vectors / global_vectors` → **usually 0** at ≥1k users | exact _within the filter set_, but the set is capped                               | only re-ranks what D1 found; pure-paraphrase queries lose semantic reach                       |
+| Query count/search  | **1**                                                                      | 1                                                                                                      | `ceil(k/≈200)` (2,048 B filter ≈ 200 nine-digit ids; 3.4k stars → **~17 queries**) | 1 (over ≤200 lexical candidates)                                                               |
+| Storage / isolation | vectors duplicated per user; per-user delete by deterministic ids          | one copy, no vector-layer isolation                                                                    | one copy                                                                           | one copy                                                                                       |
+| Verdict             | ✅ **paid primary** (not free-viable, [15 §1](15-free-semantic-search.md)) | ❌                                                                                                     | ❌ as a primary; useful as the paid `lite` tier                                    | ✅ **free-tier primary** ([15 §2](15-free-semantic-search.md)); fallback/degraded tier on paid |
 
 The recall math is the decider: a niche user's 23k vectors are a rounding error in a shared 3.5M+ vector index; global top-50 post-filtering returns near-zero semantic hits for exactly the users who need the service. The `$in` route buys recall back but turns every search into ~17 Vectorize queries, breaks the §7 latency budget (legs must run in parallel), and multiplies query billing ambiguously. Namespaces keep one query, one namespace, exact scoping, and trivial per-user deletion. **On free this entire section is moot:** no namespaces are created ([15 §1](15-free-semantic-search.md)); `vector_blobs` replaces `vectorize_shards` and R2 bytes + 10 ms CPU replace stored/queried dims as the binding walls.
 
@@ -293,12 +293,12 @@ The recall math is the decider: a niche user's 23k vectors are a rounding error 
 
 Stored dims `= users × 23.55M` (1024d, full tier) at $0.05 per 100M dims/mo after the 10M free allocation:
 
-| Users | Vectors | Stored dims | Vectorize $/mo | One global copy for reference |
-|---|---|---|---|---|
-| 10 | 230k | 235.5M | **$0.11** | ~3.5M vectors ≈ 3.58B dims ≈ $1.79/mo |
-| 100 | 2.3M | 2.36B | **$1.17** | same |
-| 1,000 | 23M | 23.6B | **$11.77** | same |
-| 10,000 | 230M | 236B | **$117.75** | same |
+| Users  | Vectors | Stored dims | Vectorize $/mo | One global copy for reference         |
+| ------ | ------- | ----------- | -------------- | ------------------------------------- |
+| 10     | 230k    | 235.5M      | **$0.11**      | ~3.5M vectors ≈ 3.58B dims ≈ $1.79/mo |
+| 100    | 2.3M    | 2.36B       | **$1.17**      | same                                  |
+| 1,000  | 23M     | 23.6B       | **$11.77**     | same                                  |
+| 10,000 | 230M    | 236B        | **$117.75**    | same                                  |
 
 - Duplication is **cheaper than a global index below ~150 users** (given a ~500k-repo union corpus) and stays linear thereafter. MRL-shrunk dims (qwen3 at 512/256d) halve/quarter all columns; the `lite` tier (summary + top 2 chunks/repo ≈ 10k vectors) cuts the vector count ~2.3×.
 - **Sharding + metadata:** soft cap **700 users/index** (16M vectors at 80% of the 20M limit); 10k users → ~15 indexes, 1M → ~1,430. `vectorize_shards` tracks utilization; new namespaces go to the least-loaded `open` index. Rebalancing is by user: fill the new namespace from the R2 embedding cache (`getByIds` can also copy values out of an old index ⚠️ verify batch limits), flip `user_index_state.vectorize_index`, then `deleteByIds` the old namespace. Every shard index carries the same 10 metadata indexes, declared before first insert ([07 §4.3](07-search-contract.md)): language, stars, archived, starred_at, license, fork, has_readme, pushed_at, `repo_id`, +1 spare. Namespace names are opaque (`u123`), never logins.
@@ -308,11 +308,11 @@ Stored dims `= users × 23.55M` (1024d, full tier) at $0.05 per 100M dims/mo aft
 
 ### 4.1 Options
 
-| | Single FTS5 table + `user_id` column/shards ✅ | Per-user virtual tables | Global FTS + join `user_stars` |
-|---|---|---|---|
-| Recall | exact, one query (storage duplicates text) | exact, plus schema bloat | post-filter after global BM25 → same collapse as §3.1(b) |
-| Ops | one DDL per shard; delete by rowid via `user_fts_rows` | ~2×10⁴ virtual tables/shard at 10k users; migration/DDL nightmare | trivial DDL |
-| Verdict | ✅ paid v1; per-user virtual tables are acceptable for the ≤50-user free pilot ([13 §4.1](13-free-tier-feasibility.md)) | ❌ | only as a cold-tier "lite lexical" fallback (v2) |
+|         | Single FTS5 table + `user_id` column/shards ✅                                                                          | Per-user virtual tables                                           | Global FTS + join `user_stars`                           |
+| ------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------- |
+| Recall  | exact, one query (storage duplicates text)                                                                              | exact, plus schema bloat                                          | post-filter after global BM25 → same collapse as §3.1(b) |
+| Ops     | one DDL per shard; delete by rowid via `user_fts_rows`                                                                  | ~2×10⁴ virtual tables/shard at 10k users; migration/DDL nightmare | trivial DDL                                              |
+| Verdict | ✅ paid v1; per-user virtual tables are acceptable for the ≤50-user free pilot ([13 §4.1](13-free-tier-feasibility.md)) | ❌                                                                | only as a cold-tier "lite lexical" fallback (v2)         |
 
 ### 4.2 Query patterns
 
@@ -332,12 +332,12 @@ Browse (no text) is the same snapshot SQL keyset-paginated by `(starred_at, repo
 
 ### 4.3 Size math and sharding
 
-| Component | Per user | Notes |
-|---|---|---|
-| porter FTS (name/desc/topics/README) | **30–60 MB** | docs/01 §5; ~26 MB source text, FTS ≈ 1.3–2.3× |
-| trigram FTS | 2–4 MB | metadata columns only; README trigrams explode |
-| `user_stars` + snapshot + groups + etags | ~2 MB | 3.4k rows × ~300 B + small tables |
-| **Total** | **~35–65 MB** | paid path; the $0 launch caps FTS at 64 KB/repo and 20 MB/user ([14 §3.6](14-abuse-protection.md)). Contentless FTS would land near the low end (⚠️ §2.5) |
+| Component                                | Per user      | Notes                                                                                                                                                     |
+| ---------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| porter FTS (name/desc/topics/README)     | **30–60 MB**  | docs/01 §5; ~26 MB source text, FTS ≈ 1.3–2.3×                                                                                                            |
+| trigram FTS                              | 2–4 MB        | metadata columns only; README trigrams explode                                                                                                            |
+| `user_stars` + snapshot + groups + etags | ~2 MB         | 3.4k rows × ~300 B + small tables                                                                                                                         |
+| **Total**                                | **~35–65 MB** | paid path; the $0 launch caps FTS at 64 KB/repo and 20 MB/user ([14 §3.6](14-abuse-protection.md)). Contentless FTS would land near the low end (⚠️ §2.5) |
 
 Against the **10 GB/DB** ceiling, shard at **150 users** (≈7–10 GB packed) or 250 with contentless FTS. 10k users → 40–70 shards; 1M users → 4–7k shards — both far below D1's 50,000 databases/account. Shards are immutable-as-a-set: add `sw_users_N` when the last one crosses 70% full; never rebalance.
 
@@ -353,25 +353,25 @@ One Worker can bind ~**5,000 D1 databases** (1 MB script metadata, ~150 B/bindin
 
 ### 5.1 Unit economics (per full user, 3.4k repos)
 
-| Item | One-time | Steady per month |
-|---|---|---|
-| Embedding (bge-m3, 5.7M tokens @ $0.012/M) | **$0.068** (→ ~$0.034 at 50% corpus cache hits; 0 if within free neurons) | churn ~0.6M tokens → **$0.007** (bounded globally by changed unique repos) |
-| Vectorize stored (23.55M dims @ $0.05/100M) | — | **$0.012** |
-| D1 (35–65 MB @ $0.75/GB-mo; 5 GB included) | — | **$0.026–0.048** |
-| R2 (corpus + cache) + queries (10 searches/user/mo, rerank 30k tokens each) | ~$0.0005 | **$0.0014** |
+| Item                                                                        | One-time                                                                  | Steady per month                                                           |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Embedding (bge-m3, 5.7M tokens @ $0.012/M)                                  | **$0.068** (→ ~$0.034 at 50% corpus cache hits; 0 if within free neurons) | churn ~0.6M tokens → **$0.007** (bounded globally by changed unique repos) |
+| Vectorize stored (23.55M dims @ $0.05/100M)                                 | —                                                                         | **$0.012**                                                                 |
+| D1 (35–65 MB @ $0.75/GB-mo; 5 GB included)                                  | —                                                                         | **$0.026–0.048**                                                           |
+| R2 (corpus + cache) + queries (10 searches/user/mo, rerank 30k tokens each) | ~$0.0005                                                                  | **$0.0014**                                                                |
 
 **Free pool:** 10,000 neurons/day ÷ 1,075 neurons/M-tokens ≈ **9.3M tokens/day** ≈ **1.6 full users/day** (~49/month) at zero AI cost. Paid path is the same $0.012/M tokens ($0.011/1k neurons).
 
 ### 5.2 Scale (all users indexed, no eviction; from §5.1 × N plus shared corpus)
 
-| Monthly $ | 10 users | 100 users | 1k users | 10k users |
-|---|---|---|---|---|
-| Vectorize stored (N×23.55M dims) | $0.11 | $1.17 | $11.77 | $117.75 |
-| D1 storage (user 35–65 MB + corpus, −5 GB) | $0 | ~$0.5 | ~$29 | ~$320 |
-| AI churn (linear worst case) | $0.07 | $0.72 | $7.2 | $72 |
-| Rerank + query embeds (10 searches/user) | <$0.01 | $0.01 | $0.90 | $9.00 |
-| **Total marginal** | **≈$0.2** | **≈$2.4** | **≈$50** | **≈$520** |
-| One-time onboarding (bounded by unique corpus, not N) | ~$0.3 | ~$1.7 | ~$5 | ~$16 |
+| Monthly $                                             | 10 users  | 100 users | 1k users | 10k users |
+| ----------------------------------------------------- | --------- | --------- | -------- | --------- |
+| Vectorize stored (N×23.55M dims)                      | $0.11     | $1.17     | $11.77   | $117.75   |
+| D1 storage (user 35–65 MB + corpus, −5 GB)            | $0        | ~$0.5     | ~$29     | ~$320     |
+| AI churn (linear worst case)                          | $0.07     | $0.72     | $7.2     | $72       |
+| Rerank + query embeds (10 searches/user)              | <$0.01    | $0.01     | $0.90    | $9.00     |
+| **Total marginal**                                    | **≈$0.2** | **≈$2.4** | **≈$50** | **≈$520** |
+| One-time onboarding (bounded by unique corpus, not N) | ~$0.3     | ~$1.7     | ~$5      | ~$16      |
 
 D1 dominates from ~1k users; **eviction (§6) cuts the 10k-user D1 row ~3× and Vectorize ~5×** (only hot/warm users keep full indexes), landing near **$150–200/mo**. At 10k users the bill is ~$0.02/user/mo — the Workers Paid $5 base and the 10k neurons/day pool cover the rest; R2 stays under $0.05/mo everywhere.
 
@@ -388,12 +388,12 @@ D1 dominates from ~1k users; **eviction (§6) cuts the 10k-user D1 row ~3× and 
 
 ### 6.1 Tier policy
 
-| Tier | Trigger | Kept | Evicted | Sync cadence |
-|---|---|---|---|---|
-| `hot` | visited ≤ 7 d | full FTS + full namespace | — | daily (scheduled) |
-| `warm` | visited ≤ 30 d | FTS + lite namespace | extra chunks | weekly |
-| `cold` | 30–90 d | `user_stars` + groups only (~1 MB) | FTS, namespace, snapshot refresh | re-index on visit (lexical from corpus, semantic from R2 cache) |
-| `archived` | > 90 d, not revisited | `user_stars` row; corpus stays shared | all per-user caches | opt-in re-index |
+| Tier       | Trigger               | Kept                                  | Evicted                          | Sync cadence                                                    |
+| ---------- | --------------------- | ------------------------------------- | -------------------------------- | --------------------------------------------------------------- |
+| `hot`      | visited ≤ 7 d         | full FTS + full namespace             | —                                | daily (scheduled)                                               |
+| `warm`     | visited ≤ 30 d        | FTS + lite namespace                  | extra chunks                     | weekly                                                          |
+| `cold`     | 30–90 d               | `user_stars` + groups only (~1 MB)    | FTS, namespace, snapshot refresh | re-index on visit (lexical from corpus, semantic from R2 cache) |
+| `archived` | > 90 d, not revisited | `user_stars` row; corpus stays shared | all per-user caches              | opt-in re-index                                                 |
 
 Popular profiles are warm by construction (visit/LRU), so eviction never touches them. The policy is a pure LRU with promotion on any successful search or sync.
 
@@ -411,18 +411,18 @@ Popular profiles are warm by construction (visit/LRU), so eviction never touches
 
 ## 7. Sync orchestration at N users
 
-**Shape:** one cron tick (1/min) reads due `sync_jobs` from `sw_core`, applies admission limits, and spawns **one Workflow instance per active sync** (`sw-sync-{run_id}`). Workflows give per-user durability, resumable checkpoints, `sleepUntil` for rate-limit pauses, and isolation — one user's failure cannot corrupt another's. A single global Sequential job would create head-of-line blocking and make partial failure global; per-user instances avoid both (Workflows: 50k concurrent *running*/2M queued instances; waiting instances are free). **Free-tier delta:** admission is CF-quota-bound first ([13 §2(b)](13-free-tier-feasibility.md)); a full backfill must chain ≤250-repo instances because free Workflow instances cap at 1,024 steps ([15 §2.5](15-free-semantic-search.md)).
+**Shape:** one cron tick (1/min) reads due `sync_jobs` from `sw_core`, applies admission limits, and spawns **one Workflow instance per active sync** (`sw-sync-{run_id}`). Workflows give per-user durability, resumable checkpoints, `sleepUntil` for rate-limit pauses, and isolation — one user's failure cannot corrupt another's. A single global Sequential job would create head-of-line blocking and make partial failure global; per-user instances avoid both (Workflows: 50k concurrent _running_/2M queued instances; waiting instances are free). **Free-tier delta:** admission is CF-quota-bound first ([13 §2(b)](13-free-tier-feasibility.md)); a full backfill must chain ≤250-repo instances because free Workflow instances cap at 1,024 steps ([15 §2.5](15-free-semantic-search.md)).
 
 **Global GitHub governor (Durable Object `GithubGovernor`, singleton id):**
 
-| Concern | Design |
-|---|---|
+| Concern      | Design                                                                                                                                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Token bucket | Hourly window keyed to `x-ratelimit-reset` (not clock hour), 5,000 capacity minus a 300-request reserve; ≤700 req/min pacing against the 900 pt/min secondary limit; response headers reconcile the local count (`observe`) |
-| Concurrency | 5 leases (Workers' 6-connection cap); leases expire (60 s) so crashes release slots |
-| Fairness | Deficit round-robin among users in the active set; per-job burst cap (e.g. 120 requests) then requeue — one backfill can never occupy a whole window |
-| Priority | P0 interactive-on-visit (burst 50) > P1 manual > P2 hot nightly > P3 warm/backfill (only runs on leftover budget) with 2 h aging to prevent starvation |
-| Admission | `sync_jobs` partial unique index dedupes concurrent requests; a request while running attaches to `run_id` ([05 §3.2](05-cli.md), [06 §6](06-webui.md)); the cron caps *new* backfills (e.g. 20/h, 200/day) |
-| Failure | Per-repo `readme_state='error'` retried next run; per-step retries per [03 §1.3](03-sync-and-limits.md); governor state is persisted per mutation and alarm-refilled, so a crash loses nothing |
+| Concurrency  | 5 leases (Workers' 6-connection cap); leases expire (60 s) so crashes release slots                                                                                                                                         |
+| Fairness     | Deficit round-robin among users in the active set; per-job burst cap (e.g. 120 requests) then requeue — one backfill can never occupy a whole window                                                                        |
+| Priority     | P0 interactive-on-visit (burst 50) > P1 manual > P2 hot nightly > P3 warm/backfill (only runs on leftover budget) with 2 h aging to prevent starvation                                                                      |
+| Admission    | `sync_jobs` partial unique index dedupes concurrent requests; a request while running attaches to `run_id` ([05 §3.2](05-cli.md), [06 §6](06-webui.md)); the cron caps _new_ backfills (e.g. 20/h, 200/day)                 |
+| Failure      | Per-repo `readme_state='error'` retried next run; per-step retries per [03 §1.3](03-sync-and-limits.md); governor state is persisted per mutation and alarm-refilled, so a crash loses nothing                              |
 
 Workers' native Rate Limiting binding is per-location with only 10 s/60 s windows — unusable as the shared 5,000/h governor. A single DO is safe: state is reconstructed from storage after eviction, and only one object ever owns the lease state. Queues (1M free ops/mo, 15-min consumer wall time) are the dispatch escalator if cron+workflow-create throughput becomes the bottleneck (Workflow creation: 300/s/account, 100/s/workflow).
 
@@ -432,12 +432,12 @@ Workers' native Rate Limiting binding is per-location with only 10 s/60 s window
 
 Public sync endpoints are the attack surface: a script can enqueue thousands of usernames to blow up D1, Vectorize and R2. Layered controls:
 
-| Layer | Control |
-|---|---|
-| Request | Per-IP rate limit (Workers Rate Limiting binding, per-location) + a global D1/DO counter for cross-location accuracy; mandatory Turnstile on index starts (day 1 on free, [14 §3.3](14-abuse-protection.md)); optional `sw_` bearer for CLI ([05 §6.2](05-cli.md)) |
-| Identity | Per-IP/day: ≤3 new usernames and ≤5 sync requests ([14 §3.2](14-abuse-protection.md)); indexed-user soft cap 50 full/warm ([14 §3.6](14-abuse-protection.md)); login must exist and have ≤`MAX_STARS = 10,000` public stars |
+| Layer     | Control                                                                                                                                                                                                                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Request   | Per-IP rate limit (Workers Rate Limiting binding, per-location) + a global D1/DO counter for cross-location accuracy; mandatory Turnstile on index starts (day 1 on free, [14 §3.3](14-abuse-protection.md)); optional `sw_` bearer for CLI ([05 §6.2](05-cli.md))                               |
+| Identity  | Per-IP/day: ≤3 new usernames and ≤5 sync requests ([14 §3.2](14-abuse-protection.md)); indexed-user soft cap 50 full/warm ([14 §3.6](14-abuse-protection.md)); login must exist and have ≤`MAX_STARS = 10,000` public stars                                                                      |
 | Admission | `sync_jobs` dedupe; weighted new-user admission ≤10 units/day ([14 §4](14-abuse-protection.md)); queue overflow returns `503 + Retry-After`, not a crash; per-user README/FTS caps ([14 §3.6](14-abuse-protection.md)), re-list ≥15 min / full refresh ≥24 h, semantic builds only for hot users |
-| Backstop | Tiered eviction (§6) reclaims storage automatically; budget kill switch degrades to lexical-only; `requested_by_ip` retained for forensics; corpus GC prevents orphan bloat |
+| Backstop  | Tiered eviction (§6) reclaims storage automatically; budget kill switch degrades to lexical-only; `requested_by_ip` retained for forensics; corpus GC prevents orphan bloat                                                                                                                      |
 
 READMEs are public GitHub data displayed as snippets + deep links (never full re-publication in v1); owners get an unindex/opt-out path (open question 6).
 

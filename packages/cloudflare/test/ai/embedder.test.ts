@@ -7,7 +7,7 @@ import {
   EMBEDDING_MODEL,
   batchTexts,
   makeWorkersAiEmbedder,
-  repoEmbeddingText
+  repoEmbeddingText,
 } from "../../src/ai/embedder.ts";
 
 const repo = (overrides: Partial<Repo> = {}): Repo => ({
@@ -26,7 +26,7 @@ const repo = (overrides: Partial<Repo> = {}): Repo => ({
   pushedAt: null,
   starredAt: null,
   htmlUrl: "https://github.com/owner/name",
-  ...overrides
+  ...overrides,
 });
 
 interface FakeBindingOptions {
@@ -61,7 +61,7 @@ const fakeBinding = (options: FakeBindingOptions = {}) => {
       } finally {
         active -= 1;
       }
-    }
+    },
   };
 
   return { binding, calls, peakConcurrency: () => maxActive };
@@ -90,16 +90,16 @@ describe("repoEmbeddingText", () => {
         fullName: "Effect-TS/effect",
         description: "An ecosystem of tools",
         topics: ["typescript", "functional-programming"],
-        language: "TypeScript"
+        language: "TypeScript",
       }),
-      "  # Effect\n\nA   library for effectful programs.  "
+      "  # Effect\n\nA   library for effectful programs.  ",
     );
 
     expect(text).toBe(
       "Effect-TS/effect — An ecosystem of tools\n" +
         "Topics: typescript, functional-programming\n" +
         "Language: TypeScript\n" +
-        "# Effect A library for effectful programs."
+        "# Effect A library for effectful programs.",
     );
   });
 
@@ -137,7 +137,9 @@ describe("makeWorkersAiEmbedder", () => {
   it("keeps in-flight batches at the concurrency limit", async () => {
     const fake = fakeBinding({ delayMs: 10 });
     const embedder = makeWorkersAiEmbedder(fake.binding, { batchSize: 2, concurrency: 2 });
-    const vectors = await Effect.runPromise(embedder.embed(["0", "1", "2", "3", "4", "5", "6", "7"]));
+    const vectors = await Effect.runPromise(
+      embedder.embed(["0", "1", "2", "3", "4", "5", "6", "7"]),
+    );
     expect(vectors).toHaveLength(8);
     expect(fake.calls).toHaveLength(4);
     expect(fake.peakConcurrency()).toBeLessThanOrEqual(2);

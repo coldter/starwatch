@@ -11,17 +11,23 @@ export const reposGroup = (deps: WorkerDeps) =>
       Effect.gen(function* () {
         const fullName = `${params.owner}/${params.name}`;
         const repos = yield* RepoStore;
-        const repo = yield* repos.getRepoByFullName(fullName).pipe(Effect.orDie);
+        const repo = yield* repos
+          .getRepoByFullName(fullName)
+          .pipe(Effect.orDie);
 
         if (repo === null) return yield* new RepoNotFound({ fullName });
         // Groups are per-login and the route carries no login context, so the
         // repo owner's imported Lists are the only sensible attribution.
-        const ownerGroups = yield* repos.listGroups(repo.owner).pipe(Effect.orDie);
+        const ownerGroups = yield* repos
+          .listGroups(repo.owner)
+          .pipe(Effect.orDie);
 
         return {
           repo,
-          groups: ownerGroups.filter((group) => group.repoIds.includes(repo.id))
+          groups: ownerGroups.filter((group) =>
+            group.repoIds.includes(repo.id),
+          ),
         };
-      }).pipe(Effect.provide(deps.sync.storage))
-    )
+      }).pipe(Effect.provide(deps.sync.storage)),
+    ),
   );

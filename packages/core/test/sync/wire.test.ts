@@ -11,7 +11,7 @@ import {
   decodeUserLists,
   decodeUserProfile,
   groupFromUserList,
-  slugifyGroupName
+  slugifyGroupName,
 } from "../../src/sync/wire.ts";
 
 const repoJson = {
@@ -28,7 +28,7 @@ const repoJson = {
   license: { spdx_id: "MIT" },
   homepage: "https://effect.website",
   pushed_at: "2026-09-01T12:34:56Z",
-  html_url: "https://github.com/Effect-TS/effect"
+  html_url: "https://github.com/Effect-TS/effect",
 };
 
 describe("RepoWire", () => {
@@ -49,7 +49,7 @@ describe("RepoWire", () => {
       homepage: "https://effect.website",
       pushedAt: "2026-09-01T12:34:56Z",
       htmlUrl: "https://github.com/Effect-TS/effect",
-      starredAt: null
+      starredAt: null,
     });
   });
 
@@ -62,8 +62,8 @@ describe("RepoWire", () => {
         homepage: null,
         pushed_at: null,
         language: null,
-        topics: []
-      })
+        topics: [],
+      }),
     );
 
     expect(repo.description).toBeNull();
@@ -98,8 +98,8 @@ describe("StarItemWire", () => {
     const items = Effect.runSync(
       decodeStarItems([
         { starred_at: "2026-07-09T00:00:00Z", repo: repoJson },
-        { starred_at: "2026-07-10T00:00:00Z", repo: { ...repoJson, id: 7, license: null } }
-      ])
+        { starred_at: "2026-07-10T00:00:00Z", repo: { ...repoJson, id: 7, license: null } },
+      ]),
     );
 
     expect(items).toHaveLength(2);
@@ -126,8 +126,8 @@ describe("UserWire", () => {
         location: "Berlin",
         followers: 12,
         public_repos: 42,
-        created_at: "2015-01-02T03:04:05Z"
-      })
+        created_at: "2015-01-02T03:04:05Z",
+      }),
     );
 
     expect(profile).toEqual({
@@ -140,7 +140,7 @@ describe("UserWire", () => {
       location: "Berlin",
       followers: 12,
       publicRepos: 42,
-      createdAt: "2015-01-02T03:04:05Z"
+      createdAt: "2015-01-02T03:04:05Z",
     });
   });
 });
@@ -159,8 +159,8 @@ describe("lists wire", () => {
                 isPrivate: false,
                 items: {
                   pageInfo: { hasNextPage: false, endCursor: null },
-                  nodes: [{ databaseId: 42 }, null, { databaseId: 43 }]
-                }
+                  nodes: [{ databaseId: 42 }, null, { databaseId: 43 }],
+                },
               },
               {
                 id: "UL_private",
@@ -168,13 +168,13 @@ describe("lists wire", () => {
                 isPrivate: true,
                 items: {
                   pageInfo: { hasNextPage: false, endCursor: null },
-                  nodes: []
-                }
-              }
-            ]
-          }
-        }
-      })
+                  nodes: [],
+                },
+              },
+            ],
+          },
+        },
+      }),
     );
 
     const publicList = data.user?.lists.nodes[0];
@@ -184,7 +184,7 @@ describe("lists wire", () => {
     expect(data.user?.lists.nodes[1]?.isPrivate).toBe(true);
     expect(data.user?.lists.pageInfo).toEqual({
       hasNextPage: true,
-      endCursor: "LIST_CURSOR_1"
+      endCursor: "LIST_CURSOR_1",
     });
   });
 
@@ -197,9 +197,9 @@ describe("lists wire", () => {
     expect(() =>
       Effect.runSync(
         decodeUserLists({
-          user: { lists: { pageInfo: { hasNextPage: "yes", endCursor: null }, nodes: [] } }
-        })
-      )
+          user: { lists: { pageInfo: { hasNextPage: "yes", endCursor: null }, nodes: [] } },
+        }),
+      ),
     ).toThrow();
   });
 
@@ -216,13 +216,13 @@ describe("lists wire", () => {
                 isPrivate: false,
                 items: {
                   pageInfo: { hasNextPage: true, endCursor: "c1" },
-                  nodes: [{ databaseId: 1 }, null]
-                }
-              }
-            ]
-          }
-        }
-      })
+                  nodes: [{ databaseId: 1 }, null],
+                },
+              },
+            ],
+          },
+        },
+      }),
     );
 
     const node = data.user?.lists.nodes[0];
@@ -232,7 +232,7 @@ describe("lists wire", () => {
       name: "Rust / Tools & More",
       slug: "rust-tools-more",
       position: 3,
-      repoIds: [1, 7, 8]
+      repoIds: [1, 7, 8],
     });
   });
 });
@@ -240,7 +240,7 @@ describe("lists wire", () => {
 describe("GraphqlEnvelopeWire", () => {
   it("decodes data and error entries", () => {
     const envelope = Effect.runSync(
-      decodeGraphqlEnvelope({ data: { user: null }, errors: [{ message: "boom" }] })
+      decodeGraphqlEnvelope({ data: { user: null }, errors: [{ message: "boom" }] }),
     );
 
     expect(envelope.errors).toEqual([{ message: "boom" }]);

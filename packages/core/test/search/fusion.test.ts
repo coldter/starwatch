@@ -20,7 +20,7 @@ import {
   rankByScore,
   starPrior,
   termSpecificity,
-  toRanked
+  toRanked,
 } from "../../src/search/fusion.ts";
 
 type RepoInit = Partial<Repo> & Pick<Repo, "id" | "name" | "owner">;
@@ -41,7 +41,7 @@ const makeRepo = ({ id, name, owner, ...rest }: RepoInit): Repo => ({
   pushedAt: null,
   starredAt: null,
   htmlUrl: `https://github.com/${owner}/${name}`,
-  ...rest
+  ...rest,
 });
 
 const repoMap = (...repos: Repo[]): Map<number, Repo> =>
@@ -57,12 +57,12 @@ describe("rank primitives", () => {
       rankByScore([
         { repoId: 7, score: 0.4 },
         { repoId: 3, score: 0.9 },
-        { repoId: 5, score: 0.4 }
-      ])
+        { repoId: 5, score: 0.4 },
+      ]),
     ).toEqual([
       { repoId: 3, rank: 1 },
       { repoId: 5, rank: 2 },
-      { repoId: 7, rank: 3 }
+      { repoId: 7, rank: 3 },
     ]);
   });
 });
@@ -73,7 +73,7 @@ describe("name statistics and specificity gating", () => {
       makeRepo({ id: 1, name: "better-auth", owner: "a" }),
       makeRepo({ id: 2, name: "auth-tools", owner: "b" }),
       makeRepo({ id: 3, name: "auth-auth", owner: "c" }),
-      makeRepo({ id: 4, name: "lazygit", owner: "d" })
+      makeRepo({ id: 4, name: "lazygit", owner: "d" }),
     ]);
 
     expect(stats.get("auth")).toBe(3);
@@ -85,7 +85,7 @@ describe("name statistics and specificity gating", () => {
   it("decreases specificity as document frequency grows", () => {
     const stats = new Map([
       ["auth", 117],
-      ["lazygit", 1]
+      ["lazygit", 1],
     ]);
 
     expect(termSpecificity("lazygit", stats)).toBeGreaterThan(termSpecificity("auth", stats));
@@ -94,7 +94,7 @@ describe("name statistics and specificity gating", () => {
 
   it("damps generic name matches (high-df `vector`) below distinctive ones", () => {
     const vectors = Array.from({ length: 12 }, (_, i) =>
-      makeRepo({ id: i + 1, name: `vector-${i + 1}`, owner: "vector-owner" })
+      makeRepo({ id: i + 1, name: `vector-${i + 1}`, owner: "vector-owner" }),
     );
 
     const exactVector = makeRepo({ id: 13, name: "vector", owner: "vector-io" });
@@ -109,7 +109,7 @@ describe("name statistics and specificity gating", () => {
     expect(lazygitBoost).toBeGreaterThan(vectorBoost);
     expect(vectorBoost).toBeCloseTo(
       1 + (NAME_EXACT_FACTOR - 1) * termSpecificity("vector", stats),
-      12
+      12,
     );
   });
 
@@ -167,9 +167,9 @@ describe("fuse", () => {
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 5 },
-        { repoId: 1, rank: 2 }
+        { repoId: 1, rank: 2 },
       ]),
-      repos: repoMap(repo)
+      repos: repoMap(repo),
     });
 
     expect(hits[0]?.score).toBeCloseTo(1 / (RRF_K + 2), 12);
@@ -182,7 +182,7 @@ describe("fuse", () => {
     const hits = fuse({
       keyword: toRanked([{ repoId: 1, rank: 1 }]),
       expanded: toRanked([{ repoId: 2, rank: 1 }]),
-      repos: repoMap(keywordHit, expandedHit)
+      repos: repoMap(keywordHit, expandedHit),
     });
 
     expect(hits).toHaveLength(2);
@@ -198,9 +198,9 @@ describe("fuse", () => {
       {
         keyword: toRanked([{ repoId: 1, rank: 1 }]),
         expanded: toRanked([{ repoId: 2, rank: 1 }]),
-        repos: repoMap(keywordHit, expandedHit)
+        repos: repoMap(keywordHit, expandedHit),
       },
-      { weights: { expanded: 2 } }
+      { weights: { expanded: 2 } },
     );
 
     expect(hits[0]?.repo.id).toBe(2);
@@ -213,7 +213,7 @@ describe("fuse", () => {
       name: "better-auth",
       stars: 30_000,
       description: "The most comprehensive authentication framework for TypeScript",
-      topics: ["authentication", "oauth"]
+      topics: ["authentication", "oauth"],
     });
 
     const logto = makeRepo({
@@ -222,7 +222,7 @@ describe("fuse", () => {
       name: "logto",
       stars: 14_000,
       description: "Identity infrastructure for modern apps",
-      topics: ["authentication"]
+      topics: ["authentication"],
     });
 
     const nuxflareAuth = makeRepo({
@@ -231,7 +231,7 @@ describe("fuse", () => {
       name: "auth",
       stars: 24,
       description: "Auth server in a box",
-      topics: ["authentication"]
+      topics: ["authentication"],
     });
 
     const openauth = makeRepo({
@@ -240,7 +240,7 @@ describe("fuse", () => {
       name: "openauth",
       stars: 5_000,
       description: "Open source auth infrastructure",
-      topics: ["oauth"]
+      topics: ["oauth"],
     });
 
     // Present in the corpus but excluded by the hard `language=TypeScript` filter.
@@ -251,7 +251,7 @@ describe("fuse", () => {
       stars: 18_000,
       language: "Go",
       description: "An authorization library that supports access control models",
-      topics: ["authorization"]
+      topics: ["authorization"],
     });
 
     const corpus = [betterAuth, logto, nuxflareAuth, openauth, casbin];
@@ -264,33 +264,31 @@ describe("fuse", () => {
         keyword: toRanked([
           { repoId: 1, rank: 1 },
           { repoId: 3, rank: 2 },
-          { repoId: 4, rank: 3 }
+          { repoId: 4, rank: 3 },
         ]),
         expanded: toRanked([
           { repoId: 1, rank: 1 },
           { repoId: 4, rank: 2 },
-          { repoId: 2, rank: 3 }
+          { repoId: 2, rank: 3 },
         ]),
         semantic: toRanked([
           { repoId: 2, rank: 1 },
           { repoId: 1, rank: 2 },
           { repoId: 4, rank: 3 },
-          { repoId: 3, rank: 40 }
+          { repoId: 3, rank: 40 },
         ]),
-        repos: repoMap(...eligible)
+        repos: repoMap(...eligible),
       },
       {
         queryTokens: ["auth"],
         conceptTerms: expansion.terms,
-        nameStats
-      }
+        nameStats,
+      },
     );
 
     const names = hits.map((hit) => hit.repo.fullName);
     expect(names[0]).toBe("better-auth/better-auth");
-    expect(names.indexOf("better-auth/better-auth")).toBeLessThan(
-      names.indexOf("nuxflare/auth")
-    );
+    expect(names.indexOf("better-auth/better-auth")).toBeLessThan(names.indexOf("nuxflare/auth"));
     expect(names).not.toContain("casbin/casbin");
     expect(hits.every((hit) => hit.repo.language === "TypeScript")).toBe(true);
     // Specificity gating: even the exact name match `auth` is damped, never ×1.45.
@@ -305,15 +303,15 @@ describe("fuse", () => {
       name: "archived",
       owner: "ob",
       stars: 100,
-      archived: true
+      archived: true,
     });
 
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
-        { repoId: 2, rank: 2 }
+        { repoId: 2, rank: 2 },
       ]),
-      repos: repoMap(active, archived)
+      repos: repoMap(active, archived),
     });
 
     const prior = starPrior(100);
@@ -328,9 +326,9 @@ describe("fuse", () => {
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
-        { repoId: 2, rank: 2 }
+        { repoId: 2, rank: 2 },
       ]),
-      repos: repoMap(first, second)
+      repos: repoMap(first, second),
     });
 
     expect(hits[0]?.score).toBeCloseTo(1 / (RRF_K + 1), 10);
@@ -344,9 +342,9 @@ describe("fuse", () => {
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
-        { repoId: 2, rank: 2 }
+        { repoId: 2, rank: 2 },
       ]),
-      repos: repoMap(first, second)
+      repos: repoMap(first, second),
     });
 
     expect(hits[1]?.score).toBeCloseTo((1 / (RRF_K + 2)) * NAME_DUPLICATE_PENALTY, 10);
@@ -360,11 +358,11 @@ describe("fuse", () => {
       {
         keyword: toRanked([
           { repoId: 1, rank: 1 },
-          { repoId: 2, rank: 2 }
+          { repoId: 2, rank: 2 },
         ]),
-        repos: repoMap(first, second)
+        repos: repoMap(first, second),
       },
-      { duplicatePenalties: false }
+      { duplicatePenalties: false },
     );
 
     expect(hits[1]?.score).toBeCloseTo(1 / (RRF_K + 2), 10);
@@ -377,7 +375,7 @@ describe("fuse", () => {
     const hits = fuse({
       keyword: toRanked([{ repoId: 20, rank: 1 }]),
       semantic: toRanked([{ repoId: 10, rank: 1 }]),
-      repos: repoMap(highId, lowId)
+      repos: repoMap(highId, lowId),
     });
 
     expect(hits.map((hit) => hit.repo.id)).toEqual([10, 20]);
@@ -390,7 +388,7 @@ describe("fuse", () => {
       owner: "jesseduffield",
       topics: ["tui", "git"],
       description: "A simple terminal UI for git commands",
-      stars: 60_000
+      stars: 60_000,
     });
 
     const hits = fuse(
@@ -398,9 +396,9 @@ describe("fuse", () => {
         keyword: toRanked([{ repoId: 1, rank: 1 }]),
         semantic: toRanked([{ repoId: 1, rank: 2 }]),
         repos: repoMap(repo),
-        groups: new Map([[1, ["tui", "v2"]]])
+        groups: new Map([[1, ["tui", "v2"]]]),
       },
-      { queryTokens: ["lazygit"] }
+      { queryTokens: ["lazygit"] },
     );
 
     expect(hits[0]?.matchedBy).toEqual(["keyword", "semantic", "name"]);
@@ -414,9 +412,9 @@ describe("fuse", () => {
     const hits = fuse(
       {
         keyword: toRanked([{ repoId: 1, rank: 1 }]),
-        repos: repoMap(repo)
+        repos: repoMap(repo),
       },
-      { queryTokens: ["auth"] }
+      { queryTokens: ["auth"] },
     );
 
     expect(hits[0]?.matchedBy).toEqual(["keyword"]);
@@ -428,9 +426,9 @@ describe("fuse", () => {
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
-        { repoId: 99, rank: 2 }
+        { repoId: 99, rank: 2 },
       ]),
-      repos: repoMap(repo)
+      repos: repoMap(repo),
     });
 
     expect(hits.map((hit) => hit.repo.id)).toEqual([1]);
@@ -444,13 +442,13 @@ describe("overlap bonus", () => {
       name: "tiny-http",
       owner: "oa",
       topics: ["http-client", "retry"],
-      description: "A tiny http client with retry support"
+      description: "A tiny http client with retry support",
     });
 
     const terms = ["http", "client", "retry"];
     expect(overlapBonus(repo, terms)).toBeCloseTo(
       3 * TOPIC_OVERLAP_PER_TERM + 3 * DESCRIPTION_OVERLAP_PER_TERM,
-      12
+      12,
     );
   });
 
@@ -460,12 +458,12 @@ describe("overlap bonus", () => {
       name: "many",
       owner: "oa",
       topics: ["a", "b", "c", "d", "e"],
-      description: "a b c d e"
+      description: "a b c d e",
     });
 
     expect(overlapBonus(repo, ["a", "b", "c", "d", "e"])).toBeCloseTo(
       3 * TOPIC_OVERLAP_PER_TERM + 3 * DESCRIPTION_OVERLAP_PER_TERM,
-      12
+      12,
     );
   });
 
@@ -475,16 +473,15 @@ describe("overlap bonus", () => {
       name: "widget",
       owner: "oa",
       topics: ["http-client"],
-      description: "An http client"
+      description: "An http client",
     });
 
     const hits = fuse(
       { keyword: toRanked([{ repoId: 1, rank: 1 }]), repos: repoMap(repo) },
-      { queryTokens: ["http", "client"] }
+      { queryTokens: ["http", "client"] },
     );
 
-    const expectedBonus =
-      2 * TOPIC_OVERLAP_PER_TERM + 2 * DESCRIPTION_OVERLAP_PER_TERM;
+    const expectedBonus = 2 * TOPIC_OVERLAP_PER_TERM + 2 * DESCRIPTION_OVERLAP_PER_TERM;
 
     expect(hits[0]?.score).toBeCloseTo(1 / (RRF_K + 1) + expectedBonus, 10);
   });

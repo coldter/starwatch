@@ -35,7 +35,7 @@ export const LANGUAGES: ReadonlyArray<string> = [
   "Perl",
   "Clojure",
   "OCaml",
-  "Nix"
+  "Nix",
 ];
 
 const COLORS = {
@@ -69,7 +69,7 @@ const COLORS = {
   Perl: "#0298c3",
   Clojure: "#db5855",
   OCaml: "#ef7a08",
-  Nix: "#7e7eff"
+  Nix: "#7e7eff",
 } satisfies Record<string, string>;
 
 /** Arbitrary language strings resolve through the map, falling back to the faint colour. */

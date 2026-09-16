@@ -5,7 +5,7 @@
 
 const compactFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
-  maximumFractionDigits: 1
+  maximumFractionDigits: 1,
 });
 
 const numberFormatter = new Intl.NumberFormat("en-US");
@@ -13,7 +13,7 @@ const numberFormatter = new Intl.NumberFormat("en-US");
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   month: "short",
-  day: "numeric"
+  day: "numeric",
 });
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -21,7 +21,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
   hour: "numeric",
-  minute: "2-digit"
+  minute: "2-digit",
 });
 
 /** `12400` → `12.4k`, `1500000` → `1.5M`, `842` → `842`. */
@@ -41,7 +41,10 @@ export function formatNumber(value: number): string {
 }
 
 /** ISO timestamp → `3h ago` / `2d ago` / `never`. Tolerates future clocks. */
-export function relativeTime(iso: string | null | undefined, now: number = Date.now()): string {
+export function relativeTime(
+  iso: string | null | undefined,
+  now: number = Date.now(),
+): string {
   if (!iso) return "never";
   const timestamp = Date.parse(iso);
 
@@ -90,7 +93,8 @@ export function formatDateTime(iso: string | null | undefined): string {
  * Normalize defensively so the UI never prints `4200%`.
  */
 export function coveragePercent(value: number | null | undefined): number {
-  if (value === null || value === undefined || !Number.isFinite(value)) return 0;
+  if (value === null || value === undefined || !Number.isFinite(value))
+    return 0;
   const percent = value <= 1 ? value * 100 : value;
 
   return Math.max(0, Math.min(100, Math.round(percent)));

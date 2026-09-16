@@ -16,36 +16,36 @@
 
 **Baseline corpus facts (live sample, 2026-09-13):**
 
-| Property | Sample result | Consequence for search |
-|---|---|---|
-| README present | 108/110 (98%) | `has-readme` is a rare narrowing; semantic covers ~98% of corpus |
-| README size | p25 3.8 KB · median 7.5 KB · p90 23 KB · max 232 KB · <1 KB ≈ 4% | chunking fine; tiny READMEs give semantic almost nothing (§8) |
-| Language NULL | 154/3,300 (4.7%) | language filter excludes NULL unless `--lang unknown` |
-| License NULL / NOASSERTION | 10.1% / 11.1% | need a `none` sentinel; SPDX strings are short (§4.3) |
-| Topics empty | 832/3,300 (25.2%) | topic filters exclude a quarter of corpus by construction |
-| Description empty | 103/3,300 (3.1%) | README text carries lexical |
-| Archived | 126/3,300 (3.8%) | penalty, not exclusion (§5.3) |
-| Forks | 32/3,300 (1.0%) | fork filter is effectively a no-op; default is "any" |
+| Property                   | Sample result                                                    | Consequence for search                                           |
+| -------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------- |
+| README present             | 108/110 (98%)                                                    | `has-readme` is a rare narrowing; semantic covers ~98% of corpus |
+| README size                | p25 3.8 KB · median 7.5 KB · p90 23 KB · max 232 KB · <1 KB ≈ 4% | chunking fine; tiny READMEs give semantic almost nothing (§8)    |
+| Language NULL              | 154/3,300 (4.7%)                                                 | language filter excludes NULL unless `--lang unknown`            |
+| License NULL / NOASSERTION | 10.1% / 11.1%                                                    | need a `none` sentinel; SPDX strings are short (§4.3)            |
+| Topics empty               | 832/3,300 (25.2%)                                                | topic filters exclude a quarter of corpus by construction        |
+| Description empty          | 103/3,300 (3.1%)                                                 | README text carries lexical                                      |
+| Archived                   | 126/3,300 (3.8%)                                                 | penalty, not exclusion (§5.3)                                    |
+| Forks                      | 32/3,300 (1.0%)                                                  | fork filter is effectively a no-op; default is "any"             |
 
 ## 2. Query classes and expected behavior
 
 Seven classes. "Quality expectation" is plain language and maps to a target in §3.2. Examples are real repos in the star sample.
 
-| # | Class | Real example | Primary leg | Quality expectation |
-|---|---|---|---|---|
-| Q1 | Known-item (name) | `lazygit` → `jesseduffield/lazygit` | lexical + exact-name boost | rank 1 ≥ 95% of runs; target in top-3 ~100% |
-| Q2 | Known-item (ambiguous word) | `effect` → `Effect-TS/effect` | exact-name boost; otherwise stars/recency surface `visual-effect`, `landing-effects` | without exact-name boost this query fails: it is the load-bearing test for §5.3 |
-| Q3 | Known-item (identifier) | `gql.tada`, `wttr.in`, `cal.diy`, `drizzle-orm` | keyword mode (punctuation heuristic) + trigram | top-1 ≥ 95%; punctuation must survive tokenization |
-| Q4 | Descriptive / conceptual | "library to schedule durable background jobs with retries" → `hatchet`, `dbos-transact-ts`, `openworkflow`, `trigger.dev`, `bullmq` | semantic + rerank; lexical adds durable/jobs | at least one target in top-3 ~80% of runs; in top-10 ~95% |
-| Q5 | Mixed: concept + filters | `"http client" --topic http-client --lang ts` → `ky`, `misina`, `insomnia` | hybrid, filters on both legs | useful target in top-3 ~85%; filters applied exactly, always |
-| Q6 | Browse-only (no text) | `--lang rust --min-stars 5000 --sort stars` | D1 SQL only | byte-identical results for the same index snapshot; no relevance claims |
-| Q7 | Similar-to | `similar Effect-TS/effect` → `alchemy`, `effect-cf`, `effect-mq`, `visual-effect` | summary vectors | ≥3 of top-10 human-judged related; ≥50% overlap with curated list |
-| Q8 | Long-tail / noisy | "that parser combinator thing" → `optique`, `tree-sitter` (grade 1) | semantic | usable result in top-10 ~70%; in top-3 ~45% |
-| Q9 | Incidental strings | `SQLITE_BUSY`, `--legacy-peer-deps`, import paths | lexical (porter + trigram) | repo mentioning the string in top-10 ≥ 85% |
+| #   | Class                       | Real example                                                                                                                        | Primary leg                                                                          | Quality expectation                                                             |
+| --- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Q1  | Known-item (name)           | `lazygit` → `jesseduffield/lazygit`                                                                                                 | lexical + exact-name boost                                                           | rank 1 ≥ 95% of runs; target in top-3 ~100%                                     |
+| Q2  | Known-item (ambiguous word) | `effect` → `Effect-TS/effect`                                                                                                       | exact-name boost; otherwise stars/recency surface `visual-effect`, `landing-effects` | without exact-name boost this query fails: it is the load-bearing test for §5.3 |
+| Q3  | Known-item (identifier)     | `gql.tada`, `wttr.in`, `cal.diy`, `drizzle-orm`                                                                                     | keyword mode (punctuation heuristic) + trigram                                       | top-1 ≥ 95%; punctuation must survive tokenization                              |
+| Q4  | Descriptive / conceptual    | "library to schedule durable background jobs with retries" → `hatchet`, `dbos-transact-ts`, `openworkflow`, `trigger.dev`, `bullmq` | semantic + rerank; lexical adds durable/jobs                                         | at least one target in top-3 ~80% of runs; in top-10 ~95%                       |
+| Q5  | Mixed: concept + filters    | `"http client" --topic http-client --lang ts` → `ky`, `misina`, `insomnia`                                                          | hybrid, filters on both legs                                                         | useful target in top-3 ~85%; filters applied exactly, always                    |
+| Q6  | Browse-only (no text)       | `--lang rust --min-stars 5000 --sort stars`                                                                                         | D1 SQL only                                                                          | byte-identical results for the same index snapshot; no relevance claims         |
+| Q7  | Similar-to                  | `similar Effect-TS/effect` → `alchemy`, `effect-cf`, `effect-mq`, `visual-effect`                                                   | summary vectors                                                                      | ≥3 of top-10 human-judged related; ≥50% overlap with curated list               |
+| Q8  | Long-tail / noisy           | "that parser combinator thing" → `optique`, `tree-sitter` (grade 1)                                                                 | semantic                                                                             | usable result in top-10 ~70%; in top-3 ~45%                                     |
+| Q9  | Incidental strings          | `SQLITE_BUSY`, `--legacy-peer-deps`, import paths                                                                                   | lexical (porter + trigram)                                                           | repo mentioning the string in top-10 ≥ 85%                                      |
 
 **Routing in `auto` mode (doc 01 §7 refined):** identifier-like queries (§6.4) run `keyword` mode first; if lexical returns 0 repos, escalate to `hybrid`. Everything else runs `hybrid`. `browse` runs when the text is empty. `similar` only via the explicit subcommand/tool. Routing is observable in `--explain` (`mode`, `fallback`).
 
-**Filters are constraints, not boosts.** `"tui for git" --lang rust` correctly returns `gitoxide`/`gitbutler` and *not* `lazygit` (Go) even though lazygit is the better semantic answer. Eval must assert filter correctness here, not recall (§3.3 Q5).
+**Filters are constraints, not boosts.** `"tui for git" --lang rust` correctly returns `gitoxide`/`gitbutler` and _not_ `lazygit` (Go) even though lazygit is the better semantic answer. Eval must assert filter correctness here, not recall (§3.3 Q5).
 
 ## 3. Accuracy targets and measurement
 
@@ -62,16 +62,16 @@ Per query, judged repos have grade 0 (not relevant), 1 (related/plausible), 2 (w
 
 ### 3.2 Targets per class (launch gates)
 
-| Class | R@10 | nDCG@10 | MRR | Success@3 | p95 latency |
-|---|---|---|---|---|---|
-| Q1–Q3 known-item | ≥ 0.95 | ≥ 0.92 | ≥ 0.92 | 1.00 (no exceptions) | < 200 ms |
-| Q4 descriptive | ≥ 0.80 | ≥ 0.72 | ≥ 0.68 | ≥ 0.80 | < 500 ms |
-| Q5 mixed + filters | ≥ 0.85 | ≥ 0.75 | ≥ 0.70 | ≥ 0.85 | < 500 ms |
-| Q6 browse | n/a | n/a | n/a | Filter precision 1.000 | < 150 ms |
-| Q7 similar | Curated-overlap@10 ≥ 0.5 | n/a | Nearest curated ≤ 10 always; ≥ 0.5 MRR | — | < 300 ms |
-| Q8 long-tail/noisy | ≥ 0.60 | ≥ 0.50 | ≥ 0.45 | ≥ 0.45 | < 500 ms |
-| Q9 incidental | ≥ 0.85 | ≥ 0.78 | ≥ 0.75 | ≥ 0.85 | < 300 ms |
-| **Overall** | — | **≥ 0.75** (weighted by class count) | — | — | **< 500 ms** (R7) |
+| Class              | R@10                     | nDCG@10                              | MRR                                    | Success@3              | p95 latency       |
+| ------------------ | ------------------------ | ------------------------------------ | -------------------------------------- | ---------------------- | ----------------- |
+| Q1–Q3 known-item   | ≥ 0.95                   | ≥ 0.92                               | ≥ 0.92                                 | 1.00 (no exceptions)   | < 200 ms          |
+| Q4 descriptive     | ≥ 0.80                   | ≥ 0.72                               | ≥ 0.68                                 | ≥ 0.80                 | < 500 ms          |
+| Q5 mixed + filters | ≥ 0.85                   | ≥ 0.75                               | ≥ 0.70                                 | ≥ 0.85                 | < 500 ms          |
+| Q6 browse          | n/a                      | n/a                                  | n/a                                    | Filter precision 1.000 | < 150 ms          |
+| Q7 similar         | Curated-overlap@10 ≥ 0.5 | n/a                                  | Nearest curated ≤ 10 always; ≥ 0.5 MRR | —                      | < 300 ms          |
+| Q8 long-tail/noisy | ≥ 0.60                   | ≥ 0.50                               | ≥ 0.45                                 | ≥ 0.45                 | < 500 ms          |
+| Q9 incidental      | ≥ 0.85                   | ≥ 0.78                               | ≥ 0.75                                 | ≥ 0.85                 | < 300 ms          |
+| **Overall**        | —                        | **≥ 0.75** (weighted by class count) | —                                      | —                      | **< 500 ms** (R7) |
 
 Additional launch gate: **auto/hybrid must beat keyword-only on Q4 by ≥ 0.08 nDCG@10** on the golden set. If not, hybrid isn't earning its complexity and fusion must be re-tuned before shipping.
 
@@ -88,13 +88,15 @@ Schema (exact shape the harness reads):
 
 ```yaml
 version: 1
-index_snapshot: { repo_count: 3300, last_sync_at: "2026-09-13T06:00:00Z", embed_model: "bge-m3", chunker: "v1" }
+index_snapshot:
+  { repo_count: 3300, last_sync_at: "2026-09-13T06:00:00Z", embed_model: "bge-m3", chunker: "v1" }
 queries:
   - id: k-002
     class: known-item
     query: "effect"
     mode: auto
-    relevance: { "Effect-TS/effect": 2, "kitlangton/visual-effect": 0, "Dhravya/landing-effects": 0 }
+    relevance:
+      { "Effect-TS/effect": 2, "kitlangton/visual-effect": 0, "Dhravya/landing-effects": 0 }
     notes: "exact-name boost must beat star/recency prior"
   - id: d-001
     class: descriptive
@@ -110,7 +112,13 @@ queries:
   - id: s-001
     class: similar
     repo: "Effect-TS/effect"
-    relevance: { "alchemy-run/alchemy": 2, "danieljvdm/effect-cf": 2, "TeamWarp/effect-mq": 2, "kitlangton/visual-effect": 1 }
+    relevance:
+      {
+        "alchemy-run/alchemy": 2,
+        "danieljvdm/effect-cf": 2,
+        "TeamWarp/effect-mq": 2,
+        "kitlangton/visual-effect": 1,
+      }
 ```
 
 ### 3.4 Eval harness (`starwatch eval`)
@@ -145,19 +153,19 @@ Baseline updates require `--update-baseline` in the same commit as the change, w
 
 ### 4.1 Semantics and defaults
 
-| Filter | Values / format | Default | D1/FTS leg | Vectorize leg | Missing values |
-|---|---|---|---|---|---|
-| language | GitHub language name; CLI aliases `ts`,`js`,`py`,`rs`,`go`; `unknown` allowed | any | `language = ?` (alias→canonical, `IN` for alias sets) | string index `language` (canonical names; `"unknown"` sentinel) | NULL → only matches `--lang unknown`; Vectorize `"unknown"` |
-| stars | `min`,`max` integers ≥ 0, inclusive | unbounded | `stars >= ? AND stars <= ?` (index) | numeric index `stars`, `$gte`/`$lte` | never NULL; treat as 0 |
-| topics | slug strings, repeatable | any | `EXISTS (SELECT 1 FROM json_each(topics_json) WHERE value = ?)` per topic | ❌ arrays not filterable → **post-filter top-50** (§4.3) | empty topics never match |
-| groups | user-defined slugs, repeatable | any | join `repo_groups` + `EXISTS` per group | ❌ post-filter | ungrouped repos never match |
-| starred date | `--starred-after` (inclusive) / `--starred-before` (exclusive), `YYYY-MM-DD` or ISO, UTC | unbounded | `starred_at >= ? AND starred_at < ?` | numeric index `starred_at` (epoch s) | always present |
-| archived | `--archived` / `--no-archived` | any (with ×0.40 penalty, §5.3) | `archived = ?` | bool index `archived` | missing → false |
-| license | SPDX id or `none`, case-insensitive, repeatable = OR | any | `license IN (...)` | string index `license`; `"none"` sentinel | NULL → `none`; `NOASSERTION` kept literal |
-| fork | `--fork` / `--no-fork` | any | `fork = ?` | bool index `fork` | missing → false |
-| has-README | `--has-readme` / `--no-readme` | any | `readme_state = 'present'`; present means ≥ 1 byte | bool index `has_readme` | missing repo → false; 0-byte README = missing |
-| last-pushed | `--pushed-after` / `--pushed-before` (UTC, same rules as starred date) | unbounded | `pushed_at >= ? AND pushed_at < ?` | numeric index `pushed_at` (epoch s) | always present; bots make this a weak freshness signal |
-| owner/org | `--owner`, exact GitHub login, case-insensitive, repeatable = OR | any | `owner_login IN (...)` | ❌ no index (spare slot) → post-filter on `full_name` prefix | always present |
+| Filter       | Values / format                                                                          | Default                        | D1/FTS leg                                                                | Vectorize leg                                                   | Missing values                                              |
+| ------------ | ---------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
+| language     | GitHub language name; CLI aliases `ts`,`js`,`py`,`rs`,`go`; `unknown` allowed            | any                            | `language = ?` (alias→canonical, `IN` for alias sets)                     | string index `language` (canonical names; `"unknown"` sentinel) | NULL → only matches `--lang unknown`; Vectorize `"unknown"` |
+| stars        | `min`,`max` integers ≥ 0, inclusive                                                      | unbounded                      | `stars >= ? AND stars <= ?` (index)                                       | numeric index `stars`, `$gte`/`$lte`                            | never NULL; treat as 0                                      |
+| topics       | slug strings, repeatable                                                                 | any                            | `EXISTS (SELECT 1 FROM json_each(topics_json) WHERE value = ?)` per topic | ❌ arrays not filterable → **post-filter top-50** (§4.3)        | empty topics never match                                    |
+| groups       | user-defined slugs, repeatable                                                           | any                            | join `repo_groups` + `EXISTS` per group                                   | ❌ post-filter                                                  | ungrouped repos never match                                 |
+| starred date | `--starred-after` (inclusive) / `--starred-before` (exclusive), `YYYY-MM-DD` or ISO, UTC | unbounded                      | `starred_at >= ? AND starred_at < ?`                                      | numeric index `starred_at` (epoch s)                            | always present                                              |
+| archived     | `--archived` / `--no-archived`                                                           | any (with ×0.40 penalty, §5.3) | `archived = ?`                                                            | bool index `archived`                                           | missing → false                                             |
+| license      | SPDX id or `none`, case-insensitive, repeatable = OR                                     | any                            | `license IN (...)`                                                        | string index `license`; `"none"` sentinel                       | NULL → `none`; `NOASSERTION` kept literal                   |
+| fork         | `--fork` / `--no-fork`                                                                   | any                            | `fork = ?`                                                                | bool index `fork`                                               | missing → false                                             |
+| has-README   | `--has-readme` / `--no-readme`                                                           | any                            | `readme_state = 'present'`; present means ≥ 1 byte                        | bool index `has_readme`                                         | missing repo → false; 0-byte README = missing               |
+| last-pushed  | `--pushed-after` / `--pushed-before` (UTC, same rules as starred date)                   | unbounded                      | `pushed_at >= ? AND pushed_at < ?`                                        | numeric index `pushed_at` (epoch s)                             | always present; bots make this a weak freshness signal      |
+| owner/org    | `--owner`, exact GitHub login, case-insensitive, repeatable = OR                         | any                            | `owner_login IN (...)`                                                    | ❌ no index (spare slot) → post-filter on `full_name` prefix    | always present                                              |
 
 ### 4.2 Topic semantics — recommendation: AND by default
 
@@ -172,17 +180,17 @@ Hard limits that shape the design: **≤ 10 metadata indexes per index** (declar
 
 Allocation (8 of 10 used, 2 spare):
 
-| # | Metadata field | Type | Filters served |
-|---|---|---|---|
-| 1 | `language` | string | language (`"unknown"` default) |
-| 2 | `stars` | number | min/max stars |
-| 3 | `archived` | bool | archived tri-state |
-| 4 | `starred_at` | number | starred date range |
-| 5 | `license` | string | license (`"none"` default) |
-| 6 | `fork` | bool | fork tri-state |
-| 7 | `has_readme` | bool | has-README tri-state |
-| 8 | `pushed_at` | number | last-pushed range |
-| — | topics / groups / owner | — | **post-filter** in the Worker after KNN (D1 lookup by `repo_id`) |
+| #   | Metadata field          | Type   | Filters served                                                   |
+| --- | ----------------------- | ------ | ---------------------------------------------------------------- |
+| 1   | `language`              | string | language (`"unknown"` default)                                   |
+| 2   | `stars`                 | number | min/max stars                                                    |
+| 3   | `archived`              | bool   | archived tri-state                                               |
+| 4   | `starred_at`            | number | starred date range                                               |
+| 5   | `license`               | string | license (`"none"` default)                                       |
+| 6   | `fork`                  | bool   | fork tri-state                                                   |
+| 7   | `has_readme`            | bool   | has-README tri-state                                             |
+| 8   | `pushed_at`             | number | last-pushed range                                                |
+| —   | topics / groups / owner | —      | **post-filter** in the Worker after KNN (D1 lookup by `repo_id`) |
 
 Post-filtering costs one D1 `IN` query per search and caps topic-filtered semantic recall at ≤ 50 candidates. If eval shows Q5 mixed recall suffering, the fallback lever is dropping the semantic leg for rare topics (lexical carries them). Owner stays unindexed on purpose: exact `full_name` prefix matching in the Worker is free and keeps 2 index slots free for future filters (e.g. `primary_topic`, v2 `category`).
 
@@ -192,20 +200,20 @@ Groups are user-defined labels for browse and narrowing (`cloudflare`, `tui`, `e
 
 ### 4.5 Naming parity (canonical across surfaces)
 
-| Concept | CLI | HTTP API / MCP `filters` | WebUI query param |
-|---|---|---|---|
-| language | `--lang` | `language` | `language` |
-| stars | `--min-stars` / `--max-stars` | `minStars` / `maxStars` | `minStars` / `maxStars` |
-| topics | `--topic` (repeat) + `--topic-mode` | `topics[]` + `topicMode` | `topics` + `topicMode` |
-| groups | `--group` (repeat) + `--group-mode` | `groups[]` + `groupMode` | `groups` |
-| starred date | `--starred-after` / `--starred-before` | `starredAfter` / `starredBefore` | same |
-| archived | `--archived` / `--no-archived` | `archived: true\|false` (absent = any) | `archived` |
-| license | `--license` (repeat) | `license[]` | `license` |
-| fork | `--fork` / `--no-fork` | `fork: true\|false` | `fork` |
-| has-README | `--has-readme` / `--no-readme` | `hasReadme: true\|false` | `hasReadme` |
-| last-pushed | `--pushed-after` / `--pushed-before` | `pushedAfter` / `pushedBefore` | same |
-| owner/org | `--owner` (repeat) | `owner[]` | `owner` |
-| sort / limit | `--sort relevance\|stars\|starred\|pushed` / `--limit` | `sort` / `limit` | same |
+| Concept      | CLI                                                    | HTTP API / MCP `filters`               | WebUI query param       |
+| ------------ | ------------------------------------------------------ | -------------------------------------- | ----------------------- |
+| language     | `--lang`                                               | `language`                             | `language`              |
+| stars        | `--min-stars` / `--max-stars`                          | `minStars` / `maxStars`                | `minStars` / `maxStars` |
+| topics       | `--topic` (repeat) + `--topic-mode`                    | `topics[]` + `topicMode`               | `topics` + `topicMode`  |
+| groups       | `--group` (repeat) + `--group-mode`                    | `groups[]` + `groupMode`               | `groups`                |
+| starred date | `--starred-after` / `--starred-before`                 | `starredAfter` / `starredBefore`       | same                    |
+| archived     | `--archived` / `--no-archived`                         | `archived: true\|false` (absent = any) | `archived`              |
+| license      | `--license` (repeat)                                   | `license[]`                            | `license`               |
+| fork         | `--fork` / `--no-fork`                                 | `fork: true\|false`                    | `fork`                  |
+| has-README   | `--has-readme` / `--no-readme`                         | `hasReadme: true\|false`               | `hasReadme`             |
+| last-pushed  | `--pushed-after` / `--pushed-before`                   | `pushedAfter` / `pushedBefore`         | same                    |
+| owner/org    | `--owner` (repeat)                                     | `owner[]`                              | `owner`                 |
+| sort / limit | `--sort relevance\|stars\|starred\|pushed` / `--limit` | `sort` / `limit`                       | same                    |
 
 Shared result shape (contracts package): `{ full_name, url, description, language, stars, starred_at, pushed_at, archived, fork, license, topics[], groups[], snippet { text, html?, source, chunk_id? }, score, explain? }`. `snippet.text` is plain text; `snippet.html` is pre-escaped with only `<mark>` tags (§6). MCP omits `html` and `explain` unless requested.
 
@@ -235,18 +243,18 @@ Shared result shape (contracts package): `{ full_name, url, description, languag
 
 All factors are multiplicative on `base` and are logged per result in `--explain`.
 
-| Factor | Multiplier | Rationale / notes |
-|---|---|---|
-| Exact `full_name` match (case-insensitive, includes `owner/name` queries) | ×1.60 | Known-item guarantee; must beat star/recency priors. `effect` → `Effect-TS/effect` |
-| Repo name exact match (single token equals name) | ×1.45 | Handles both `lazygit` and `ky` |
-| Name prefix match (query token is prefix of name, ≥ 3 chars) | ×1.20 | `drizzle` → `drizzle-orm` |
-| All query tokens present in name | ×1.10 | e.g. `"git oxide"` |
-| Star prior | `1 + 0.04 · log10(stars + 1)`, capped ×1.25 | 82k → ×1.20, 16k → ×1.17, 100 → ×1.08. Never let popularity outrank meaning |
-| Starred recently | ≤ 90 days ×1.10; ≤ 365 days ×1.05 | "saved for later" skews recent; helps vague memory |
-| Group boost (query text mentions a group slug/name, no explicit `--group`) | ×1.15 | Only when unambiguous; explicit group filters don't need it |
-| Archived | ×0.40 | 3.8% of corpus; penalty not exclusion — archived gems are exactly what search should recover |
-| README length | applied to `sem()` only, not final | prevents 40-chunk READMEs from winning by surface area (§5.2) |
-| Exact name in trigram leg | no extra boost | already reflected in lexical rank |
+| Factor                                                                     | Multiplier                                  | Rationale / notes                                                                            |
+| -------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Exact `full_name` match (case-insensitive, includes `owner/name` queries)  | ×1.60                                       | Known-item guarantee; must beat star/recency priors. `effect` → `Effect-TS/effect`           |
+| Repo name exact match (single token equals name)                           | ×1.45                                       | Handles both `lazygit` and `ky`                                                              |
+| Name prefix match (query token is prefix of name, ≥ 3 chars)               | ×1.20                                       | `drizzle` → `drizzle-orm`                                                                    |
+| All query tokens present in name                                           | ×1.10                                       | e.g. `"git oxide"`                                                                           |
+| Star prior                                                                 | `1 + 0.04 · log10(stars + 1)`, capped ×1.25 | 82k → ×1.20, 16k → ×1.17, 100 → ×1.08. Never let popularity outrank meaning                  |
+| Starred recently                                                           | ≤ 90 days ×1.10; ≤ 365 days ×1.05           | "saved for later" skews recent; helps vague memory                                           |
+| Group boost (query text mentions a group slug/name, no explicit `--group`) | ×1.15                                       | Only when unambiguous; explicit group filters don't need it                                  |
+| Archived                                                                   | ×0.40                                       | 3.8% of corpus; penalty not exclusion — archived gems are exactly what search should recover |
+| README length                                                              | applied to `sem()` only, not final          | prevents 40-chunk READMEs from winning by surface area (§5.2)                                |
+| Exact name in trigram leg                                                  | no extra boost                              | already reflected in lexical rank                                                            |
 
 Boosts are intentionally small except the name family (×1.10–1.60). Anything larger makes semantic results unreachable for descriptive queries. Thresholds are tuning knobs; eval must justify changes (§3.5).
 
@@ -266,18 +274,45 @@ In order: (1) rerank score desc (when enabled), (2) fused `score` desc, (3) exac
 
 ```jsonc
 {
-  "query": { "text": "durable background jobs", "mode": "hybrid", "fallback": null, "truncated": false,
-             "filters": { "language": ["typescript"], "topics": ["durable-execution"], "topicMode": "all" } },
-  "results": [{
-    "repo": "hatchet-dev/hatchet",
-    "score": 0.873,
-    "rrf": { "lexical_rank": 7, "lexical_bm25": 14.32, "semantic_rank": 2, "semantic_cosine": 0.71, "chunks": 9 },
-    "boosts": [ { "name": "star_prior", "factor": 1.16 }, { "name": "archived", "factor": 1.0 } ],
-    "rerank": { "score": 0.91, "window_rank": 1 },
-    "snippet": { "source": "semantic", "chunk_id": "hatchet-dev/hatchet:4", "text": "…", "highlights": ["durable"] }
-  }],
-  "timings_ms": { "parse": 0.4, "lexical": 23.1, "semantic": 61.7, "rerank": 147.2, "total": 238.4 },
-  "legs": { "lexical": "ok", "semantic": "ok" }
+  "query": {
+    "text": "durable background jobs",
+    "mode": "hybrid",
+    "fallback": null,
+    "truncated": false,
+    "filters": { "language": ["typescript"], "topics": ["durable-execution"], "topicMode": "all" },
+  },
+  "results": [
+    {
+      "repo": "hatchet-dev/hatchet",
+      "score": 0.873,
+      "rrf": {
+        "lexical_rank": 7,
+        "lexical_bm25": 14.32,
+        "semantic_rank": 2,
+        "semantic_cosine": 0.71,
+        "chunks": 9,
+      },
+      "boosts": [
+        { "name": "star_prior", "factor": 1.16 },
+        { "name": "archived", "factor": 1.0 },
+      ],
+      "rerank": { "score": 0.91, "window_rank": 1 },
+      "snippet": {
+        "source": "semantic",
+        "chunk_id": "hatchet-dev/hatchet:4",
+        "text": "…",
+        "highlights": ["durable"],
+      },
+    },
+  ],
+  "timings_ms": {
+    "parse": 0.4,
+    "lexical": 23.1,
+    "semantic": 61.7,
+    "rerank": 147.2,
+    "total": 238.4,
+  },
+  "legs": { "lexical": "ok", "semantic": "ok" },
 }
 ```
 
@@ -308,21 +343,25 @@ CLI pretty mode condenses each result to one reason line: `#2 sem:2 lex:7 ★7.9
 ## 8. Realistic expectations and non-goals
 
 **When semantic disappoints.**
+
 - ~4% of READMEs are < 1 KB and ~2% are missing/empty (live sample: 0-byte and 557-byte examples exist). Embeddings of a 5-line README carry almost no signal; these repos are reachable by name/lexical only, and the summary vector (name + description + topics + language) is their main semantic crutch.
 - Boilerplate READMEs (templates, monorepos, "generated by X") embed near each other and pollute neighbors; rerank + star prior mitigate but do not fix this.
 - Vague memory with wrong vocabulary ("that job thing with the retries") works only if the concept's words appear somewhere in the README; bge-m3 is good at paraphrase, not telepathy.
 
 **When lexical disappoints.**
+
 - Vocabulary mismatch ("job scheduler" vs README "cron") — semantic/rerank covers; FTS5 gives nothing.
 - Typos: trigram partially covers ≥ 3-char substrings; short tokens (e.g. `ky`) cannot use trigram.
 - Long natural-language queries hit implicit AND → zero results; the OR fallback (§7.2) is the safety net, with lower precision.
 - 25% of repos have no topics, so topic-filter queries silently exclude them (correct but visible: report the excluded count? ⚠️ consider in UI).
 
 **What a v2 LLM query-expansion stage buys.**
+
 - Structured extraction (concept text + filters like `lang:rust`, `minStars:500`), synonym expansion ("durable jobs" → "workflow engine, queue, retry, cron"), and identifier repair (`usehook-ts` → `usehooks-ts`).
 - Expected effect on the golden set: **+5–10 nDCG@10 points on descriptive/noisy classes**; Success@3 on Q8 from ~45% toward ~65%; mixed queries route filters more reliably. Roughly $0.001/query and 300–800 ms added latency — acceptable behind `--expand` (MCP default off), and only shippable if eval proves the gain. Index-time AI summaries/tags (v2, doc 01 §3.4) is the bigger win: it would give topics-like signal to the 25% of repos with none.
 
 **Explicitly out of scope for v1.**
+
 - Code search, issue/PR/release/wiki search; indexing non-README docs beyond a future "docs/" pass.
 - Cross-user/global GitHub search or recommendations; feed/trending.
 - Multi-turn conversational search, query clarification dialogs, LLM answer synthesis.
@@ -344,6 +383,7 @@ CLI pretty mode condenses each result to one reason line: `#2 sem:2 lex:7 ★7.9
 
 Internal: [00-requirements.md](00-requirements.md) · [01-search-and-index.md](01-search-and-index.md) · [02-stack-and-pipeline.md](02-stack-and-pipeline.md).
 External (verified 2026-09-13, same set as doc 01 unless noted):
+
 - SQLite FTS5 (bm25, snippet, highlight, MATCH escaping): <https://www.sqlite.org/fts5.html>
 - D1 FTS5 support: <https://developers.cloudflare.com/d1/sql-api/sql-statements/>
 - Vectorize limits (10 metadata indexes, 64-byte prefixes, topK 50): <https://developers.cloudflare.com/vectorize/platform/limits/>

@@ -9,7 +9,7 @@ import {
   SyncPhase,
   UserIndexState,
   UserNotFound,
-  UserProfile
+  UserProfile,
 } from "@starwatch/domain";
 import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint";
@@ -37,7 +37,7 @@ import * as Schema from "effect/Schema";
 export const Health = Schema.Struct({
   ok: Schema.Boolean,
   service: Schema.String,
-  version: Schema.String
+  version: Schema.String,
 });
 
 const LoginParams = Schema.Struct({ login: Schema.String });
@@ -45,23 +45,23 @@ const LoginParams = Schema.Struct({ login: Schema.String });
 const RepoParams = Schema.Struct({ owner: Schema.String, name: Schema.String });
 
 export const SyncRequest = Schema.Struct({
-  full: Schema.optional(Schema.Boolean)
+  full: Schema.optional(Schema.Boolean),
 });
 
 export const SyncAccepted = Schema.Struct({
   started: Schema.Boolean,
-  phase: SyncPhase
+  phase: SyncPhase,
 });
 
 export const UserDetail = Schema.Struct({
   profile: UserProfile,
   state: UserIndexState,
-  groups: Schema.Array(Group)
+  groups: Schema.Array(Group),
 });
 
 export const RepoDetail = Schema.Struct({
   repo: Repo,
-  groups: Schema.Array(Group)
+  groups: Schema.Array(Group),
 });
 
 /**
@@ -82,7 +82,7 @@ export const SearchQuery = Schema.Struct({
   license: Schema.optional(Schema.String),
   starredAfter: Schema.optional(Schema.String),
   starredBefore: Schema.optional(Schema.String),
-  limit: Schema.optional(Schema.String)
+  limit: Schema.optional(Schema.String),
 });
 
 export type SearchQuery = typeof SearchQuery.Type;
@@ -99,7 +99,7 @@ export const ApiSyncInProgress = SyncInProgress.pipe(HttpApiSchema.status(409));
 export const ApiBudgetExceeded = BudgetExceeded.pipe(HttpApiSchema.status(429));
 
 const systemGroup = HttpApiGroup.make("system").add(
-  HttpApiEndpoint.get("health", "/health", { success: Health })
+  HttpApiEndpoint.get("health", "/health", { success: Health }),
 );
 
 const usersGroup = HttpApiGroup.make("users")
@@ -107,37 +107,37 @@ const usersGroup = HttpApiGroup.make("users")
     HttpApiEndpoint.get("getUser", "/users/:login", {
       params: LoginParams,
       success: UserDetail,
-      error: ApiUserNotFound
-    })
+      error: ApiUserNotFound,
+    }),
   )
   .add(
     HttpApiEndpoint.post("startSync", "/users/:login/sync", {
       params: LoginParams,
       payload: SyncRequest,
       success: SyncAccepted,
-      error: [ApiUserNotFound, ApiSyncCooldown, ApiSyncInProgress, ApiBudgetExceeded]
-    })
+      error: [ApiUserNotFound, ApiSyncCooldown, ApiSyncInProgress, ApiBudgetExceeded],
+    }),
   )
   .add(
     HttpApiEndpoint.get("getSyncState", "/users/:login/sync", {
       params: LoginParams,
       success: UserIndexState,
-      error: ApiUserNotFound
-    })
+      error: ApiUserNotFound,
+    }),
   )
   .add(
     HttpApiEndpoint.get("syncEvents", "/users/:login/sync/events", {
       params: LoginParams,
       success: HttpApiSchema.StreamSse({ data: UserIndexState }),
-      error: ApiUserNotFound
-    })
+      error: ApiUserNotFound,
+    }),
   )
   .add(
     HttpApiEndpoint.get("getUserGroups", "/users/:login/groups", {
       params: LoginParams,
       success: Schema.Array(Group),
-      error: ApiUserNotFound
-    })
+      error: ApiUserNotFound,
+    }),
   );
 
 const searchGroup = HttpApiGroup.make("search").add(
@@ -145,16 +145,16 @@ const searchGroup = HttpApiGroup.make("search").add(
     params: LoginParams,
     query: SearchQuery,
     success: SearchResponse,
-    error: ApiBudgetExceeded
-  })
+    error: ApiBudgetExceeded,
+  }),
 );
 
 const reposGroup = HttpApiGroup.make("repos").add(
   HttpApiEndpoint.get("getRepo", "/repos/:owner/:name", {
     params: RepoParams,
     success: RepoDetail,
-    error: ApiRepoNotFound
-  })
+    error: ApiRepoNotFound,
+  }),
 );
 
 export const StarwatchApi = HttpApi.make("StarwatchApi")

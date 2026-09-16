@@ -1,7 +1,7 @@
 # 15 — Free Semantic Search (Zero-Spend Design)
 
 > Status: **draft for discussion** · 2026-09-13 · ⚠️ marks low-confidence items to re-check at implementation time.
-> Scope: the **hard requirement** is zero spend — Workers **Free** plan only (100k req/day, **10 ms CPU**/request, 128 MB/isolate, 50 subrequests) plus the free allowances of D1 (5 GB total, 500 MB/DB), R2 (10 GB, 1M Class A + 10M Class B ops/mo), Workers AI (10k neurons/day), Cache API and KV. This doc **supersedes the Vectorize semantic leg** in [01 §3.2](01-search-and-index.md), [07 §4.3](07-search-contract.md) and [10 §3](10-multitenant-architecture.md); [07](07-search-contract.md) still owns relevance/latency targets (docs 16–18 pending), [12](12-hardening.md) owns paid-mode degraded behavior, [14](14-abuse-protection.md) owns the $0 budget/degradation authority, and [13](13-free-tier-feasibility.md) owns the free-plan quota matrix. It changes *where vectors live and how they are searched*, not what results must look like.
+> Scope: the **hard requirement** is zero spend — Workers **Free** plan only (100k req/day, **10 ms CPU**/request, 128 MB/isolate, 50 subrequests) plus the free allowances of D1 (5 GB total, 500 MB/DB), R2 (10 GB, 1M Class A + 10M Class B ops/mo), Workers AI (10k neurons/day), Cache API and KV. This doc **supersedes the Vectorize semantic leg** in [01 §3.2](01-search-and-index.md), [07 §4.3](07-search-contract.md) and [10 §3](10-multitenant-architecture.md); [07](07-search-contract.md) still owns relevance/latency targets (docs 16–18 pending), [12](12-hardening.md) owns paid-mode degraded behavior, [14](14-abuse-protection.md) owns the $0 budget/degradation authority, and [13](13-free-tier-feasibility.md) owns the free-plan quota matrix. It changes _where vectors live and how they are searched_, not what results must look like.
 >
 > **Updated 2026-09-13 (free-tier pivot):** canonical free caps — `MAX_STARS = 10,000`, semantic window newest **1,500** repos, ≤10 weighted new users/day, embeddings ≤6,000 neurons/day — are reconciled with [14 §3.6/§4](14-abuse-protection.md).
 
@@ -12,15 +12,15 @@
 Per-user sizing from [10 §3](10-multitenant-architecture.md) — 23,552 vectors (19.7k chunks + 3.3k summaries) vs repo-level 3,448:
 
 | Vector granularity | dims | dims/user | Stored users in 5M | Semantic queries/mo (30M ÷ dims/user) |
-|---|---|---|---|---|
-| chunk-level | 1024 | 24.1M | **0** | 1.2 |
-| chunk-level | 512 | 12.1M | **0** | 2.5 |
-| chunk-level | 128 | 3.0M | **1** | 10 |
-| repo-level | 1024 | 3.53M | **1** | 8 |
-| repo-level | 512 | 1.77M | **2** | 17 |
-| repo-level | 256 | 0.88M | **5** | 34 |
-| repo-level | 128 | 0.44M | **11** | 68 |
-| repo-level | 32 | 0.11M | **45** | 273 |
+| ------------------ | ---- | --------- | ------------------ | ------------------------------------- |
+| chunk-level        | 1024 | 24.1M     | **0**              | 1.2                                   |
+| chunk-level        | 512  | 12.1M     | **0**              | 2.5                                   |
+| chunk-level        | 128  | 3.0M      | **1**              | 10                                    |
+| repo-level         | 1024 | 3.53M     | **1**              | 8                                     |
+| repo-level         | 512  | 1.77M     | **2**              | 17                                    |
+| repo-level         | 256  | 0.88M     | **5**              | 34                                    |
+| repo-level         | 128  | 0.44M     | **11**             | 68                                    |
+| repo-level         | 32   | 0.11M     | **45**             | 273                                   |
 
 With the free-tier window of 1,500 repos ([14 §3.6](14-abuse-protection.md)) the per-user dims shrink ~2.3×, which does not change the conclusion.
 
@@ -40,7 +40,7 @@ With the free-tier window of 1,500 repos ([14 §3.6](14-abuse-protection.md)) th
 
 ### 2.2 Model and MRL
 
-- **`@cf/qwen/qwen3-embedding-0.6b`** — $0.012/M tokens = **1,075 neurons/M** (same as bge-m3), 1024-dim output, **MRL 32–1024** per the Qwen model card, plus a query-side `instruction`. Workers AI does **not** expose a `dimensions` parameter: the verified input schema accepts `queries`/`documents`/`text` with **max 32 texts/request** and no dims field, so MRL truncation is **client-side**: slice the first *d* dims and renormalize (`v = v[0..d]; v /= ||v||`). Quality at 256/512 must be eval-gated ⚠️.
+- **`@cf/qwen/qwen3-embedding-0.6b`** — $0.012/M tokens = **1,075 neurons/M** (same as bge-m3), 1024-dim output, **MRL 32–1024** per the Qwen model card, plus a query-side `instruction`. Workers AI does **not** expose a `dimensions` parameter: the verified input schema accepts `queries`/`documents`/`text` with **max 32 texts/request** and no dims field, so MRL truncation is **client-side**: slice the first _d_ dims and renormalize (`v = v[0..d]; v /= ||v||`). Quality at 256/512 must be eval-gated ⚠️.
 - `bge-m3` is a viable fallback (same price/neuron rate, 100-text batches ⚠️, 60k context) but its output is **fixed 1024d** (not MRL), so it forces 1024d storage/CPU.
 - `@cf/google/embeddinggemma-300m` (768d, MRL to 128, 512-token input, 100-text batches verified) is attractive on CPU but its **price is unpublished** (absent from the embeddings pricing table) ⚠️ — excluded from a zero-spend design for now.
 
@@ -63,13 +63,13 @@ filters  count × 8 bytes               // packed language/archived/fork/star-ra
 
 Storage per user (3,448 vectors, ids + optional scale included), and R2 capacity at ~8 GB usable (2 GB reserved for READMEs):
 
-| dims / precision | bytes/vector | per user | users @8 GB | CPU @5,000 repos (§3) |
-|---|---|---|---|---|
-| 1024 f32 | 4,100 | 14.1 MB | ~565 | 5.6 ms — too close |
-| 512 f32 | 2,052 | **7.08 MB** | ~1,130 | **2.3 ms** |
-| 256 f32 | 1,028 | 3.54 MB | ~2,260 | 1.1 ms |
-| 512 int8 | 520 | 1.79 MB | ~4,470 | 4.4 ms (V8 penalty) |
-| 256 int8 | 264 | 0.91 MB | ~8,800 | ~2.2 ms (est.) |
+| dims / precision | bytes/vector | per user    | users @8 GB | CPU @5,000 repos (§3) |
+| ---------------- | ------------ | ----------- | ----------- | --------------------- |
+| 1024 f32         | 4,100        | 14.1 MB     | ~565        | 5.6 ms — too close    |
+| 512 f32          | 2,052        | **7.08 MB** | ~1,130      | **2.3 ms**            |
+| 256 f32          | 1,028        | 3.54 MB     | ~2,260      | 1.1 ms                |
+| 512 int8         | 520          | 1.79 MB     | ~4,470      | 4.4 ms (V8 penalty)   |
+| 256 int8         | 264          | 0.91 MB     | ~8,800      | ~2.2 ms (est.)        |
 
 **Vectors/user: 3,448 (repo-level) vs 23,552 (chunk-level, not on Free); at the canonical newest-1,500 window the per-user columns above shrink ~2.3× (e.g. ~3.1 MB at 512d f32). D1/user: <2 KB — pointer row (`vector_blobs`) + `user_semantic` state; no vectors. Cache API/user: one cached object per colo, free, 512 MB/object. R2/user: the table above plus ~7.5 KB/repo of shared README text.**
 
@@ -77,22 +77,22 @@ Storage per user (3,448 vectors, ids + optional scale included), and R2 capacity
 
 1. Parse query (<2 ms budget in [07 §3.2](07-search-contract.md)); 2. embed the query once (`queries` with instruction, ~30–60 tokens); 3. fetch the user blob (Cache API → R2); 4. FTS5 top-50 and (optionally) top-N candidates; 5. score candidate/full set with a flat f32 dot product, 4× unrolled; 6. top-k=50 (heap only if k > 200); 7. RRF + boosts + snippet from D1.
 
-| Step (512d f32, 5,000-repo user) | Measured p50 | Derated ×2.5 | Note |
-|---|---|---|---|
-| full scan (pure semantic / similar) | 2.33 ms | 5.8 ms | §3 |
-| hybrid: gather 1,000 FTS candidates | 0.42 ms | 1.1 ms | §4 |
-| top-k=50 selection | 0.03–0.07 ms | ~0.2 ms | naive insertion; heap for k>200 |
-| blob view (`Float32Array`) | ~0 ms | ~0 ms | view is free; `arrayBuffer()` copies the body (~1–2 ms per 7 MB, memory counts toward 128 MB) |
-| parse + fusion + response shaping | ~1.0 ms | ~1.0 ms | estimate ⚠️ |
-| snippet/meta fetch from D1 | ~1.0 ms | ~1.0 ms | estimate ⚠️ |
-| **total (pure semantic)** | **~4.5 ms** | **~8.0 ms** | fits 10 ms with little margin |
-| **total (hybrid rerank)** | **~2.5 ms** | **~3.4 ms** | comfortable |
+| Step (512d f32, 5,000-repo user)    | Measured p50 | Derated ×2.5 | Note                                                                                          |
+| ----------------------------------- | ------------ | ------------ | --------------------------------------------------------------------------------------------- |
+| full scan (pure semantic / similar) | 2.33 ms      | 5.8 ms       | §3                                                                                            |
+| hybrid: gather 1,000 FTS candidates | 0.42 ms      | 1.1 ms       | §4                                                                                            |
+| top-k=50 selection                  | 0.03–0.07 ms | ~0.2 ms      | naive insertion; heap for k>200                                                               |
+| blob view (`Float32Array`)          | ~0 ms        | ~0 ms        | view is free; `arrayBuffer()` copies the body (~1–2 ms per 7 MB, memory counts toward 128 MB) |
+| parse + fusion + response shaping   | ~1.0 ms      | ~1.0 ms      | estimate ⚠️                                                                                   |
+| snippet/meta fetch from D1          | ~1.0 ms      | ~1.0 ms      | estimate ⚠️                                                                                   |
+| **total (pure semantic)**           | **~4.5 ms**  | **~8.0 ms**  | fits 10 ms with little margin                                                                 |
+| **total (hybrid rerank)**           | **~2.5 ms**  | **~3.4 ms**  | comfortable                                                                                   |
 
 1024d f32 (5.6 ms measured) derates to ~14 ms — **not viable on Free**. 128–256d, or int8 storage for cold tiers, are the levers. At the canonical newest-1,500 window the full scan is ~0.7 ms p50 at 512d f32 (§3.1: 3,448 vectors = 1.60 ms), so the 5,000-repo column is headroom, not the launch size. The default free-tier search is therefore **hybrid-first** (§4) with the full scan reserved for `semantic`/`similar`.
 
 ### 2.5 Indexing path under Free limits
 
-3,448 docs ÷ 32 per AI call = **108 calls/user** (1,500-repo window: ~47 calls), at/over the **50-subrequest/invocation** Free limit → indexing must span invocations. Both Workflows (Free: 1,024 steps, 10 ms CPU/step, 50 subrequests/step) and Queues (Free: 10k ops/day) are available; Workflows per-user with ~3 embed steps (≤ 32 calls each) is the direct mapping to [10 §7](10-multitenant-architecture.md). Content-addressed dedupe ([10 §2.6](10-multitenant-architecture.md)) still applies: shared repos are embedded once, users copy pointers, so the real token cost tracks the *unique* corpus.
+3,448 docs ÷ 32 per AI call = **108 calls/user** (1,500-repo window: ~47 calls), at/over the **50-subrequest/invocation** Free limit → indexing must span invocations. Both Workflows (Free: 1,024 steps, 10 ms CPU/step, 50 subrequests/step) and Queues (Free: 10k ops/day) are available; Workflows per-user with ~3 embed steps (≤ 32 calls each) is the direct mapping to [10 §7](10-multitenant-architecture.md). Content-addressed dedupe ([10 §2.6](10-multitenant-architecture.md)) still applies: shared repos are embedded once, users copy pointers, so the real token cost tracks the _unique_ corpus.
 
 Per user, standard profile: 1 listing sync + 108 batched embed calls across 3 Workflow steps (1,500-repo window: ~47 calls across 2 steps) + 1 blob `put` + a handful of D1 writes. Against Free allowances that is 3–4 Worker invocations, well inside 100k req/day and 10k Queue ops/day even at 10 weighted new users/day ([14 §4](14-abuse-protection.md)).
 
@@ -136,28 +136,37 @@ CREATE TABLE user_semantic (
 
 ### 3.1 Full-scan dot products, p50 ms (4× unrolled f32; scalar int8)
 
-| Vectors | f32 128d | f32 256d | f32 512d | f32 1024d | int8 512d |
-|---|---|---|---|---|---|
-| 3,448 (typical user) | 0.39 | 0.79 | 1.60 | 4.57 | 2.11 |
-| 5,000 (Free cap) | 0.58 | 1.14 | 2.33 | 5.58 | 4.44 |
-| 20,000 (above Free cap) | 2.32 | 4.59 | 9.67 | 23.20 | 12.69 |
+| Vectors                 | f32 128d | f32 256d | f32 512d | f32 1024d | int8 512d |
+| ----------------------- | -------- | -------- | -------- | --------- | --------- |
+| 3,448 (typical user)    | 0.39     | 0.79     | 1.60     | 4.57      | 2.11      |
+| 5,000 (Free cap)        | 0.58     | 1.14     | 2.33     | 5.58      | 4.44      |
+| 20,000 (above Free cap) | 2.32     | 4.59     | 9.67     | 23.20     | 12.69     |
 
 The f32 kernel that was measured (flat contiguous vectors, 4-way unrolled, ids in a parallel `Uint32Array`):
 
 ```ts
 function bestDot(q: Float32Array, v: Float32Array, n: number, d: number) {
-  let best = -Infinity, bestIdx = -1;
+  let best = -Infinity,
+    bestIdx = -1;
   const d4 = d & ~3; // dims are multiples of 4; tail handles the rest
   for (let i = 0; i < n; i++) {
     const o = i * d;
-    let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+    let s0 = 0,
+      s1 = 0,
+      s2 = 0,
+      s3 = 0;
     for (let j = 0; j < d4; j += 4) {
-      s0 += q[j] * v[o + j];     s1 += q[j + 1] * v[o + j + 1];
-      s2 += q[j + 2] * v[o + j + 2]; s3 += q[j + 3] * v[o + j + 3];
+      s0 += q[j] * v[o + j];
+      s1 += q[j + 1] * v[o + j + 1];
+      s2 += q[j + 2] * v[o + j + 2];
+      s3 += q[j + 3] * v[o + j + 3];
     }
     let s = s0 + s1 + s2 + s3;
     for (let j = d4; j < d; j++) s += q[j] * v[o + j];
-    if (s > best) { best = s; bestIdx = i; }
+    if (s > best) {
+      best = s;
+      bestIdx = i;
+    }
   }
   return bestIdx; // + score for top-k
 }
@@ -167,51 +176,51 @@ No allocation inside the loop; the blob is one `Float32Array` view over the R2 `
 
 ### 3.2 Supporting measurements
 
-| Operation (5,000-repo user unless noted) | p50 |
-|---|---|
-| gather-dot 1,000 FTS candidates, 512d f32 | **0.42 ms** (vs 2.52 ms full scan) |
-| binary search 1,000 `repo_id`s in a 5k sorted `Uint32Array` | 0.022 ms |
-| top-k naive k=50 / heap k=200 | 0.03 / 0.10 ms |
-| MRL cascade 128d shortlist → 512d rerank top-500 | 1.36–1.67 ms (no win vs 1.60–2.33 full) |
-| `JSON.parse` of a 35 MB f32 array + `Float32Array.from` | **102 ms** |
-| `new Float32Array(arrayBuffer)` view | ~0.01 ms |
-| D1-style BLOB read (`Array.from`) of 1.77 MB | **82 ms** |
+| Operation (5,000-repo user unless noted)                    | p50                                     |
+| ----------------------------------------------------------- | --------------------------------------- |
+| gather-dot 1,000 FTS candidates, 512d f32                   | **0.42 ms** (vs 2.52 ms full scan)      |
+| binary search 1,000 `repo_id`s in a 5k sorted `Uint32Array` | 0.022 ms                                |
+| top-k naive k=50 / heap k=200                               | 0.03 / 0.10 ms                          |
+| MRL cascade 128d shortlist → 512d rerank top-500            | 1.36–1.67 ms (no win vs 1.60–2.33 full) |
+| `JSON.parse` of a 35 MB f32 array + `Float32Array.from`     | **102 ms**                              |
+| `new Float32Array(arrayBuffer)` view                        | ~0.01 ms                                |
+| D1-style BLOB read (`Array.from`) of 1.77 MB                | **82 ms**                               |
 
 ### 3.3 Readings that drive the design
 
-1. **f32 beats int8 per dim in V8** (~1.3–1.9× faster at equal dims; int8 only wins on bytes). int8 is a *storage* optimization, not a CPU one.
+1. **f32 beats int8 per dim in V8** (~1.3–1.9× faster at equal dims; int8 only wins on bytes). int8 is a _storage_ optimization, not a CPU one.
 2. **512d f32 fits the Free budget for ≤5k repos** (2.3 ms p50 → ~6 ms derated); 1024d does not.
 3. **Cascades are not worth the complexity** at this N — only at 20k+ vectors does 128d→512d beat a full 512d scan, and pure-semantic users are capped at 5k.
-4. **Binary only.** JSON parsing is 10× the CPU budget; D1 BLOB reads are 8×. R2 `ArrayBuffer` + typed-array *views* are the only compliant read path.
+4. **Binary only.** JSON parsing is 10× the CPU budget; D1 BLOB reads are 8×. R2 `ArrayBuffer` + typed-array _views_ are the only compliant read path.
 5. **Flat contiguous `Float32Array` + 4× unroll** is the recommended kernel; AoS (`Float32Array[]`) is slightly faster on paper but adds per-vector objects and GC pressure. **WASM SIMD** ⚠️ is the escalation lever if workerd derating proves worse (same 128 MB/isolate; ~64 MiB script headroom).
 
 ## 4. Hybrid candidate approach
 
-| Mode | Candidate source | Vector work | When it wins |
-|---|---|---|---|
-| `keyword` | FTS5 top-50 | none | identifiers, exact names, filters, degraded mode |
-| `hybrid` (default) | FTS5 top-**500–1,000** → vector rerank | gather-dot candidates only (0.4 ms) | descriptive + rare terms; keeps latent semantic recall off the critical path |
-| `semantic` | full per-user scan → top-50 → RRF | 2.3 ms at 512d | pure paraphrase/vocabulary mismatch (Q4/Q8), no FTS anchors |
-| `similar <repo>` | full scan | 1 repo lookup + scan | Q7; zero query-embedding tokens |
-| filtered hybrid | SQL pre-filter → candidate `repo_id`s → gather-dot | 0.4 ms/1k candidates | all mixed queries (Q5) |
+| Mode               | Candidate source                                   | Vector work                         | When it wins                                                                 |
+| ------------------ | -------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------- |
+| `keyword`          | FTS5 top-50                                        | none                                | identifiers, exact names, filters, degraded mode                             |
+| `hybrid` (default) | FTS5 top-**500–1,000** → vector rerank             | gather-dot candidates only (0.4 ms) | descriptive + rare terms; keeps latent semantic recall off the critical path |
+| `semantic`         | full per-user scan → top-50 → RRF                  | 2.3 ms at 512d                      | pure paraphrase/vocabulary mismatch (Q4/Q8), no FTS anchors                  |
+| `similar <repo>`   | full scan                                          | 1 repo lookup + scan                | Q7; zero query-embedding tokens                                              |
+| filtered hybrid    | SQL pre-filter → candidate `repo_id`s → gather-dot | 0.4 ms/1k candidates                | all mixed queries (Q5)                                                       |
 
-- **RRF** stays as [07 §5.2](07-search-contract.md): repo-level `1/(60 + rank)`; only the *source* of the semantic rank changes (candidate rerank vs full scan). The semantic aggregation formula is deleted: there is exactly one vector per repo, so `sem(repo) = cosine` and no chunk aggregation/length damping is needed.
+- **RRF** stays as [07 §5.2](07-search-contract.md): repo-level `1/(60 + rank)`; only the _source_ of the semantic rank changes (candidate rerank vs full scan). The semantic aggregation formula is deleted: there is exactly one vector per repo, so `sem(repo) = cosine` and no chunk aggregation/length damping is needed.
 - **Routing rules** (refine [07 §7.4](07-search-contract.md)): single token / punctuation / camelCase / name match → `keyword` (no AI call). Multi-token descriptive with no filters → full-scan `hybrid` (semantic ranks come from the scan, 2.3 ms). Descriptive **with** selective filters (language/topic/star range) → filtered gather-dot: resolve `repo_id`s in D1 first, score only those (0.4 ms/1,000). Long noisy queries → full scan. `similar` → direct index lookup + scan.
 - **Worked example — Q5** `"http client" --topic http-client --lang ts`: D1 returns ~180 repos matching both facets → gather-dot 180 vectors (~0.1 ms) → semantic top-50; FTS gives its own ~40; RRF fuses; the target (`ky`) is in the candidate set by construction, so semantic recall is exact for the filtered universe and no Vectorize metadata index is needed.
-- **Recall caveat (the important one).** Reranking FTS candidates *cannot* recover a repo FTS missed, which is precisely the Q4/Q8 failure mode semantics exist for. Candidate rerank is a **latency/CPU optimization for queries that already have decent lexical anchors**, never a replacement for the full scan on descriptive queries (mirrors the launch gate in [07 §3.2](07-search-contract.md): hybrid must beat keyword-only by ≥0.08 nDCG@10 on Q4).
-- **RRF combinations that are safe on this design**: (keyword, full-scan-semantic), (keyword, filtered-gather-semantic), (keyword, candidate-rerank) — each leg reports ranks, fusion is unchanged. What is *not* safe is dropping the full scan for Q4/Q8 while claiming semantic coverage; `--explain` must show `semantic_source: full|filtered|candidates` so eval can assert it.
+- **Recall caveat (the important one).** Reranking FTS candidates _cannot_ recover a repo FTS missed, which is precisely the Q4/Q8 failure mode semantics exist for. Candidate rerank is a **latency/CPU optimization for queries that already have decent lexical anchors**, never a replacement for the full scan on descriptive queries (mirrors the launch gate in [07 §3.2](07-search-contract.md): hybrid must beat keyword-only by ≥0.08 nDCG@10 on Q4).
+- **RRF combinations that are safe on this design**: (keyword, full-scan-semantic), (keyword, filtered-gather-semantic), (keyword, candidate-rerank) — each leg reports ranks, fusion is unchanged. What is _not_ safe is dropping the full scan for Q4/Q8 while claiming semantic coverage; `--explain` must show `semantic_source: full|filtered|candidates` so eval can assert it.
 - Snippets come from the corpus (`repo_chunks`) selected by query-term overlap on the top semantic hits — no chunk vectors needed.
 
 ## 5. Workers AI budget (10k neurons/day)
 
 10,000 neurons ÷ 1,075 neurons/M = **9.30M tokens/day** for embeddings (bge-m3 and qwen3-embedding-0.6b identical rate; $0.012/M). `embeddinggemma` price unpublished ⚠️.
 
-| Document profile | chars ≈ tokens/repo | tokens/user (3,448) | users/day @9.3M |
-|---|---|---|---|
-| Metadata only (name+desc+topics) | 180 ≈ 45 | 0.16M | ~60 |
-| **Standard (metadata + distilled README, 1,400 chars)** | 1,400 ≈ 350 | **1.21M** | **~7.7** |
-| Rich (2,400-char README) | 2,400 ≈ 600 | 2.07M | ~4.5 |
-| Chunk-level (23,000 × 1,200-char chunks) | 330/chunk | 7.59M | ~1.2 |
+| Document profile                                        | chars ≈ tokens/repo | tokens/user (3,448) | users/day @9.3M |
+| ------------------------------------------------------- | ------------------- | ------------------- | --------------- |
+| Metadata only (name+desc+topics)                        | 180 ≈ 45            | 0.16M               | ~60             |
+| **Standard (metadata + distilled README, 1,400 chars)** | 1,400 ≈ 350         | **1.21M**           | **~7.7**        |
+| Rich (2,400-char README)                                | 2,400 ≈ 600         | 2.07M               | ~4.5            |
+| Chunk-level (23,000 × 1,200-char chunks)                | 330/chunk           | 7.59M               | ~1.2            |
 
 **Free-window note:** at the canonical newest-1,500 window ([14 §3.6](14-abuse-protection.md)) the standard profile is ~0.53M tokens ≈ 565 neurons/user, i.e. ~10 users/day under the 6,000-neuron embeddings knob ([14 §4](14-abuse-protection.md)); the 3,448-repo rows above assume the full corpus and are the paid/comparison view.
 
@@ -241,33 +250,34 @@ The free design deliberately keeps migration cheap: vectors are stored **unquant
 
 **Tiered free-semantic design: ship hybrid-on-repo-vectors day 1, keep chunk-level semantics for a paid future.**
 
-| Tier | Vectors | dims/precision | bytes/user | Search work | Promotion rule |
-|---|---|---|---|---|---|
-| day 1 (MVP) | repo-level | **512 f32** | ~3.1 MB at the 1,500-repo window (7.1 MB at 3,448) | full scan at window (~0.7 ms); tested to 5k (2.3 ms) + candidate rerank | ≤10 weighted new users/day ([14 §4](14-abuse-protection.md)); cohort of 100–500 users; expand while R2 < 40% and derating measured |
-| scale tier | repo-level | **256 f32** hot / **512 int8** cold | 3.5 / 1.8 MB | 1.1 / 4.4 ms | R2 > 60% full or CPU derating > 3× |
-| degraded | repo-level | 256 f32 | 3.5 MB | hybrid-only, keyword fallback | `exceededCpu`/neuron cap |
-| paid later | repo+chunk | 1024 f32 → Vectorize | 23k vectors | Vectorize ANN + rerank | only if spend policy changes |
+| Tier        | Vectors    | dims/precision                      | bytes/user                                         | Search work                                                             | Promotion rule                                                                                                                     |
+| ----------- | ---------- | ----------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| day 1 (MVP) | repo-level | **512 f32**                         | ~3.1 MB at the 1,500-repo window (7.1 MB at 3,448) | full scan at window (~0.7 ms); tested to 5k (2.3 ms) + candidate rerank | ≤10 weighted new users/day ([14 §4](14-abuse-protection.md)); cohort of 100–500 users; expand while R2 < 40% and derating measured |
+| scale tier  | repo-level | **256 f32** hot / **512 int8** cold | 3.5 / 1.8 MB                                       | 1.1 / 4.4 ms                                                            | R2 > 60% full or CPU derating > 3×                                                                                                 |
+| degraded    | repo-level | 256 f32                             | 3.5 MB                                             | hybrid-only, keyword fallback                                           | `exceededCpu`/neuron cap                                                                                                           |
+| paid later  | repo+chunk | 1024 f32 → Vectorize                | 23k vectors                                        | Vectorize ANN + rerank                                                  | only if spend policy changes                                                                                                       |
 
 **Rollout phases**
 
-| Phase | Scope | Exit gate |
-|---|---|---|
-| P0 — keyword MVP | D1 FTS5 + filters + snippets, no AI, no blobs | Q1–Q3/Q9 targets met; browse deterministic; zero CPU risk |
-| P1 — semantic behind a flag | `vector_blobs` + Cache API + 512d f32, repo-level, ≤10 weighted users/day admission ([14 §4](14-abuse-protection.md)) | Q4 R@10 ≥ 0.80, p95 < 500 ms, `exceededCpu` < 0.5%, `cpu_state` wired |
-| P2 — scale tiering | hot f32-512 / warm f32-256 / cold int8-512; MRL eval picks dims; eviction | R2 < 60%, derating factor measured, Q4/Q7 gate at reduced dims |
-| P3 — paid/Vectorize (only if policy changes) | upsert existing blobs, chunk-level re-embed optional | migration drill: Vectorize serves ≥ P2 nDCG with no re-embedding |
+| Phase                                        | Scope                                                                                                                 | Exit gate                                                             |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| P0 — keyword MVP                             | D1 FTS5 + filters + snippets, no AI, no blobs                                                                         | Q1–Q3/Q9 targets met; browse deterministic; zero CPU risk             |
+| P1 — semantic behind a flag                  | `vector_blobs` + Cache API + 512d f32, repo-level, ≤10 weighted users/day admission ([14 §4](14-abuse-protection.md)) | Q4 R@10 ≥ 0.80, p95 < 500 ms, `exceededCpu` < 0.5%, `cpu_state` wired |
+| P2 — scale tiering                           | hot f32-512 / warm f32-256 / cold int8-512; MRL eval picks dims; eviction                                             | R2 < 60%, derating factor measured, Q4/Q7 gate at reduced dims        |
+| P3 — paid/Vectorize (only if policy changes) | upsert existing blobs, chunk-level re-embed optional                                                                  | migration drill: Vectorize serves ≥ P2 nDCG with no re-embedding      |
 
 **Decision table**
 
-| Option | Zero spend | 10 ms CPU | 3.4k users storage | Quality | Ops | Migration |
-|---|---|---|---|---|---|---|
-| Vectorize Free | ✅ | n/a | **≤1 user** | good | low | n/a |
-| Vectorize Paid | ❌ | n/a | ~$0.012/user/mo storage (chunk-level) ⚠️ | good | low | n/a |
-| **R2 blobs + in-Worker kNN (this doc)** | ✅ | ✅ 512/256d f32 | ~1.1k users @8 GB at 3,448 vectors (~2.6k at the 1,500-repo window) | good (MRL ⚠️) | medium | **clean (no re-embed)** |
-| FTS-only | ✅ | ✅ | n/a | fails Q4/Q8 | trivial | clean if blobs kept |
-| External free tier (e.g. Qdrant) | ⚠️ ToS/limits, non-CF | n/a | 1 GB | good | medium | re-upload, no re-embed |
+| Option                                  | Zero spend            | 10 ms CPU       | 3.4k users storage                                                  | Quality       | Ops     | Migration               |
+| --------------------------------------- | --------------------- | --------------- | ------------------------------------------------------------------- | ------------- | ------- | ----------------------- |
+| Vectorize Free                          | ✅                    | n/a             | **≤1 user**                                                         | good          | low     | n/a                     |
+| Vectorize Paid                          | ❌                    | n/a             | ~$0.012/user/mo storage (chunk-level) ⚠️                            | good          | low     | n/a                     |
+| **R2 blobs + in-Worker kNN (this doc)** | ✅                    | ✅ 512/256d f32 | ~1.1k users @8 GB at 3,448 vectors (~2.6k at the 1,500-repo window) | good (MRL ⚠️) | medium  | **clean (no re-embed)** |
+| FTS-only                                | ✅                    | ✅              | n/a                                                                 | fails Q4/Q8   | trivial | clean if blobs kept     |
+| External free tier (e.g. Qdrant)        | ⚠️ ToS/limits, non-CF | n/a             | 1 GB                                                                | good          | medium  | re-upload, no re-embed  |
 
 **What changes in the other docs**
+
 - [01](01-search-and-index.md): §3.2 (Vectorize + bge-m3) → this doc's repo-blob design; §5 Vectorize row → R2 vector blobs; §6 Option A/C; §8 costs → **$0**; §9 Phase 1.
 - [07](07-search-contract.md): §4.3 metadata allocation (obsolete — SQL pre-filters + blob filter bits); §5.1 semantic leg = repo-level in-Worker kNN; §5.2 delete chunk aggregation/length damping; §5.4 rerank stays (passages from D1); §6 semantic snippet selection; open question 2 resolved; latency budget §3.2 (add scan budget).
 - [10](10-multitenant-architecture.md): §3 (Vectorize multi-tenancy) replaced; §2.1 "Vectors" row → per-user R2 blob; `vectorize_shards` → `vector_blobs(dims, precision, r2_key, etag, cpu_state)`; §5 costs → $0 and D1/R2-only; §6 eviction = blob delete; §4.4 bindings drop `VECTORIZE_*`.
@@ -275,6 +285,7 @@ The free design deliberately keeps migration cheap: vectors are stored **unquant
 - [14](14-abuse-protection.md): semantic budget path = repo-level R2 blobs + in-Worker kNN (§2.2); window/caps reconciled (§3.6).
 
 **Open questions**
+
 1. **MRL quality** — nDCG@10 at 256/512d vs 1024d on `eval/golden.yaml`; pick the smallest passing dims (blocks the default).
 2. **Workerd vs Node CPU** — measure `exceededCpu` and p95 with real 512d scans before scaling admission; fix the derating factor.
 3. **Precision default** — is int8-512's 4.4 ms acceptable for cold tiers, or keep f32-256 (1.1 ms) and accept 2× storage?

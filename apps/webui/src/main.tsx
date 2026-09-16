@@ -14,5 +14,5 @@ createRoot(rootElement).render(
     <ToastProvider>
       <RouterProvider router={router} />
     </ToastProvider>
-  </StrictMode>
+  </StrictMode>,
 );

@@ -7,7 +7,7 @@ import {
   SyncPhase,
   UserIndexState,
   UserProfile,
-  type SearchMode
+  type SearchMode,
 } from "@starwatch/domain";
 
 /**
@@ -43,17 +43,17 @@ export interface SyncStartResponse {
 const UserPayloadSchema = Schema.Struct({
   profile: UserProfile,
   state: UserIndexState,
-  groups: Schema.Array(Group)
+  groups: Schema.Array(Group),
 });
 
 const RepoPayloadSchema = Schema.Struct({
   repo: Repo,
-  groups: Schema.Array(Group)
+  groups: Schema.Array(Group),
 });
 
 const SyncStartSchema = Schema.Struct({
   started: Schema.Boolean,
-  phase: SyncPhase
+  phase: SyncPhase,
 });
 
 export type ApiErrorKind =
@@ -79,9 +79,12 @@ export class ApiError extends Error {
       retryAfterSeconds?: number | null;
       detail?: string | null;
       cause?: unknown;
-    } = {}
+    } = {},
   ) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    super(
+      message,
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "ApiError";
     this.kind = kind;
     this.status = options.status ?? null;
@@ -92,7 +95,7 @@ export class ApiError extends Error {
 
 /** Error-like values (`DOMException`, thrown records) tag themselves with `name`. */
 const NamedError = Schema.Struct({
-  name: Schema.optional(Schema.String)
+  name: Schema.optional(Schema.String),
 });
 
 export function isAbortError(cause: unknown): boolean {
@@ -106,14 +109,18 @@ export function isAbortError(cause: unknown): boolean {
 export function asApiError(cause: unknown): ApiError {
   if (cause instanceof ApiError) return cause;
 
-  return new ApiError("network", "Couldn't reach starwatch. Check your connection and try again.", {
-    cause
-  });
+  return new ApiError(
+    "network",
+    "Couldn't reach starwatch. Check your connection and try again.",
+    {
+      cause,
+    },
+  );
 }
 
 const ErrorBody = Schema.Struct({
   _tag: Schema.optional(Schema.String),
-  message: Schema.optional(Schema.String)
+  message: Schema.optional(Schema.String),
 });
 
 /**
@@ -123,17 +130,21 @@ const ErrorBody = Schema.Struct({
 async function decodeResponse<S extends Schema.ConstraintDecoder<unknown>>(
   schema: S,
   response: Response,
-  what: string
+  what: string,
 ): Promise<S["Type"]> {
   try {
     const body: unknown = await response.json();
 
     return Schema.decodeUnknownSync(schema)(body);
   } catch (cause) {
-    throw new ApiError("decode", `starwatch couldn't read the ${what} response.`, {
-      status: response.status,
-      cause
-    });
+    throw new ApiError(
+      "decode",
+      `starwatch couldn't read the ${what} response.`,
+      {
+        status: response.status,
+        cause,
+      },
+    );
   }
 }
 
@@ -176,51 +187,81 @@ async function toApiError(response: Response): Promise<ApiError> {
     // Non-JSON error body — fall back to the status text below.
   }
 
-  const retryAfterSeconds = parseRetryAfter(response.headers.get("retry-after"));
+  const retryAfterSeconds = parseRetryAfter(
+    response.headers.get("retry-after"),
+  );
 
   if (response.status === 404) {
-    return new ApiError("not-found", detail ?? "We couldn't find that on GitHub.", {
-      status: response.status,
-      detail
-    });
+    return new ApiError(
+      "not-found",
+      detail ?? "We couldn't find that on GitHub.",
+      {
+        status: response.status,
+        detail,
+      },
+    );
   }
 
-  if (response.status === 429 || tag === "SyncCooldown" || tag === "GithubRateLimited") {
+  if (
+    response.status === 429 ||
+    tag === "SyncCooldown" ||
+    tag === "GithubRateLimited"
+  ) {
     return new ApiError(
       "rate-limited",
-      detail ?? `starwatch is rate-limited right now.${humanizeRetry(retryAfterSeconds)}`,
-      { status: response.status, retryAfterSeconds, detail }
+      detail ??
+        `starwatch is rate-limited right now.${humanizeRetry(retryAfterSeconds)}`,
+      { status: response.status, retryAfterSeconds, detail },
     );
   }
 
   if (response.status === 409 || tag === "SyncInProgress") {
-    return new ApiError("busy", detail ?? "Indexing is already running for this user.", {
-      status: response.status,
-      detail
-    });
+    return new ApiError(
+      "busy",
+      detail ?? "Indexing is already running for this user.",
+      {
+        status: response.status,
+        detail,
+      },
+    );
   }
 
   if (response.status === 403 || tag === "BudgetExceeded") {
-    return new ApiError("budget", detail ?? "This is temporarily limited to protect the free budget.", {
-      status: response.status,
-      detail
-    });
+    return new ApiError(
+      "budget",
+      detail ?? "This is temporarily limited to protect the free budget.",
+      {
+        status: response.status,
+        detail,
+      },
+    );
   }
 
   if (response.status >= 500) {
-    return new ApiError("http", detail ?? "starwatch hit a server error. Retry in a moment.", {
-      status: response.status,
-      detail
-    });
+    return new ApiError(
+      "http",
+      detail ?? "starwatch hit a server error. Retry in a moment.",
+      {
+        status: response.status,
+        detail,
+      },
+    );
   }
 
-  return new ApiError("http", detail ?? `Request failed (${response.status}).`, {
-    status: response.status,
-    detail
-  });
+  return new ApiError(
+    "http",
+    detail ?? `Request failed (${response.status}).`,
+    {
+      status: response.status,
+      detail,
+    },
+  );
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<Response> {
+async function request(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
 
@@ -242,12 +283,16 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   return response;
 }
 
-const userPath = (login: string): string => `/api/users/${encodeURIComponent(login)}`;
+const userPath = (login: string): string =>
+  `/api/users/${encodeURIComponent(login)}`;
 
 const repoPath = (owner: string, name: string): string =>
   `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 
-export async function fetchUser(login: string, signal?: AbortSignal): Promise<UserPayload> {
+export async function fetchUser(
+  login: string,
+  signal?: AbortSignal,
+): Promise<UserPayload> {
   const response = await request(userPath(login), { signal });
 
   return decodeResponse(UserPayloadSchema, response, "user");
@@ -277,9 +322,11 @@ export function searchUrl(login: string, query: SearchQuery): string {
 
   if (query.archived) params.set("archived", "true");
 
-  if (query.minStars !== undefined) params.set("minStars", String(query.minStars));
+  if (query.minStars !== undefined)
+    params.set("minStars", String(query.minStars));
 
-  if (query.maxStars !== undefined) params.set("maxStars", String(query.maxStars));
+  if (query.maxStars !== undefined)
+    params.set("maxStars", String(query.maxStars));
   params.set("limit", String(query.limit ?? 50));
 
   return `${userPath(login)}/search?${params.toString()}`;
@@ -288,7 +335,7 @@ export function searchUrl(login: string, query: SearchQuery): string {
 export async function fetchSearch(
   login: string,
   query: SearchQuery,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const response = await request(searchUrl(login, query), { signal });
 
@@ -298,18 +345,21 @@ export async function fetchSearch(
 export async function startUserSync(
   login: string,
   options: { full?: boolean } = {},
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<SyncStartResponse> {
   const response = await request(`${userPath(login)}/sync`, {
     method: "POST",
     body: JSON.stringify({ full: options.full === true }),
-    signal
+    signal,
   });
 
   return decodeResponse(SyncStartSchema, response, "sync");
 }
 
-export async function fetchSyncState(login: string, signal?: AbortSignal): Promise<UserIndexState> {
+export async function fetchSyncState(
+  login: string,
+  signal?: AbortSignal,
+): Promise<UserIndexState> {
   const response = await request(`${userPath(login)}/sync`, { signal });
 
   return decodeResponse(UserIndexState, response, "sync state");
@@ -319,7 +369,11 @@ export function userSyncEventsUrl(login: string): string {
   return `${userPath(login)}/sync/events`;
 }
 
-export async function fetchRepo(owner: string, name: string, signal?: AbortSignal): Promise<RepoPayload> {
+export async function fetchRepo(
+  owner: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<RepoPayload> {
   const response = await request(repoPath(owner, name), { signal });
 
   return decodeResponse(RepoPayloadSchema, response, "repository");

@@ -3,7 +3,7 @@ import {
   BudgetExceeded,
   SyncCooldown,
   SyncInProgress,
-  UserNotFound
+  UserNotFound,
 } from "@starwatch/domain";
 import { canSync, GithubClient } from "@starwatch/core/sync";
 import { RepoStore } from "@starwatch/cloudflare/storage";
@@ -35,23 +35,25 @@ export const usersGroup = (deps: WorkerDeps) =>
           const groups = yield* repos.listGroups(login).pipe(Effect.orDie);
 
           return { profile, state: stored ?? idleState(login), groups };
-        }).pipe(Effect.provide(deps.sync.storage))
+        }).pipe(Effect.provide(deps.sync.storage)),
       )
       .handle("startSync", ({ params, payload, request }) =>
         Effect.gen(function* () {
           const ip = clientIp(request);
 
-          const allowed = yield* deps.syncRate.limit({ key: `sync:${ip}` }).pipe(
-            Effect.matchEffect({
-              onSuccess: (result) => Effect.succeed(result.success),
-              onFailure: () => Effect.succeed(true)
-            })
-          );
+          const allowed = yield* deps.syncRate
+            .limit({ key: `sync:${ip}` })
+            .pipe(
+              Effect.matchEffect({
+                onSuccess: (result) => Effect.succeed(result.success),
+                onFailure: () => Effect.succeed(true),
+              }),
+            );
 
           if (!allowed) {
             return yield* new BudgetExceeded({
               scope: "sync",
-              message: "Too many sync requests; try again in a minute."
+              message: "Too many sync requests; try again in a minute.",
             });
           }
 
@@ -66,8 +68,8 @@ export const usersGroup = (deps: WorkerDeps) =>
             profile = yield* github.getUserProfile(login).pipe(
               Effect.catchTags({
                 GithubUpstream: (error) => Effect.die(error),
-                GithubRateLimited: (error) => Effect.die(error)
-              })
+                GithubRateLimited: (error) => Effect.die(error),
+              }),
             );
             yield* repos.upsertUser(profile).pipe(Effect.orDie);
           }
@@ -75,7 +77,11 @@ export const usersGroup = (deps: WorkerDeps) =>
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
           const phase = stored?.phase ?? "idle";
 
-          if (phase === "listing" || phase === "fetching-readmes" || phase === "embedding") {
+          if (
+            phase === "listing" ||
+            phase === "fetching-readmes" ||
+            phase === "embedding"
+          ) {
             return yield* new SyncInProgress({ login });
           }
 
@@ -88,16 +94,16 @@ export const usersGroup = (deps: WorkerDeps) =>
               // The single `last_synced_at` stamp backs both windows: relist
               // requests use it as the 15-min bound, full requests as 24 h.
               lastRelistAtMs: full ? null : lastSyncedMs,
-              lastFullRefreshAtMs: full ? lastSyncedMs : null
+              lastFullRefreshAtMs: full ? lastSyncedMs : null,
             },
             Date.now(),
-            DEFAULT_SYNC_COOLDOWNS
+            DEFAULT_SYNC_COOLDOWNS,
           );
 
           if (!admission.allowed) {
             return yield* new SyncCooldown({
               login,
-              retryAfterSeconds: admission.retryAfterSeconds
+              retryAfterSeconds: admission.retryAfterSeconds,
             });
           }
 
@@ -126,26 +132,32 @@ export const usersGroup = (deps: WorkerDeps) =>
           const requestId = crypto.randomUUID();
 
           let created = yield* Effect.exit(
-            deps.listing.create({ id, params: { login, full, requestId } })
+            deps.listing.create({ id, params: { login, full, requestId } }),
           );
 
           if (Exit.isFailure(created)) {
             // Terminal instances linger for retention; fall back to a unique
             // id rather than refusing a legitimate cooldown-expired refresh.
             created = yield* Effect.exit(
-              deps.listing.create({ id: `${id}-${Date.now()}`, params: { login, full, requestId } })
+              deps.listing.create({
+                id: `${id}-${Date.now()}`,
+                params: { login, full, requestId },
+              }),
             );
           }
 
           if (Exit.isFailure(created)) {
             return yield* new BudgetExceeded({
               scope: "sync",
-              message: "The indexing queue could not accept this job; try again shortly."
+              message:
+                "The indexing queue could not accept this job; try again shortly.",
             });
           }
 
           return { started: true, phase: "listing" as const };
-        }).pipe(Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github)))
+        }).pipe(
+          Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github)),
+        ),
       )
       .handle("getSyncState", ({ params }) =>
         Effect.gen(function* () {
@@ -157,7 +169,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
 
           return stored ?? idleState(login);
-        }).pipe(Effect.provide(deps.sync.storage))
+        }).pipe(Effect.provide(deps.sync.storage)),
       )
       .handle("syncEvents", ({ params }) =>
         Effect.gen(function* () {
@@ -167,7 +179,9 @@ export const usersGroup = (deps: WorkerDeps) =>
 
           if (profile === null) return yield* new UserNotFound({ login });
 
-          const initial = (yield* repos.getIndexState(login).pipe(Effect.orDie)) ?? idleState(login);
+          const initial =
+            (yield* repos.getIndexState(login).pipe(Effect.orDie)) ??
+            idleState(login);
 
           const updates = Stream.tick("1 seconds").pipe(
             // Each tick builds (and closes) its own short-lived layer, so the
@@ -176,18 +190,20 @@ export const usersGroup = (deps: WorkerDeps) =>
             Stream.mapEffect(() =>
               Effect.gen(function* () {
                 const store = yield* RepoStore;
-                const state = yield* store.getIndexState(login).pipe(Effect.orDie);
+                const state = yield* store
+                  .getIndexState(login)
+                  .pipe(Effect.orDie);
 
                 return state ?? initial;
-              }).pipe(Effect.provide(deps.sync.storage))
+              }).pipe(Effect.provide(deps.sync.storage)),
             ),
             // 1 initial + 119 ticks ≈ 2 minutes, then the SSE stream closes;
             // clients reconnect with a fresh `GET /sync` (docs/08 §2.5).
-            Stream.take(119)
+            Stream.take(119),
           );
 
           return Stream.concat(Stream.succeed(initial), updates);
-        }).pipe(Effect.provide(deps.sync.storage))
+        }).pipe(Effect.provide(deps.sync.storage)),
       )
       .handle("getUserGroups", ({ params }) =>
         Effect.gen(function* () {
@@ -198,6 +214,6 @@ export const usersGroup = (deps: WorkerDeps) =>
           if (profile === null) return yield* new UserNotFound({ login });
 
           return yield* repos.listGroups(login).pipe(Effect.orDie);
-        }).pipe(Effect.provide(deps.sync.storage))
-      )
+        }).pipe(Effect.provide(deps.sync.storage)),
+      ),
   );

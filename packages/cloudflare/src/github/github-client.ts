@@ -16,7 +16,7 @@ import {
   GithubUpstream,
   UserNotFound,
   type Group,
-  type Repo
+  type Repo,
 } from "@starwatch/domain";
 import {
   GithubClient,
@@ -29,7 +29,7 @@ import {
   StarItemWire,
   UserListsWire,
   UserWire,
-  groupFromUserList
+  groupFromUserList,
 } from "@starwatch/core/sync";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -45,7 +45,7 @@ import {
   GITHUB_GRAPHQL_URL,
   parseLinkNext,
   readmeProbeUrls,
-  starPageUrl
+  starPageUrl,
 } from "./github-urls.ts";
 
 export interface GithubClientOptions {
@@ -123,11 +123,11 @@ const repoPath = (fullName: string): string =>
   fullName.split("/").map(encodeURIComponent).join("/");
 
 export const makeGithubClient = (
-  options: GithubClientOptions
+  options: GithubClientOptions,
 ): Layer.Layer<GithubClient, never, HttpClient.HttpClient> =>
   Layer.effect(
     GithubClient,
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const http = yield* HttpClient.HttpClient;
 
       const apiHeaders = (extra?: Readonly<Record<string, string>>) => {
@@ -135,7 +135,7 @@ export const makeGithubClient = (
           accept: "application/vnd.github+json",
           "user-agent": options.userAgent,
           "x-github-api-version": "2026-03-10",
-          ...extra
+          ...extra,
         };
 
         if (options.token.length === 0) return headers;
@@ -144,28 +144,28 @@ export const makeGithubClient = (
       };
 
       const execute = (
-        request: HttpClientRequest.HttpClientRequest
+        request: HttpClientRequest.HttpClientRequest,
       ): Effect.Effect<HttpClientResponse.HttpClientResponse, GithubUpstream> =>
         http.execute(request).pipe(
           Effect.mapError(
             (error: HttpClientError.HttpClientError) =>
               new GithubUpstream({
                 message: error.message,
-                status: error.response?.status ?? 0
-              })
-          )
+                status: error.response?.status ?? 0,
+              }),
+          ),
         );
 
       const decodeBody = <S extends Schema.Constraint & { readonly DecodingServices: never }>(
         schema: S,
-        response: HttpClientResponse.HttpClientResponse
+        response: HttpClientResponse.HttpClientResponse,
       ): Effect.Effect<S["Type"], GithubUpstream> =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           const json = yield* response.json.pipe(
             Effect.mapError(
               (error: HttpClientError.HttpClientError) =>
-                new GithubUpstream({ message: error.message, status: response.status })
-            )
+                new GithubUpstream({ message: error.message, status: response.status }),
+            ),
           );
 
           return yield* Schema.decodeUnknownEffect(schema)(json).pipe(
@@ -173,9 +173,9 @@ export const makeGithubClient = (
               (issue) =>
                 new GithubUpstream({
                   message: `Unexpected GitHub response body: ${issue.message}`,
-                  status: response.status
-                })
-            )
+                  status: response.status,
+                }),
+            ),
           );
         });
 
@@ -185,33 +185,27 @@ export const makeGithubClient = (
 
         return {
           remaining,
-          resetAt:
-            reset === undefined ? undefined : new Date(reset * 1000).toISOString()
+          resetAt: reset === undefined ? undefined : new Date(reset * 1000).toISOString(),
         };
       };
 
-      const rateLimited = (
-        status: number,
-        resetAt: string | undefined
-      ): GithubRateLimited =>
+      const rateLimited = (status: number, resetAt: string | undefined): GithubRateLimited =>
         new GithubRateLimited({
           message: `GitHub rate limit or secondary limit (HTTP ${status})`,
-          resetAt: resetAt ?? null
+          resetAt: resetAt ?? null,
         });
 
       const upstream = (status: number): GithubUpstream =>
         new GithubUpstream({
           message: `GitHub responded with HTTP ${status}`,
-          status
+          status,
         });
 
-      const getUserProfile = Effect.fn("GithubClient.getUserProfile")(function*(
-        login: string
-      ) {
+      const getUserProfile = Effect.fn("GithubClient.getUserProfile")(function* (login: string) {
         const response = yield* execute(
           HttpClientRequest.get(`${GITHUB_API_BASE}/users/${encodeURIComponent(login)}`, {
-            headers: apiHeaders()
-          })
+            headers: apiHeaders(),
+          }),
         );
 
         if (response.status === 404) return yield* new UserNotFound({ login });
@@ -226,9 +220,9 @@ export const makeGithubClient = (
         return yield* decodeBody(UserWire, response);
       });
 
-      const listStarPage = Effect.fn("GithubClient.listStarPage")(function*(
+      const listStarPage = Effect.fn("GithubClient.listStarPage")(function* (
         login: string,
-        pageOptions: ListStarPageOptions
+        pageOptions: ListStarPageOptions,
       ) {
         const perPage = pageOptions.perPage ?? 100;
         const baseHeaders = apiHeaders({ accept: "application/vnd.github.star+json" });
@@ -239,7 +233,7 @@ export const makeGithubClient = (
             : { ...baseHeaders, "if-none-match": pageOptions.etag };
 
         const response = yield* execute(
-          HttpClientRequest.get(starPageUrl(login, pageOptions.page, perPage), { headers })
+          HttpClientRequest.get(starPageUrl(login, pageOptions.page, perPage), { headers }),
         );
 
         const rate = rateLimit(response.headers);
@@ -252,7 +246,7 @@ export const makeGithubClient = (
             notModified: true,
             nextPage: undefined,
             rateLimitRemaining: rate.remaining ?? 0,
-            rateLimitResetAt: rate.resetAt
+            rateLimitResetAt: rate.resetAt,
           } satisfies StarPage;
         }
 
@@ -280,13 +274,13 @@ export const makeGithubClient = (
           notModified: false,
           nextPage: parseLinkNext(headerValue(response.headers, "link")),
           rateLimitRemaining: rate.remaining ?? 0,
-          rateLimitResetAt: rate.resetAt
+          rateLimitResetAt: rate.resetAt,
         } satisfies StarPage;
       });
 
-      const getReadme = Effect.fn("GithubClient.getReadme")(function*(
+      const getReadme = Effect.fn("GithubClient.getReadme")(function* (
         fullName: string,
-        defaultBranch: string
+        defaultBranch: string,
       ) {
         const probeHeaders = { "user-agent": options.userAgent };
 
@@ -297,8 +291,8 @@ export const makeGithubClient = (
             const text = yield* response.text.pipe(
               Effect.mapError(
                 (error: HttpClientError.HttpClientError) =>
-                  new GithubUpstream({ message: error.message, status: response.status })
-              )
+                  new GithubUpstream({ message: error.message, status: response.status }),
+              ),
             );
 
             return { text, source: "raw" } satisfies GithubReadme;
@@ -312,8 +306,8 @@ export const makeGithubClient = (
 
         const fallback = yield* execute(
           HttpClientRequest.get(`${GITHUB_API_BASE}/repos/${repoPath(fullName)}/readme`, {
-            headers: apiHeaders({ accept: "application/vnd.github.raw" })
-          })
+            headers: apiHeaders({ accept: "application/vnd.github.raw" }),
+          }),
         );
 
         const rate = rateLimit(fallback.headers);
@@ -329,8 +323,8 @@ export const makeGithubClient = (
         const text = yield* fallback.text.pipe(
           Effect.mapError(
             (error: HttpClientError.HttpClientError) =>
-              new GithubUpstream({ message: error.message, status: fallback.status })
-          )
+              new GithubUpstream({ message: error.message, status: fallback.status }),
+          ),
         );
 
         return { text, source: "rest" } satisfies GithubReadme;
@@ -340,14 +334,14 @@ export const makeGithubClient = (
         query: string,
         variables: ListGroupsVariables | ListItemsVariables,
         dataSchema: S,
-        login: string
+        login: string,
       ): Effect.Effect<S["Type"], GithubUpstream | GithubRateLimited | UserNotFound> =>
-        Effect.gen(function*() {
+        Effect.gen(function* () {
           const request = HttpClientRequest.bodyJsonUnsafe(
             HttpClientRequest.post(GITHUB_GRAPHQL_URL, {
-              headers: apiHeaders({ "content-type": "application/json" })
+              headers: apiHeaders({ "content-type": "application/json" }),
             }),
-            { query, variables }
+            { query, variables },
           );
 
           const response = yield* execute(request);
@@ -376,13 +370,13 @@ export const makeGithubClient = (
               () =>
                 new GithubUpstream({
                   message: "Unexpected GitHub GraphQL response shape",
-                  status: response.status
-                })
-            )
+                  status: response.status,
+                }),
+            ),
           );
         });
 
-      const listGroups = Effect.fn("GithubClient.listGroups")(function*(login: string) {
+      const listGroups = Effect.fn("GithubClient.listGroups")(function* (login: string) {
         const groups: Group[] = [];
         let listAfter: string | undefined = undefined;
 
@@ -390,7 +384,7 @@ export const makeGithubClient = (
           if (listPage > MAX_LIST_PAGES) {
             return yield* new GithubUpstream({
               message: `GitHub returned more than ${MAX_LIST_PAGES} list pages`,
-              status: 200
+              status: 200,
             });
           }
 
@@ -398,7 +392,7 @@ export const makeGithubClient = (
             LISTS_QUERY,
             { login, listAfter: listAfter ?? null, itemAfter: null },
             UserListsWire,
-            login
+            login,
           );
 
           if (data.user === null) return yield* new UserNotFound({ login });
@@ -416,7 +410,7 @@ export const makeGithubClient = (
               if (itemPage > MAX_ITEM_PAGES) {
                 return yield* new GithubUpstream({
                   message: `GitHub returned more than ${MAX_ITEM_PAGES} item pages for list ${node.id}`,
-                  status: 200
+                  status: 200,
                 });
               }
 
@@ -424,13 +418,13 @@ export const makeGithubClient = (
                 LIST_ITEMS_QUERY,
                 { id: node.id, itemAfter: cursor },
                 ListItemsPageWire,
-                login
+                login,
               );
 
               if (itemsData.node === null) {
                 return yield* new GithubUpstream({
                   message: `GitHub list ${node.id} disappeared during pagination`,
-                  status: 200
+                  status: 200,
                 });
               }
 
@@ -458,7 +452,7 @@ export const makeGithubClient = (
         getUserProfile,
         listStarPage,
         listGroups,
-        getReadme
+        getReadme,
       } satisfies GithubClientService;
-    })
+    }),
   );

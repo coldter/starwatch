@@ -18,32 +18,33 @@
 
 **starwatch** — a personal search service over the user's GitHub stars.
 
-| | |
-|---|---|
-| Corpus | ~3,400 starred repos (3,448 live 2026-09-13; growing ~10–20/week): metadata + README text |
-| Search | full-text (BM25) + semantic (vector) + hybrid, with filters |
-| Interfaces | **CLI (v1)** · **Web UI (v1)** · MCP server (v2) |
-| Stack | TypeScript + Effect · Cloudflare Workers · D1 + Vectorize + Workers AI (+ R2) |
-| Freshness | incremental sync on a schedule; detect new stars, unstars, changed READMEs |
-| Users | single user (me). Not multi-tenant. |
+|            |                                                                                           |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| Corpus     | ~3,400 starred repos (3,448 live 2026-09-13; growing ~10–20/week): metadata + README text |
+| Search     | full-text (BM25) + semantic (vector) + hybrid, with filters                               |
+| Interfaces | **CLI (v1)** · **Web UI (v1)** · MCP server (v2)                                          |
+| Stack      | TypeScript + Effect · Cloudflare Workers · D1 + Vectorize + Workers AI (+ R2)             |
+| Freshness  | incremental sync on a schedule; detect new stars, unstars, changed READMEs                |
+| Users      | single user (me). Not multi-tenant.                                                       |
 
 > Corpus count note: the original estimate of 3,277 (2026-09-13) came from a truncated pagination; the canonical live count is **3,448**. Example outputs in docs/04–07 that use 3,277/3,300 are illustrative mock-ups; the real count is stored in D1 after sync.
 
 ## 3. Query taxonomy (what must work)
 
-| # | Query | Mode that carries it |
-|---|---|---|
-| U1 | `search "effect"` — exact name/identifier | lexical |
-| U2 | `search "library to schedule durable background jobs with retries"` | semantic |
-| U3 | `search "tui for git" --lang rust --min-stars 500` | hybrid + filters |
-| U4 | `similar <repo>` — find repos like this one | vector similarity |
-| U5 | `search "http client" --topic api --lang ts` | filters + lexical |
-| U6 | `search "that parser combinator thing"` — vague memory | semantic |
-| U7 | Agent mid-task (MCP): "find the repo I starred for X" | any + MCP |
+| #   | Query                                                               | Mode that carries it |
+| --- | ------------------------------------------------------------------- | -------------------- |
+| U1  | `search "effect"` — exact name/identifier                           | lexical              |
+| U2  | `search "library to schedule durable background jobs with retries"` | semantic             |
+| U3  | `search "tui for git" --lang rust --min-stars 500`                  | hybrid + filters     |
+| U4  | `similar <repo>` — find repos like this one                         | vector similarity    |
+| U5  | `search "http client" --topic api --lang ts`                        | filters + lexical    |
+| U6  | `search "that parser combinator thing"` — vague memory              | semantic             |
+| U7  | Agent mid-task (MCP): "find the repo I starred for X"               | any + MCP            |
 
 ## 4. Functional requirements
 
 **Search**
+
 - **R1** full-text over name, description, topics, README
 - **R2** semantic over README chunks + a per-repo summary vector
 - **R3** hybrid ranking by default; each result carries a snippet + matched-text reason
@@ -53,16 +54,19 @@
 - **R7** p95 end-to-end search latency < 500 ms
 
 **Sync**
+
 - **R8** initial full backfill + scheduled incremental sync (nightly cron)
 - **R9** idempotent, resumable, checkpointed (no partial corruption on failure)
 - **R10** detect unstars (soft delete), renames, README changes; re-embed only changed chunks
 
 **Interfaces**
+
 - **R11** CLI: `sync`, `search`, `similar`, `show`, `stats`; `--json` output for scripting
 - **R12** Web UI: search bar, filter facets, results with snippets, repo detail
 - **R13** (v2) MCP tools: `search_stars`, `get_star`, `similar_stars`
 
 **Ops**
+
 - **R14** secrets only in Worker secrets (GitHub PAT); no third-party data sharing
 - **R15** cost: ≤ $5/mo baseline (Workers Paid) + **< $5/mo marginal**; one-time backfill < $1
 - **R16** tracing/logs: Cloudflare observability + Effect spans

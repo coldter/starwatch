@@ -15,14 +15,14 @@ export const searchGroup = (deps: WorkerDeps) =>
         const allowed = yield* deps.searchRate.limit({ key: `search:${ip}` }).pipe(
           Effect.matchEffect({
             onSuccess: (result) => Effect.succeed(result.success),
-            onFailure: () => Effect.succeed(true)
-          })
+            onFailure: () => Effect.succeed(true),
+          }),
         );
 
         if (!allowed) {
           return yield* new BudgetExceeded({
             scope: "search",
-            message: "Search rate limit reached; retry in a minute."
+            message: "Search rate limit reached; retry in a minute.",
           });
         }
 
@@ -31,8 +31,8 @@ export const searchGroup = (deps: WorkerDeps) =>
           query: query.q,
           mode: parseMode(query.mode),
           filters: parseFilters(query),
-          limit: parseLimit(query.limit)
+          limit: parseLimit(query.limit),
         }).pipe(Effect.orDie, Effect.provide(deps.searchLayer));
-      })
-    )
+      }),
+    ),
   );

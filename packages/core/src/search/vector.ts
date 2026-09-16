@@ -138,13 +138,13 @@ export interface Similar {
 export const topK = (
   query: Float32Array,
   entries: ReadonlyArray<VectorEntry>,
-  k: number
+  k: number,
 ): ReadonlyArray<Similar> => {
   if (k <= 0 || entries.length === 0) return [];
 
   const scored: Similar[] = entries.map((entry) => ({
     id: entry.id,
-    score: cosineSimilarity(query, entry.vector)
+    score: cosineSimilarity(query, entry.vector),
   }));
 
   scored.sort((x, y) => y.score - x.score || x.id - y.id);

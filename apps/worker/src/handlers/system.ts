@@ -10,7 +10,7 @@ export const systemGroup = (_deps: WorkerDeps) =>
       Effect.succeed({
         ok: true as const,
         service: "starwatch" as const,
-        version: SERVICE_VERSION
-      })
-    )
+        version: SERVICE_VERSION,
+      }),
+    ),
   );

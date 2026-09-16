@@ -14,8 +14,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <footer className="app__footer">
         <div className="container">
           <p>
-            starwatch indexes public stars only — no account, no sign-in. Search results come from the shared community
-            index; be kind to GitHub&apos;s rate limits.
+            starwatch indexes public stars only — no account, no sign-in. Search
+            results come from the shared community index; be kind to
+            GitHub&apos;s rate limits.
           </p>
         </div>
       </footer>

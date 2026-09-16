@@ -3,7 +3,7 @@ import {
   VectorStoreError,
   type VectorBlobBucket,
   type VectorBlobObject,
-  type VectorBlobStoreError
+  type VectorBlobStoreError,
 } from "@starwatch/cloudflare/storage";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -43,7 +43,7 @@ export interface RawR2Object {
 export const toVectorBlobBucket = (bucket: RawR2Bucket): VectorBlobBucket => ({
   get: (key: string): Promise<VectorBlobObject | null> => bucket.get(key),
   put: (key: string, value: Uint8Array): Promise<void> => bucket.put(key, value),
-  delete: (key: string): Promise<void> => bucket.delete(key)
+  delete: (key: string): Promise<void> => bucket.delete(key),
 });
 
 /** Canonical packed blob written by the refresh workflow. */
@@ -53,7 +53,8 @@ export const vectorBlobBinKey = (login: string): string => `vectors/${login}.bin
 export const vectorIdsKey = (login: string): string => `vectors/${login}.ids.json`;
 
 /** Base key of one refresh batch part (`…bin` / `…ids.json` suffixes). */
-export const vectorPartBaseKey = (login: string, index: number): string => `vectors/${login}/part-${index}`;
+export const vectorPartBaseKey = (login: string, index: number): string =>
+  `vectors/${login}/part-${index}`;
 
 /** Base key of one fan-in merge intermediate. */
 export const vectorMergeBaseKey = (login: string, round: number, index: number): string =>
@@ -70,33 +71,36 @@ const encoder = new TextEncoder();
 const tryBucket = <A>(
   operation: VectorBlobStoreError,
   key: string,
-  run: () => Promise<A>
+  run: () => Promise<A>,
 ): Effect.Effect<A, VectorStoreError> =>
   Effect.tryPromise({
     try: run,
-    catch: (cause) => new VectorStoreError({ operation, key, cause })
+    catch: (cause) => new VectorStoreError({ operation, key, cause }),
   });
 
 const trySync = <A>(
   operation: VectorBlobStoreError,
   key: string,
-  run: () => A
+  run: () => A,
 ): Effect.Effect<A, VectorStoreError> =>
   Effect.try({
     try: run,
-    catch: (cause) => new VectorStoreError({ operation, key, cause })
+    catch: (cause) => new VectorStoreError({ operation, key, cause }),
   });
 
 export interface VectorBlobFilesService {
   readonly getBytes: (key: string) => Effect.Effect<Uint8Array | null, VectorStoreError>;
   readonly putBytes: (key: string, bytes: Uint8Array) => Effect.Effect<void, VectorStoreError>;
   readonly getIds: (key: string) => Effect.Effect<ReadonlyArray<number> | null, VectorStoreError>;
-  readonly putIds: (key: string, ids: ReadonlyArray<number>) => Effect.Effect<void, VectorStoreError>;
+  readonly putIds: (
+    key: string,
+    ids: ReadonlyArray<number>,
+  ) => Effect.Effect<void, VectorStoreError>;
   /** Writes `{base}.bin` + `{base}.ids.json` in two R2 puts. */
   readonly putPart: (
     base: string,
     vectors: ReadonlyArray<Float32Array>,
-    ids: ReadonlyArray<number>
+    ids: ReadonlyArray<number>,
   ) => Effect.Effect<void, VectorStoreError>;
   /** Best-effort cleanup (`delete` accepts an array: one R2 call). */
   readonly deleteMany: (keys: ReadonlyArray<string>) => Effect.Effect<void, VectorStoreError>;
@@ -108,7 +112,7 @@ export interface VectorBlobFilesService {
  * through their parameters. Provided by {@link layerVectorBlobFiles}.
  */
 export class VectorBlobFiles extends Context.Service<VectorBlobFiles, VectorBlobFilesService>()(
-  "@starwatch/VectorBlobFiles"
+  "@starwatch/VectorBlobFiles",
 ) {}
 
 /** Sidecar encoding written by `putIds` (`vectors/{login}.ids.json`). */
@@ -136,14 +140,18 @@ const makeVectorBlobFiles = (bucket: RawR2Bucket): VectorBlobFilesService => {
       if (bytes === null) return null;
 
       return yield* trySync("decode", key, () =>
-        Schema.decodeUnknownSync(VectorIdsJson)(decoder.decode(bytes))
+        Schema.decodeUnknownSync(VectorIdsJson)(decoder.decode(bytes)),
       );
     });
 
   const putIds = (key: string, ids: ReadonlyArray<number>) =>
     putBytes(key, encoder.encode(JSON.stringify(ids)));
 
-  const putPart = (base: string, vectors: ReadonlyArray<Float32Array>, ids: ReadonlyArray<number>) =>
+  const putPart = (
+    base: string,
+    vectors: ReadonlyArray<Float32Array>,
+    ids: ReadonlyArray<number>,
+  ) =>
     Effect.gen(function* () {
       const bytes = yield* trySync("encode", `${base}${BIN_SUFFIX}`, () => encodeVectors(vectors));
       yield* putBytes(`${base}${BIN_SUFFIX}`, bytes);
@@ -153,7 +161,9 @@ const makeVectorBlobFiles = (bucket: RawR2Bucket): VectorBlobFilesService => {
   const deleteMany = (keys: ReadonlyArray<string>) => {
     if (keys.length === 0) return Effect.void;
 
-    return tryBucket("delete", keys[0] ?? "vectors", () => bucket.delete([...keys])).pipe(Effect.asVoid);
+    return tryBucket("delete", keys[0] ?? "vectors", () => bucket.delete([...keys])).pipe(
+      Effect.asVoid,
+    );
   };
 
   return { getBytes, putBytes, getIds, putIds, putPart, deleteMany };

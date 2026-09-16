@@ -31,15 +31,15 @@ completions Print shell completions for bash | zsh | fish
 
 **Global flags** (every command; ★ = built into Effect CLI):
 
-| Flag | Notes |
-|---|---|
-| ★ `-h, --help` | help for the command path |
-| ★ `-v, --version` | Effect's alias is `-v`, not `-V` |
-| ★ `--wizard` | prompt for missing arguments (`Command.wizard`) |
-| ★ `--completions <bash\|zsh\|fish\|sh>` | `sh` normalized to bash; same output as the `completions` command |
-| ★ `--log-level <error\|warn\|info\|debug\|trace>` | `debug` prints one line per HTTP request with timing |
-| `--no-color` | disable all ANSI, including bold (§4.3) |
-| `--no-input` | never prompt; fail with the flag/action needed instead |
+| Flag                                              | Notes                                                             |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| ★ `-h, --help`                                    | help for the command path                                         |
+| ★ `-v, --version`                                 | Effect's alias is `-v`, not `-V`                                  |
+| ★ `--wizard`                                      | prompt for missing arguments (`Command.wizard`)                   |
+| ★ `--completions <bash\|zsh\|fish\|sh>`           | `sh` normalized to bash; same output as the `completions` command |
+| ★ `--log-level <error\|warn\|info\|debug\|trace>` | `debug` prints one line per HTTP request with timing              |
+| `--no-color`                                      | disable all ANSI, including bold (§4.3)                           |
+| `--no-input`                                      | never prompt; fail with the flag/action needed instead            |
 
 ## 3. Commands
 
@@ -72,23 +72,23 @@ starwatch sync && starwatch sync --full && starwatch sync --cancel
 
 `starwatch search <query…> [flags]` — positional words are joined with single spaces, so quotes are optional (`starwatch search git tui`); a single `-` reads the query from stdin (first line).
 
-| Flag | Default | Meaning |
-|---|---|---|
-| `--mode <auto\|keyword\|semantic\|hybrid>` | `auto` | `auto` = hybrid except identifier-looking queries → keyword (§5.1) |
-| `-l, --lang <lang>` | – | GitHub language, case-insensitive (`rust`, `TypeScript`) |
-| `--topic <t>[,<t>…]` | – | repeat = AND; comma within one occurrence = OR (topic slugs cannot contain commas) |
-| `--group <name>` | – | repeat = OR (union); unknown name errors with closest matches |
-| `--min-stars <n>` / `--max-stars <n>` | – | inclusive bounds |
-| `--starred-after <d>` / `--starred-before <d>` | – | `YYYY-MM-DD` or ISO-8601 (UTC); relative via `$(date -d '-30 days' +%F)` |
-| `--archived` / `--no-archived` | both | only archived / exclude archived; mutually exclusive |
-| `--license <spdx>` | – | SPDX id, case-insensitive (`mit`, `apache-2.0`) |
-| `--sort <relevance\|stars\|recent\|pushed>` | `relevance` | `recent` = starredAt desc, `pushed` = pushedAt desc |
-| `-n, --limit <n>` | `10` | `1–50` (50 = Vectorize topK ceiling) |
-| `-p, --page <n>` | `1` | keyword paginates freely; hybrid/semantic capped at 50 total (§5.4) |
-| `--json` | off | one JSON envelope on stdout (§4.4) |
-| `--explain` | off | per-leg ranks, RRF math, timings; not combinable with `--plain` |
-| `-o, --open` | off | open the **top** hit (`$BROWSER`, else `xdg-open`/`open`); not combinable with `--json` |
-| `--plain` | off | one `owner/repo` per line, no ANSI (§4.5) |
+| Flag                                           | Default     | Meaning                                                                                 |
+| ---------------------------------------------- | ----------- | --------------------------------------------------------------------------------------- |
+| `--mode <auto\|keyword\|semantic\|hybrid>`     | `auto`      | `auto` = hybrid except identifier-looking queries → keyword (§5.1)                      |
+| `-l, --lang <lang>`                            | –           | GitHub language, case-insensitive (`rust`, `TypeScript`)                                |
+| `--topic <t>[,<t>…]`                           | –           | repeat = AND; comma within one occurrence = OR (topic slugs cannot contain commas)      |
+| `--group <name>`                               | –           | repeat = OR (union); unknown name errors with closest matches                           |
+| `--min-stars <n>` / `--max-stars <n>`          | –           | inclusive bounds                                                                        |
+| `--starred-after <d>` / `--starred-before <d>` | –           | `YYYY-MM-DD` or ISO-8601 (UTC); relative via `$(date -d '-30 days' +%F)`                |
+| `--archived` / `--no-archived`                 | both        | only archived / exclude archived; mutually exclusive                                    |
+| `--license <spdx>`                             | –           | SPDX id, case-insensitive (`mit`, `apache-2.0`)                                         |
+| `--sort <relevance\|stars\|recent\|pushed>`    | `relevance` | `recent` = starredAt desc, `pushed` = pushedAt desc                                     |
+| `-n, --limit <n>`                              | `10`        | `1–50` (50 = Vectorize topK ceiling)                                                    |
+| `-p, --page <n>`                               | `1`         | keyword paginates freely; hybrid/semantic capped at 50 total (§5.4)                     |
+| `--json`                                       | off         | one JSON envelope on stdout (§4.4)                                                      |
+| `--explain`                                    | off         | per-leg ranks, RRF math, timings; not combinable with `--plain`                         |
+| `-o, --open`                                   | off         | open the **top** hit (`$BROWSER`, else `xdg-open`/`open`); not combinable with `--json` |
+| `--plain`                                      | off         | one `owner/repo` per line, no ANSI (§4.5)                                               |
 
 ```bash
 starwatch search "tui for git" --lang rust --min-stars 500 --topic tui
@@ -110,22 +110,26 @@ starwatch show BurntSushi/ripgrep --readme | less -R
 
 Local curated lists (e.g. "inbox", "rust-tools"), distinct from GitHub Star Lists; repos referenced by canonical `owner/repo`. Groups surface in `search`: cards show `[group1, group2]`, `--json` adds `groups` per hit (proposed `SearchHit` addition, §10), `--group` filters by union.
 
-| Command | Behavior |
-|---|---|
-| `groups list [--json]` | names + repo counts |
-| `groups create <name>` | slug `[a-z0-9][a-z0-9-]*`, ≤ 40 chars; exists → exit 1 |
-| `groups show <name> [--plain\|--json]` | repos in the group |
-| `groups add <name> <owner/repo…> [--json]` | repos must be indexed (else exit 1 + `sync` hint); duplicates are no-ops |
-| `groups remove <name> <owner/repo…>` | non-member warns on stderr, exit 0 (idempotent) |
-| `groups rename <old> <new>` | target exists → exit 1 |
-| `groups delete <name> [--yes]` | group only, never the star; TTY confirm, `--yes` when piped |
-| `groups export [<name>…]` | versioned JSON to stdout (all groups if none named) |
+| Command                                                 | Behavior                                                                                              |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `groups list [--json]`                                  | names + repo counts                                                                                   |
+| `groups create <name>`                                  | slug `[a-z0-9][a-z0-9-]*`, ≤ 40 chars; exists → exit 1                                                |
+| `groups show <name> [--plain\|--json]`                  | repos in the group                                                                                    |
+| `groups add <name> <owner/repo…> [--json]`              | repos must be indexed (else exit 1 + `sync` hint); duplicates are no-ops                              |
+| `groups remove <name> <owner/repo…>`                    | non-member warns on stderr, exit 0 (idempotent)                                                       |
+| `groups rename <old> <new>`                             | target exists → exit 1                                                                                |
+| `groups delete <name> [--yes]`                          | group only, never the star; TTY confirm, `--yes` when piped                                           |
+| `groups export [<name>…]`                               | versioned JSON to stdout (all groups if none named)                                                   |
 | `groups import <file\|-> [--replace] [--allow-unknown]` | default union merge; `--replace` overwrites named groups; unknown repos fail unless `--allow-unknown` |
 
 ```json
-{ "version": 1, "exportedAt": "2026-09-13T10:00:00Z",
-  "groups": { "inbox": ["effect-ts/effect", "tauri-apps/tauri"] } }
+{
+  "version": 1,
+  "exportedAt": "2026-09-13T10:00:00Z",
+  "groups": { "inbox": ["effect-ts/effect", "tauri-apps/tauri"] }
+}
 ```
+
 Stable and versioned; the same shape is accepted by `import`.
 
 ```bash
@@ -159,10 +163,10 @@ starwatch completions zsh > ~/.zfunc/_starwatch
 
 ### 4.2 stdout vs stderr
 
-| Stream | Content |
-|---|---|
+| Stream | Content                                                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------ |
 | stdout | result cards, `--plain` names, `--json` document, `show`/`status`/`doctor` payload, sync final summary |
-| stderr | progress/spinners, warnings, empty-result guidance, pagination hints, errors |
+| stderr | progress/spinners, warnings, empty-result guidance, pagination hints, errors                           |
 
 So `starwatch search … > results.txt` keeps hints visible without polluting the file, and `--plain | fzf` stays clean.
 
@@ -176,21 +180,30 @@ One document (pretty on a TTY, compact when piped). Exit codes still apply: an e
 
 ```jsonc
 {
-  "query": "durable jobs", "mode": "hybrid",
+  "query": "durable jobs",
+  "mode": "hybrid",
   "filters": { "language": "go", "minStars": 500, "topics": ["workflow"] },
-  "page": 1, "limit": 10,
-  "total": 2, "totalIsExact": false,   // exact for keyword; best-effort (≤50) otherwise
-  "hasMore": false, "tookMs": 128,
-  "hits": [{
-    "repo": { /* packages/domain Repo: id, fullName, description, language, topics, stars,
-                archived, license, pushedAt, starredAt, htmlUrl */ },
-    "groups": ["inbox"],               // proposed SearchHit addition (§10)
-    "score": 0.0325,                   // RRF; not comparable across queries
-    "snippet": "…retries, timers and durable background jobs…",
-    "matchedBy": ["keyword", "semantic"]
-  }]
+  "page": 1,
+  "limit": 10,
+  "total": 2,
+  "totalIsExact": false, // exact for keyword; best-effort (≤50) otherwise
+  "hasMore": false,
+  "tookMs": 128,
+  "hits": [
+    {
+      "repo": {
+        /* packages/domain Repo: id, fullName, description, language, topics, stars,
+                archived, license, pushedAt, starredAt, htmlUrl */
+      },
+      "groups": ["inbox"], // proposed SearchHit addition (§10)
+      "score": 0.0325, // RRF; not comparable across queries
+      "snippet": "…retries, timers and durable background jobs…",
+      "matchedBy": ["keyword", "semantic"],
+    },
+  ],
 }
 ```
+
 With `--explain`, each hit also carries `explain` (legs, ranks, RRF terms, timings).
 
 With `--json`, errors also go to stderr as `{"error":{"code":"UNAUTHENTICATED","message":"…","hint":"Run: starwatch login"}}`. Codes: `BAD_FILTER`, `UNAUTHENTICATED`, `NOT_FOUND`, `RATE_LIMITED`, `NETWORK`, `SERVER`, `CONFLICT`, `INTERNAL`.
@@ -201,15 +214,15 @@ One canonical `owner/repo` per line, `\n`-terminated, no ANSI, no blank lines. S
 
 ### 4.6 Exit codes
 
-| Code | Meaning |
-|---|---|
-| `0` | success; for `search`/`similar`: ≥ 1 hit |
-| `1` | error: usage, validation, network, server, cancelled prompt |
-| `2` | `search`/`similar` succeeded, 0 hits |
-| `3` | not authenticated / token rejected (401/403) |
-| `130` | interrupted (SIGINT) |
+| Code  | Meaning                                                     |
+| ----- | ----------------------------------------------------------- |
+| `0`   | success; for `search`/`similar`: ≥ 1 hit                    |
+| `1`   | error: usage, validation, network, server, cancelled prompt |
+| `2`   | `search`/`similar` succeeded, 0 hits                        |
+| `3`   | not authenticated / token rejected (401/403)                |
+| `130` | interrupted (SIGINT)                                        |
 
-**Justification:** grep/rg proved the three-way split (results / no results / error) but put *error* at 2, which surprises `if` idioms. Here 0/1 keep POSIX meaning ("only 1 means broken"), 2 gives agents a distinct "reformulate" signal, and 3 isolates the failure with a mechanical fix ("login"). Cost: `set -e` scripts must guard empty searches (`|| [ $? -eq 2 ]`) or parse `--json` — acceptable, because the empty case is exactly where agents need to branch.
+**Justification:** grep/rg proved the three-way split (results / no results / error) but put _error_ at 2, which surprises `if` idioms. Here 0/1 keep POSIX meaning ("only 1 means broken"), 2 gives agents a distinct "reformulate" signal, and 3 isolates the failure with a mechanical fix ("login"). Cost: `set -e` scripts must guard empty searches (`|| [ $? -eq 2 ]`) or parse `--json` — acceptable, because the empty case is exactly where agents need to branch.
 
 ## 5. Search UX
 
@@ -281,12 +294,12 @@ GitHub device flow (embedded OAuth client id) polling on the server-provided int
 
 ### 6.4 Timeouts, retries, cold start
 
-| Operation | Timeout | Retry policy |
-|---|---|---|
-| doctor/health probes | 5 s each | 2 GETs, 250 ms/1 s backoff |
-| search/similar | 15 s | 2 GETs; retry network/5xx, honor `Retry-After` on 429 |
-| sync start/cancel | 10 s | none (idempotent attach; re-running is safe) |
-| device poll | until expiry | interval per GitHub, `slow_down` respected |
+| Operation            | Timeout      | Retry policy                                          |
+| -------------------- | ------------ | ----------------------------------------------------- |
+| doctor/health probes | 5 s each     | 2 GETs, 250 ms/1 s backoff                            |
+| search/similar       | 15 s         | 2 GETs; retry network/5xx, honor `Retry-After` on 429 |
+| sync start/cancel    | 10 s         | none (idempotent attach; re-running is safe)          |
+| device poll          | until expiry | interval per GitHub, `slow_down` respected            |
 
 First request after a deploy can take ~1 s (isolate init); past 500 ms the CLI shows a `connecting…` spinner on stderr. Timeouts are per attempt, not cumulative. Offline/DNS errors print one line, exit 1; `doctor --offline` separates "bad config" from "bad network".
 
@@ -302,13 +315,13 @@ First request after a deploy can take ~1 s (isolate init); past 500 ms the CLI s
 
 ## 8. Prior art & what Effect CLI gives us
 
-| Tool | Pattern borrowed |
-|---|---|
-| `gh` | per-command `--json`, jq-friendly documents, `--web`-style `--open`, `completion <shell>`, distinct exit codes; field-list `--json` is a candidate (§10) |
-| `ripgrep` | 0/1/2 discipline (we remap error to 1), `--json` output |
-| `fzf` | line-oriented stdin (our `--plain`), preview via `show`, SIGINT/130 etiquette |
-| `llm` | `--plain` for readability, XDG config, `LLM_*`-style env overrides |
-| `sqlite-utils` | explicit machine formats (`--nl` NDJSON), never mixing progress into stdout |
+| Tool           | Pattern borrowed                                                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh`           | per-command `--json`, jq-friendly documents, `--web`-style `--open`, `completion <shell>`, distinct exit codes; field-list `--json` is a candidate (§10) |
+| `ripgrep`      | 0/1/2 discipline (we remap error to 1), `--json` output                                                                                                  |
+| `fzf`          | line-oriented stdin (our `--plain`), preview via `show`, SIGINT/130 etiquette                                                                            |
+| `llm`          | `--plain` for readability, XDG config, `LLM_*`-style env overrides                                                                                       |
+| `sqlite-utils` | explicit machine formats (`--nl` NDJSON), never mixing progress into stdout                                                                              |
 
 Effect CLI (rc.112, lowercase constructors) provides `--help`/`--version`/`--wizard`, `--completions` (bash/zsh/fish/sh), `Flag.choice/atLeast` (repeatable `--topic`/`--group`), `Flag.withFallbackConfig` (env/config defaults), `Flag.withFallbackPrompt` (interactive for missing values), `Prompt` (select/multiSelect/confirm/password/autoComplete), and a pluggable `CliOutput.Formatter`. We add `--no-color`, `--no-input`, the JSON envelope, and the exit-code table.
 

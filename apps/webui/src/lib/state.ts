@@ -21,7 +21,10 @@ export function hasIndex(state: UserIndexState | null | undefined): boolean {
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 
-export function isStale(state: UserIndexState | null | undefined, now: number = Date.now()): boolean {
+export function isStale(
+  state: UserIndexState | null | undefined,
+  now: number = Date.now(),
+): boolean {
   if (!state || state.lastSyncedAt === null) return true;
   const timestamp = Date.parse(state.lastSyncedAt);
 
@@ -84,7 +87,7 @@ const PHASE_LABEL: Record<SyncPhase, string> = {
   embedding: "Semantic indexing",
   ready: "Ready",
   failed: "Indexing failed",
-  paused: "Paused"
+  paused: "Paused",
 };
 
 export function phaseLabel(phase: SyncPhase): string {
@@ -92,12 +95,15 @@ export function phaseLabel(phase: SyncPhase): string {
 }
 
 /** The header freshness chip (docs/08 §3.4). */
-export function freshness(state: UserIndexState | null | undefined, now: number = Date.now()): Freshness {
+export function freshness(
+  state: UserIndexState | null | undefined,
+  now: number = Date.now(),
+): Freshness {
   if (!state) {
     return {
       tone: "none",
       label: "Not indexed yet",
-      detail: "Indexing takes about 10 seconds for metadata; semantic search fills in after."
+      detail: "Indexing takes about 10 seconds for metadata; semantic search fills in after.",
     };
   }
 
@@ -106,31 +112,32 @@ export function freshness(state: UserIndexState | null | undefined, now: number 
       return {
         tone: "active",
         label: `Loading stars ${formatNumber(state.reposMetadata)}/${formatNumber(state.starsTotal)}`,
-        detail: "Search works as soon as the list is in."
+        detail: "Search works as soon as the list is in.",
       };
     case "fetching-readmes":
       return {
         tone: "active",
         label: `Fetching READMEs ${formatNumber(state.readmesFetched)}/${formatNumber(state.starsTotal)}`,
-        detail: "Metadata search already works; results get better as READMEs land."
+        detail: "Metadata search already works; results get better as READMEs land.",
       };
     case "embedding":
       return {
         tone: "active",
         label: `Indexing ${semanticCoverage(state)}%`,
-        detail: `Semantic covers ${formatNumber(state.semanticDocs)}/${formatNumber(semanticWindow(state))} repos (newest first).`
+        detail: `Semantic covers ${formatNumber(state.semanticDocs)}/${formatNumber(semanticWindow(state))} repos (newest first).`,
       };
     case "paused":
       return {
         tone: "paused",
         label: "Paused",
-        detail: state.lastError ?? "Waiting on GitHub's rate limit. Indexing resumes automatically."
+        detail:
+          state.lastError ?? "Waiting on GitHub's rate limit. Indexing resumes automatically.",
       };
     case "failed":
       return {
         tone: "failed",
         label: "Indexing failed",
-        detail: state.lastError ?? "We'll retry automatically. Metadata search still works."
+        detail: state.lastError ?? "We'll retry automatically. Metadata search still works.",
       };
     case "ready":
     case "idle":
@@ -139,7 +146,8 @@ export function freshness(state: UserIndexState | null | undefined, now: number 
         return {
           tone: "none",
           label: "Not indexed yet",
-          detail: "Metadata search in ~10 seconds. Semantic search fills in over the next few minutes."
+          detail:
+            "Metadata search in ~10 seconds. Semantic search fills in over the next few minutes.",
         };
       }
 
@@ -148,7 +156,7 @@ export function freshness(state: UserIndexState | null | undefined, now: number 
       return {
         tone: stale ? "stale" : "fresh",
         label: `Indexed ${relativeTime(state.lastSyncedAt, now)}`,
-        detail: `${formatNumber(state.starsTotal)} stars · semantic ${coveragePercent(semanticCoverage(state))}%${stale ? " — may be missing recent stars" : ""}`
+        detail: `${formatNumber(state.starsTotal)} stars · semantic ${coveragePercent(semanticCoverage(state))}%${stale ? " — may be missing recent stars" : ""}`,
       };
     }
   }

@@ -6,17 +6,17 @@
 
 ## 1. Version landscape (verified via `npm view`, 2026-09-13)
 
-| Package | `latest` | `rc` |
-|---|---|---|
-| `effect` | 3.22.2 | **4.0.0-rc.112** (pinned — see compatibility note) |
-| `@effect/sql-d1` | 0.50.0 | 4.0.0-rc.112 |
-| `@effect/sql-sqlite-do` | 0.30.0 | 4.0.0-rc.112 |
-| `@effect/platform` | 0.97.2 (v3 only) | — (folded into core) |
-| `@effect/cli` | 0.77.1 (v3 only) | — (`effect/unstable/cli`) |
-| `@effect/vitest` | 0.30.0 | 4.0.0-rc.115 |
-| `alchemy` | 2.0.0-beta.77 | — |
-| `effect-cf` | 0.41.1 | — |
-| `wrangler` | 4.131.1 | — |
+| Package                 | `latest`         | `rc`                                               |
+| ----------------------- | ---------------- | -------------------------------------------------- |
+| `effect`                | 3.22.2           | **4.0.0-rc.112** (pinned — see compatibility note) |
+| `@effect/sql-d1`        | 0.50.0           | 4.0.0-rc.112                                       |
+| `@effect/sql-sqlite-do` | 0.30.0           | 4.0.0-rc.112                                       |
+| `@effect/platform`      | 0.97.2 (v3 only) | — (folded into core)                               |
+| `@effect/cli`           | 0.77.1 (v3 only) | — (`effect/unstable/cli`)                          |
+| `@effect/vitest`        | 0.30.0           | 4.0.0-rc.115                                       |
+| `alchemy`               | 2.0.0-beta.77    | —                                                  |
+| `effect-cf`             | 0.41.1           | —                                                  |
+| `wrangler`              | 4.131.1          | —                                                  |
 
 > ⚠️ **Compatibility pin (verified empirically 2026-09-13):** `alchemy@2.0.0-beta.77` crashes on `effect` ≥ rc.113 — `TypeError: Config.string is not a function` (rc.113 renamed Config constructors to PascalCase; Alchemy beta.77 predates it). Its CLI won't even print `--help`. **Working combination: `effect` + `@effect/*` = `4.0.0-rc.112`, `alchemy@2.0.0-beta.77`, TypeScript 7.0.2.** Bump both together when Alchemy ships a compatible beta.
 
@@ -27,13 +27,13 @@
 
 ## 2. Cloudflare integrations
 
-| CF product | Effect support | Plan |
-|---|---|---|
-| D1 | ✅ official `@effect/sql-d1` (rc) — `batch`, **no transactions** | primary SQL layer |
-| Durable Object SQLite | ✅ official `@effect/sql-sqlite-do` (rc) | only if we use DOs |
-| R2 / KV / Queues / Vectorize / Workers AI | ❌ no first-party packages | thin `Effect.tryPromise` wrappers; optionally `effect-cf` (98★ community) |
-| HTTP routing | ✅ `effect/unstable/http` + `httpapi` | HttpApi for WebUI, RPC for CLI |
-| MCP | `effect/unstable/ai` McpServer (streamable HTTP); serverless mode stability ⚠️ | v2 |
+| CF product                                | Effect support                                                                 | Plan                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| D1                                        | ✅ official `@effect/sql-d1` (rc) — `batch`, **no transactions**               | primary SQL layer                                                         |
+| Durable Object SQLite                     | ✅ official `@effect/sql-sqlite-do` (rc)                                       | only if we use DOs                                                        |
+| R2 / KV / Queues / Vectorize / Workers AI | ❌ no first-party packages                                                     | thin `Effect.tryPromise` wrappers; optionally `effect-cf` (98★ community) |
+| HTTP routing                              | ✅ `effect/unstable/http` + `httpapi`                                          | HttpApi for WebUI, RPC for CLI                                            |
+| MCP                                       | `effect/unstable/ai` McpServer (streamable HTTP); serverless mode stability ⚠️ | v2                                                                        |
 
 ## 3. Workers runtime gotchas (apply from day 1)
 
@@ -55,11 +55,13 @@
 **Auth:** fine-grained PAT, User permission **"Starring: Read"** (+ repo access if private stars should be indexed; verify once ⚠️). Stored as a Worker secret.
 
 **List / diff (scheduled):**
+
 - `GET /user/starred?per_page=100&sort=created&direction=asc` with `Accept: application/vnd.github.star+json` → 35 requests for ~3,448 stars.
 - Store **ETag per page** in D1; unchanged pages return 304 = **free** (no rate-limit cost).
 - Diff starred IDs vs DB → new / unstarred / renamed.
 
 **README fetch (only when needed):**
+
 - `GET /repos/{o}/{r}/readme` (raw body) with `If-None-Match`; 304 → skip; 404 → mark missing, recheck ≤ monthly.
 - Concurrency ≤ 5 (respects the 6-connection cap and GitHub secondary limits).
 - Budget: 33 list + ~3.3k READMEs ≈ **66% of one 5,000 req/hr window**.
@@ -86,14 +88,14 @@ Cron (nightly)
 
 **Sizing (~3,450 repos, avg 6 KB README; scales linearly):**
 
-| Metric | Value |
-|---|---|
-| Chunks | ~19.7k (+ 3.3k summary vectors) ≈ **23k vectors** |
-| Stored dims (1024d) | ~23.5M |
-| One-time embedding | ~5.7M tokens → **$0.07** (bge-m3) / $0.38 (bge-base) |
+| Metric              | Value                                                                        |
+| ------------------- | ---------------------------------------------------------------------------- |
+| Chunks              | ~19.7k (+ 3.3k summary vectors) ≈ **23k vectors**                            |
+| Stored dims (1024d) | ~23.5M                                                                       |
+| One-time embedding  | ~5.7M tokens → **$0.07** (bge-m3) / $0.38 (bge-base)                         |
 | Backfill wall-clock | **15–40 min** (GitHub-bound @ concurrency 5); worst case 1 rate-limit window |
-| Steady state | ~0.6M tokens/mo → **$0.007/mo** + ~40 workflow steps/mo |
-| Storage | R2 ~26 MB · D1 ~15–60 MB (free allowances) |
+| Steady state        | ~0.6M tokens/mo → **$0.007/mo** + ~40 workflow steps/mo                      |
+| Storage             | R2 ~26 MB · D1 ~15–60 MB (free allowances)                                   |
 
 **Queue vs Workflow-only:** start Workflow-only (one moving part). Move fan-out to Queues only if the star count exceeds ~10k or per-repo pacing is needed.
 

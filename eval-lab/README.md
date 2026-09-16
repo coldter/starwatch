@@ -19,19 +19,19 @@ pnpm run eval               # gold set -> data/eval-results.json + console table
 
 ## Layout
 
-| Path | What |
-|---|---|
-| `src/fetch-stars.ts` | star list -> `data/stars.json` (3,448 repos) |
-| `src/fetch-readmes.ts` | README cache, raw-first + `gh api` fallback, misses -> `data/readmes-misses.json` |
-| `src/lib.ts` | corpus IO, markdown strip, embedding model, tokenization, filters, boosts, RRF |
-| `src/index.ts` | builds `data/starwatch-eval.db` (repos + `repos_fts` porter + `repos_tri` trigram + `embeddings`) |
-| `src/engine.ts` | keyword/semantic legs, RRF fusion, boosts, expansions |
-| `src/search.ts` | CLI |
-| `src/eval.ts` | gold-set runner: P@5 / R@10 / MRR / nDCG@10 / Success@3 |
-| `src/diag.ts` | boost on/off comparison + filter-precision assertion |
-| `src/candidates.ts` | union of top-20 per mode, used to validate gold labels |
-| `gold/queries.json` | hand-graded gold set over the actual corpus |
-| `data/` | generated: stars, READMEs, models, DB, eval outputs (git-ignored) |
+| Path                   | What                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `src/fetch-stars.ts`   | star list -> `data/stars.json` (3,448 repos)                                                      |
+| `src/fetch-readmes.ts` | README cache, raw-first + `gh api` fallback, misses -> `data/readmes-misses.json`                 |
+| `src/lib.ts`           | corpus IO, markdown strip, embedding model, tokenization, filters, boosts, RRF                    |
+| `src/index.ts`         | builds `data/starwatch-eval.db` (repos + `repos_fts` porter + `repos_tri` trigram + `embeddings`) |
+| `src/engine.ts`        | keyword/semantic legs, RRF fusion, boosts, expansions                                             |
+| `src/search.ts`        | CLI                                                                                               |
+| `src/eval.ts`          | gold-set runner: P@5 / R@10 / MRR / nDCG@10 / Success@3                                           |
+| `src/diag.ts`          | boost on/off comparison + filter-precision assertion                                              |
+| `src/candidates.ts`    | union of top-20 per mode, used to validate gold labels                                            |
+| `gold/queries.json`    | hand-graded gold set over the actual corpus                                                       |
+| `data/`                | generated: stars, READMEs, models, DB, eval outputs (git-ignored)                                 |
 
 ## Notes
 

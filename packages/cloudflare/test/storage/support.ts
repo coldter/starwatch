@@ -39,13 +39,15 @@ export const makeSqliteLayer = (): Layer.Layer<SqlClient.SqlClient> =>
   SqliteClient.layer({ filename: ":memory:", transformResultNames: camelize });
 
 /** Apply `0001_init.sql` to the provided client. */
-export const applyMigration: Effect.Effect<void, SqlError, SqlClient.SqlClient> = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
+export const applyMigration: Effect.Effect<void, SqlError, SqlClient.SqlClient> = Effect.gen(
+  function* () {
+    const sql = yield* SqlClient.SqlClient;
 
-  for (const statement of migrationStatements()) {
-    yield* sql.unsafe(statement);
-  }
-});
+    for (const statement of migrationStatements()) {
+      yield* sql.unsafe(statement);
+    }
+  },
+);
 
 export const makeRepo = (id: number, fullName: string, overrides: Partial<Repo> = {}): Repo => {
   const [owner = "owner", name = `repo-${id}`] = fullName.split("/");
@@ -66,7 +68,7 @@ export const makeRepo = (id: number, fullName: string, overrides: Partial<Repo> 
     pushedAt: null,
     starredAt: null,
     htmlUrl: `https://github.com/${fullName}`,
-    ...overrides
+    ...overrides,
   };
 };
 
@@ -81,10 +83,13 @@ export const makeUser = (login: string, overrides: Partial<UserProfile> = {}): U
   followers: 0,
   publicRepos: 0,
   createdAt: "2020-01-01T00:00:00Z",
-  ...overrides
+  ...overrides,
 });
 
-export const makeIndexState = (login: string, overrides: Partial<UserIndexState> = {}): UserIndexState => ({
+export const makeIndexState = (
+  login: string,
+  overrides: Partial<UserIndexState> = {},
+): UserIndexState => ({
   login,
   phase: "ready",
   starsTotal: 0,
@@ -94,14 +99,18 @@ export const makeIndexState = (login: string, overrides: Partial<UserIndexState>
   lastSyncedAt: null,
   lastError: null,
   updatedAt: "2026-09-13T00:00:00.000Z",
-  ...overrides
+  ...overrides,
 });
 
-export const makeFtsDoc = (repoId: number, fullName: string, overrides: Partial<FtsDoc> = {}): FtsDoc => ({
+export const makeFtsDoc = (
+  repoId: number,
+  fullName: string,
+  overrides: Partial<FtsDoc> = {},
+): FtsDoc => ({
   repoId,
   fullName,
   description: null,
   topics: [],
   readme: null,
-  ...overrides
+  ...overrides,
 });

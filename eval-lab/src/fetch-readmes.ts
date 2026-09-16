@@ -1,11 +1,11 @@
 // fetch-readmes — download READMEs from raw.githubusercontent.com for every starred repo.
 // Fallback: `gh api repos/{owner}/{repo}/readme -H 'Accept: application/vnd.github.raw'`.
 // Cache: eval-lab/data/readmes/{owner}__{repo}.md  (a miss marker is recorded in readmes-misses.json)
-import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-import { promisify } from 'node:util';
-import { DATA_DIR, README_DIR, readmeFile, readStars, type Star } from './lib.ts';
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
+import { DATA_DIR, README_DIR, readmeFile, readStars, type Star } from "./lib.ts";
 
 const execFileP = promisify(execFile);
 
@@ -13,9 +13,9 @@ const CONCURRENCY = 10;
 
 const RUNTIME_CAP_MS = 15 * 60 * 1000;
 
-const CANDIDATES = ['README.md', 'readme.md', 'README.rst', '.github/README.md'];
+const CANDIDATES = ["README.md", "readme.md", "README.rst", ".github/README.md"];
 
-const UA = 'starwatch-eval-lab (local research; contact: coldter)';
+const UA = "starwatch-eval-lab (local research; contact: coldter)";
 
 interface MissRecord {
   full_name: string;
@@ -29,7 +29,11 @@ async function tryRaw(fullName: string, file: string): Promise<string | null> {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15_000), redirect: 'follow' });
+      const res = await fetch(url, {
+        headers: { "User-Agent": UA },
+        signal: AbortSignal.timeout(15_000),
+        redirect: "follow",
+      });
 
       if (res.status === 200) return await res.text();
 
@@ -53,8 +57,8 @@ async function tryRaw(fullName: string, file: string): Promise<string | null> {
 async function tryGhApi(fullName: string): Promise<string | null> {
   try {
     const { stdout } = await execFileP(
-      'gh',
-      ['api', `repos/${fullName}/readme`, '-H', 'Accept: application/vnd.github.raw'],
+      "gh",
+      ["api", `repos/${fullName}/readme`, "-H", "Accept: application/vnd.github.raw"],
       { maxBuffer: 16 * 1024 * 1024, timeout: 30_000 },
     );
 
@@ -67,7 +71,7 @@ async function tryGhApi(fullName: string): Promise<string | null> {
 async function fetchOne(repo: Star): Promise<{ hit: boolean; source?: string; reason?: string }> {
   const target = readmeFile(repo.full_name);
 
-  if (existsSync(target)) return { hit: true, source: 'cache' };
+  if (existsSync(target)) return { hit: true, source: "cache" };
 
   for (const file of CANDIDATES) {
     const text = await tryRaw(repo.full_name, file);
@@ -85,10 +89,10 @@ async function fetchOne(repo: Star): Promise<{ hit: boolean; source?: string; re
   if (viaApi !== null) {
     writeFileSync(target, viaApi);
 
-    return { hit: true, source: 'gh-api' };
+    return { hit: true, source: "gh-api" };
   }
 
-  return { hit: false, reason: 'no README on raw or gh api' };
+  return { hit: false, reason: "no README on raw or gh api" };
 }
 
 async function main(): Promise<void> {
@@ -99,7 +103,9 @@ async function main(): Promise<void> {
   const total = stars.length;
   let capped = false;
 
-  console.log(`fetch-readmes: ${total} repos, concurrency ${CONCURRENCY}, cap ${RUNTIME_CAP_MS / 60_000} min`);
+  console.log(
+    `fetch-readmes: ${total} repos, concurrency ${CONCURRENCY}, cap ${RUNTIME_CAP_MS / 60_000} min`,
+  );
 
   let cursor = 0;
 
@@ -116,22 +122,31 @@ async function main(): Promise<void> {
       done++;
 
       if (res.hit) found++;
-      else misses.push({ full_name: repo.full_name, reason: res.reason ?? 'unknown' });
+      else misses.push({ full_name: repo.full_name, reason: res.reason ?? "unknown" });
 
       if (done % 100 === 0 || done === total) {
         const rate = done / ((Date.now() - started) / 1000);
-        console.log(`  ${done}/${total} found=${found} miss=${misses.length} ${rate.toFixed(1)} repos/s`);
+        console.log(
+          `  ${done}/${total} found=${found} miss=${misses.length} ${rate.toFixed(1)} repos/s`,
+        );
       }
     }
   };
 
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
-  writeFileSync(path.join(DATA_DIR, 'readmes-misses.json'), JSON.stringify(misses, null, 2) + '\n');
-  console.log(`fetch-readmes done: done=${done}/${total} found=${found} miss=${misses.length}${capped ? ' (RUNTIME CAPPED)' : ''} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  writeFileSync(path.join(DATA_DIR, "readmes-misses.json"), JSON.stringify(misses, null, 2) + "\n");
+  console.log(
+    `fetch-readmes done: done=${done}/${total} found=${found} miss=${misses.length}${capped ? " (RUNTIME CAPPED)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+  );
 
   if (misses.length > 0) {
-    console.log(`misses written to data/readmes-misses.json (first 10: ${misses.slice(0, 10).map((m) => m.full_name).join(', ')})`);
+    console.log(
+      `misses written to data/readmes-misses.json (first 10: ${misses
+        .slice(0, 10)
+        .map((m) => m.full_name)
+        .join(", ")})`,
+    );
   }
 }
 

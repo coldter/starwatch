@@ -8,25 +8,25 @@
 
 **All-Cloudflare DIY stack:**
 
-| Layer | Choice | Why |
-|---|---|---|
-| Metadata + filters | **D1** (SQL) | full SQL filters, joins with lexical results |
-| Lexical | **D1 FTS5** (porter + trigram) | FTS5 confirmed supported in D1 (docs updated 2026-04-21, incl. `fts5vocab`); native BM25 |
-| Semantic | **Vectorize** + **Workers AI `bge-m3`** | pre-filtered metadata search; 1024d; $0.012/M tokens |
-| Rerank | **Workers AI `bge-reranker-base`** | $0.0031/M tokens → ~$0.01/mo at our usage |
-| Fusion | **RRF in the Worker** | ~20 lines; industry standard; used by Cloudflare AI Search itself |
+| Layer              | Choice                                  | Why                                                                                      |
+| ------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Metadata + filters | **D1** (SQL)                            | full SQL filters, joins with lexical results                                             |
+| Lexical            | **D1 FTS5** (porter + trigram)          | FTS5 confirmed supported in D1 (docs updated 2026-04-21, incl. `fts5vocab`); native BM25 |
+| Semantic           | **Vectorize** + **Workers AI `bge-m3`** | pre-filtered metadata search; 1024d; $0.012/M tokens                                     |
+| Rerank             | **Workers AI `bge-reranker-base`**      | $0.0031/M tokens → ~$0.01/mo at our usage                                                |
+| Fusion             | **RRF in the Worker**                   | ~20 lines; industry standard; used by Cloudflare AI Search itself                        |
 
 Marginal cost ≈ **$0–1/mo** on top of the $5 Workers Paid plan. One-time backfill ≤ **$0.40**. Full comparison in §6.
 
 ## 2. Query taxonomy (from requirements)
 
-| Query type | Example | Lexical | Semantic | Hybrid |
-|---|---|---|---|---|
-| Exact name / identifier | `effect`, `sqlite-vec`, `useEffect` | ✅ | ⚠️ (tokenizers split identifiers) | ✅ |
-| Concept / paraphrase | "durable background jobs with retries" | ❌ | ✅ | ✅ |
-| Mixed: concept + filters | "tui for git --lang rust --min-stars 500" | ⚠️ | ✅ | ✅ |
-| Incidental strings | error text, CLI flags | ✅ | ❌ | ✅ |
-| Similar-to | `similar effect` | ❌ | ✅ | n/a |
+| Query type               | Example                                   | Lexical | Semantic                          | Hybrid |
+| ------------------------ | ----------------------------------------- | ------- | --------------------------------- | ------ |
+| Exact name / identifier  | `effect`, `sqlite-vec`, `useEffect`       | ✅      | ⚠️ (tokenizers split identifiers) | ✅     |
+| Concept / paraphrase     | "durable background jobs with retries"    | ❌      | ✅                                | ✅     |
+| Mixed: concept + filters | "tui for git --lang rust --min-stars 500" | ⚠️      | ✅                                | ✅     |
+| Incidental strings       | error text, CLI flags                     | ✅      | ❌                                | ✅     |
+| Similar-to               | `similar effect`                          | ❌      | ✅                                | n/a    |
 
 Hybrid is the default for a reason: no single mode covers the whole taxonomy.
 
@@ -46,20 +46,22 @@ Hybrid is the default for a reason: no single mode covers the whole taxonomy.
 
 Embedding model options (Workers AI):
 
-| Model | Dims | Context | $/M tokens | Notes |
-|---|---|---|---|---|
-| **`@cf/baai/bge-m3`** ✅ chosen | 1024 | long (docs say 60k; HF card 8k) ⚠️ | **$0.012** | multilingual, cheapest published; backfill fits one day's free allowance; batch-call schema needs a live check ⚠️ |
-| `@cf/baai/bge-base-en-v1.5` | 768 | 512 toks | $0.067 | clean ≤100-text batches; needs ~300-token chunks |
-| `@cf/baai/bge-small-en-v1.5` | 384 | 512 toks | $0.020 | cheapest English, lower quality |
-| `@cf/qwen/qwen3-embedding-0.6b` | 1024 (MRL) | 8,192 | $0.012 | strong; sync batch ≤32 |
+| Model                           | Dims       | Context                            | $/M tokens | Notes                                                                                                             |
+| ------------------------------- | ---------- | ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| **`@cf/baai/bge-m3`** ✅ chosen | 1024       | long (docs say 60k; HF card 8k) ⚠️ | **$0.012** | multilingual, cheapest published; backfill fits one day's free allowance; batch-call schema needs a live check ⚠️ |
+| `@cf/baai/bge-base-en-v1.5`     | 768        | 512 toks                           | $0.067     | clean ≤100-text batches; needs ~300-token chunks                                                                  |
+| `@cf/baai/bge-small-en-v1.5`    | 384        | 512 toks                           | $0.020     | cheapest English, lower quality                                                                                   |
+| `@cf/qwen/qwen3-embedding-0.6b` | 1024 (MRL) | 8,192                              | $0.012     | strong; sync batch ≤32                                                                                            |
 
 **Chunking (README → vectors):**
+
 - Structure-aware Markdown split: ~1,200 chars, 15% overlap; never split inside code fences; prefix each chunk with `owner/repo — <nearest heading>` for context.
 - One extra **summary vector per repo** (`name + description + topics + language`) — powers `similar` and repo-level recall.
 - Deterministic chunking + per-chunk content hash → steady-state edits re-embed only changed chunks (usually 1–2).
 - Estimated corpus: ~19.7k chunks + ~3.3k summary vectors ≈ **23k vectors**.
 
 **Vectorize constraints that shape the design:**
+
 - Max **1,536 dims**; metadata ≤10 KiB/vector; **topK ≤ 50** when returning metadata.
 - Filters are **pre-filtered** (good) but limited: `$eq $ne $in $nin $lt $lte $gt $gte`; multiple keys = implicit AND; **no `$or`/`$and` nesting**.
 - **Max 10 metadata indexes per index**, declared before insert; string metadata is indexed on the **first 64 UTF-8 bytes** only.
@@ -81,24 +83,24 @@ Embedding model options (Workers AI):
 
 ## 4. Filters
 
-| Filter | D1 (lexical/metadata) | Vectorize (semantic) |
-|---|---|---|
-| language | SQL `WHERE` | metadata index (string) |
-| stars range | `WHERE` | metadata index (number) |
-| archived | `WHERE` | metadata index (bool) |
-| starred_at range | `WHERE` | metadata index (number, epoch) |
-| license | `WHERE` | metadata index (string) |
-| topics | `json_each` over `topics_json` | ❌ array — lexical leg only / post-filter |
+| Filter           | D1 (lexical/metadata)          | Vectorize (semantic)                      |
+| ---------------- | ------------------------------ | ----------------------------------------- |
+| language         | SQL `WHERE`                    | metadata index (string)                   |
+| stars range      | `WHERE`                        | metadata index (number)                   |
+| archived         | `WHERE`                        | metadata index (bool)                     |
+| starred_at range | `WHERE`                        | metadata index (number, epoch)            |
+| license          | `WHERE`                        | metadata index (string)                   |
+| topics           | `json_each` over `topics_json` | ❌ array — lexical leg only / post-filter |
 
 ## 5. Where the data lives
 
-| Store | Contents | Approx size |
-|---|---|---|
-| D1 `repos` | metadata + sync state | ~10–15 MB |
-| D1 `repos_fts` | FTS5 index (name/desc/topics/readme) | ~30–60 MB |
-| D1 `chunks` | chunk text (snippets for semantic hits) | ~25 MB |
-| Vectorize `starwatch` | ~23k vectors × 1024d | ~23.5M stored dims |
-| R2 (optional) | raw README archive (re-chunking without refetch) | ~26 MB |
+| Store                 | Contents                                         | Approx size        |
+| --------------------- | ------------------------------------------------ | ------------------ |
+| D1 `repos`            | metadata + sync state                            | ~10–15 MB          |
+| D1 `repos_fts`        | FTS5 index (name/desc/topics/readme)             | ~30–60 MB          |
+| D1 `chunks`           | chunk text (snippets for semantic hits)          | ~25 MB             |
+| Vectorize `starwatch` | ~23k vectors × 1024d                             | ~23.5M stored dims |
+| R2 (optional)         | raw README archive (re-chunking without refetch) | ~26 MB             |
 
 All well within free allowances (D1 5 GB, R2 10 GB; Vectorize stored dims cost pennies).
 
@@ -119,7 +121,7 @@ Managed hybrid (vector + BM25, `rrf` fusion), built-in reranking, MCP endpoint, 
 
 - Limits that matter: **max 5 custom metadata fields** (we want 6+), filterable string prefix = 64 UTF-8 bytes, no arrays, embedding model **fixed at instance creation**, max 50 results.
 - Pricing: open beta **free** within limits; preview pricing after: **$0.75/M tokens** ingestion + **$2/GB-mo** storage + **$0.75/1k** semantic queries → roughly **$4–17/mo** at our corpus depending on final terms ⚠️.
-- **Verdict:** excellent *secondary* surface (instant MCP, near-zero code) or fallback; not the primary engine because filters are a top requirement and we'd be locked to its limits. Can be added later over the same R2 corpus.
+- **Verdict:** excellent _secondary_ surface (instant MCP, near-zero code) or fallback; not the primary engine because filters are a top requirement and we'd be locked to its limits. Can be added later over the same R2 corpus.
 
 ### Option C — Durable Object SQLite + Vectorize
 
@@ -129,32 +131,32 @@ Same FTS5 as D1, but single DO instance: strongly consistent, logic co-located, 
 
 ### Option D — External engines (if we ever leave Cloudflare)
 
-| Engine | Hybrid | Cost/mo @ our scale | Notes |
-|---|---|---|---|
-| **Turbopuffer** | ✅ single-call BM25 + vector + RRF, rich pre-filter | **$16 min** | best Workers DX + true single-call hybrid; per-unit pricing not public ⚠️ |
-| **Typesense Cloud** | ✅ native hybrid + facets | ~$21.60 | stores full docs; one-time 720h free tier |
-| **Qdrant Cloud** | ✅ native RRF/DBSF, strong pre-filters | **$0** (free tier) | 1 GB RAM / 4 GB disk; best free external |
-| **Meilisearch Cloud** | ✅ hybrid + facets + real UI | ~$20–30 | has a built-in Cloudflare Workers AI embedder |
-| **Neon Postgres** | ✅ pgvector + `lakebase_text` BM25 via SQL CTEs | $0–5 | **only Effect-native option** (`@effect/sql-pg`); ParadeDB `pg_search` removed from Neon (Sep 2026) ⚠️ |
-| Upstash Vector | ✅ dense+sparse RRF (not BM25) | $0 | filter "budget" can silently reduce recall ⚠️ |
-| Weaviate / Pinecone | ✅ / partial | $0 (free tiers) | viable, no Workers-first story |
+| Engine                | Hybrid                                              | Cost/mo @ our scale | Notes                                                                                                  |
+| --------------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Turbopuffer**       | ✅ single-call BM25 + vector + RRF, rich pre-filter | **$16 min**         | best Workers DX + true single-call hybrid; per-unit pricing not public ⚠️                              |
+| **Typesense Cloud**   | ✅ native hybrid + facets                           | ~$21.60             | stores full docs; one-time 720h free tier                                                              |
+| **Qdrant Cloud**      | ✅ native RRF/DBSF, strong pre-filters              | **$0** (free tier)  | 1 GB RAM / 4 GB disk; best free external                                                               |
+| **Meilisearch Cloud** | ✅ hybrid + facets + real UI                        | ~$20–30             | has a built-in Cloudflare Workers AI embedder                                                          |
+| **Neon Postgres**     | ✅ pgvector + `lakebase_text` BM25 via SQL CTEs     | $0–5                | **only Effect-native option** (`@effect/sql-pg`); ParadeDB `pg_search` removed from Neon (Sep 2026) ⚠️ |
+| Upstash Vector        | ✅ dense+sparse RRF (not BM25)                      | $0                  | filter "budget" can silently reduce recall ⚠️                                                          |
+| Weaviate / Pinecone   | ✅ / partial                                        | $0 (free tiers)     | viable, no Workers-first story                                                                         |
 
 **Why not external now:** cost isn't the deciding factor (several are free) — but the Cloudflare-native stack is just as cheap, keeps one vendor, one secret store, no extra accounts, and D1 FTS5 removed the old gap (no native keyword search) that used to force external engines. Keep a `SearchService` abstraction so a swap later is a weekend, not a rewrite.
 
 ### Comparison matrix
 
-| | A: CF DIY | B: AI Search | C: DO+Vectorize | Turbopuffer | Qdrant | Neon |
-|---|---|---|---|---|---|---|
-| metadata filters | ✅ SQL (best) | ⚠️ 5 fields | ✅ SQL | ✅ rich pre-filter | ✅ rich pre-filter | ✅ SQL (best) |
-| lexical quality | ✅ FTS5 BM25 | ✅ BM25 | ✅ FTS5 | ✅ BM25 | ⚠️ sparse vectors | ✅ BM25 |
-| semantic | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ pgvector |
-| single-call hybrid | ❌ (we fuse) | ✅ | ❌ | ✅ | ✅ | ❌ (SQL CTE) |
-| stores full docs | ✅ D1 | ✅ | ✅ | ✅ | ✅ payload | ✅ |
-| snippets | ✅ FTS5/chunks | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Workers/TS fit | ✅ native | ✅ binding | ✅ native | ✅ SDK | ✅ REST | ✅ Hyperdrive |
-| Effect fit | ✅ `@effect/sql-d1` | ⚠️ plain fetch | ✅ `sqlite-do` | ⚠️ plain fetch | ⚠️ plain fetch | ✅ `@effect/sql-pg` |
-| cost/mo | **$0–1** | $0 beta → $4–17 ⚠️ | $0–1 | $16 | **$0** | $0–5 |
-| lock-in | low | high | low | medium | low | lowest |
+|                    | A: CF DIY           | B: AI Search       | C: DO+Vectorize | Turbopuffer        | Qdrant             | Neon                |
+| ------------------ | ------------------- | ------------------ | --------------- | ------------------ | ------------------ | ------------------- |
+| metadata filters   | ✅ SQL (best)       | ⚠️ 5 fields        | ✅ SQL          | ✅ rich pre-filter | ✅ rich pre-filter | ✅ SQL (best)       |
+| lexical quality    | ✅ FTS5 BM25        | ✅ BM25            | ✅ FTS5         | ✅ BM25            | ⚠️ sparse vectors  | ✅ BM25             |
+| semantic           | ✅                  | ✅                 | ✅              | ✅                 | ✅                 | ✅ pgvector         |
+| single-call hybrid | ❌ (we fuse)        | ✅                 | ❌              | ✅                 | ✅                 | ❌ (SQL CTE)        |
+| stores full docs   | ✅ D1               | ✅                 | ✅              | ✅                 | ✅ payload         | ✅                  |
+| snippets           | ✅ FTS5/chunks      | ✅                 | ✅              | ✅                 | ✅                 | ✅                  |
+| Workers/TS fit     | ✅ native           | ✅ binding         | ✅ native       | ✅ SDK             | ✅ REST            | ✅ Hyperdrive       |
+| Effect fit         | ✅ `@effect/sql-d1` | ⚠️ plain fetch     | ✅ `sqlite-do`  | ⚠️ plain fetch     | ⚠️ plain fetch     | ✅ `@effect/sql-pg` |
+| cost/mo            | **$0–1**            | $0 beta → $4–17 ⚠️ | $0–1            | $16                | **$0**             | $0–5                |
+| lock-in            | low                 | high               | low             | medium             | low                | lowest              |
 
 ## 7. Ranking & fusion design (proposed)
 
@@ -167,15 +169,15 @@ Same FTS5 as D1, but single DO instance: strongly consistent, logic co-located, 
 
 ## 8. Cost at our scale (CF-native)
 
-| Item | One-time | Monthly |
-|---|---|---|
-| Workers Paid | — | $5.00 |
-| Embeddings — backfill 5.7M tok (bge-m3) | $0.07 | $0.007 steady state |
-| Vectorize stored dims (~23.5M) | — | ~$0.007 |
-| Vectorize queries (few hundred/mo) | — | $0 (50M dims/mo included) |
-| Reranker (300 searches × 50 passages) | — | ~$0.01 |
-| D1 / R2 / Workflows / Queues | — | $0 (within allowances) |
-| **Total** | **≤ $0.40** | **≈ $5.02** |
+| Item                                    | One-time    | Monthly                   |
+| --------------------------------------- | ----------- | ------------------------- |
+| Workers Paid                            | —           | $5.00                     |
+| Embeddings — backfill 5.7M tok (bge-m3) | $0.07       | $0.007 steady state       |
+| Vectorize stored dims (~23.5M)          | —           | ~$0.007                   |
+| Vectorize queries (few hundred/mo)      | —           | $0 (50M dims/mo included) |
+| Reranker (300 searches × 50 passages)   | —           | ~$0.01                    |
+| D1 / R2 / Workflows / Queues            | —           | $0 (within allowances)    |
+| **Total**                               | **≤ $0.40** | **≈ $5.02**               |
 
 Stable through ~10× usage growth. First cost that grows: Vectorize stored dimensions.
 

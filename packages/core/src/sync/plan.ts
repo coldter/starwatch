@@ -23,7 +23,7 @@ export interface StarDiff {
  */
 export const diffStars = (
   prevIds: ReadonlyArray<number>,
-  nextIds: ReadonlyArray<number>
+  nextIds: ReadonlyArray<number>,
 ): StarDiff => {
   const prev = new Set(prevIds);
   const next = new Set(nextIds);
@@ -106,7 +106,7 @@ const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<Readonly
 export const planReadmeWork = (
   repos: ReadonlyArray<Repo>,
   state: ReadmeStateMap,
-  options: PlanReadmeWorkOptions = {}
+  options: PlanReadmeWorkOptions = {},
 ): ReadonlyArray<ReadonlyArray<number>> => {
   const batchSize = options.batchSize ?? 25;
   const semanticWindow = options.semanticWindow ?? SEMANTIC_WINDOW;
@@ -164,7 +164,7 @@ export const hashReadme = (text: string): string => {
 export const planEmbedWork = (
   repos: ReadonlyArray<Repo>,
   readmesByRepoId: ReadonlyMap<number, string>,
-  existingReadmeHashes: ReadonlyMap<number, string>
+  existingReadmeHashes: ReadonlyMap<number, string>,
 ): ReadonlyArray<number> => {
   const window = newestFirst(repos).slice(0, SEMANTIC_WINDOW);
   const dirty: number[] = [];
@@ -218,7 +218,7 @@ export const canSync = (
   state: SyncState,
   nowMs: number,
   cooldowns: SyncCooldowns,
-  options: CanSyncOptions = {}
+  options: CanSyncOptions = {},
 ): CanSyncResult => {
   if (state.inProgress) {
     return { allowed: false, reason: "in-progress", retryAfterSeconds: 0 };
@@ -228,14 +228,14 @@ export const canSync = (
     const fullRemaining = remainingMs(
       state.lastFullRefreshAtMs,
       nowMs,
-      cooldowns.fullRefreshSeconds
+      cooldowns.fullRefreshSeconds,
     );
 
     if (fullRemaining > 0) {
       return {
         allowed: false,
         reason: "cooldown-full",
-        retryAfterSeconds: Math.ceil(fullRemaining / 1000)
+        retryAfterSeconds: Math.ceil(fullRemaining / 1000),
       };
     }
 
@@ -245,7 +245,7 @@ export const canSync = (
       return {
         allowed: false,
         reason: "cooldown-relist",
-        retryAfterSeconds: Math.ceil(relistRemaining / 1000)
+        retryAfterSeconds: Math.ceil(relistRemaining / 1000),
       };
     }
   }

@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, createRoute, useNavigate } from "@tanstack/react-router";
 import { MAX_STARS } from "@starwatch/domain";
-import { asApiError, fetchUser, isAbortError, startUserSync, type ApiError, type UserPayload } from "../api";
+import {
+  asApiError,
+  fetchUser,
+  isAbortError,
+  startUserSync,
+  type ApiError,
+  type UserPayload,
+} from "../api";
 import { Avatar } from "../components/Avatar";
 import { FreshnessChip } from "../components/FreshnessChip";
 import { SearchBar } from "../components/SearchBar";
@@ -17,7 +24,7 @@ import { rootRoute } from "./__root";
 export const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: LandingPage
+  component: LandingPage,
 });
 
 type Preview =
@@ -45,7 +52,7 @@ function LandingPage() {
     (login: string) => {
       void navigate({ to: "/u/$login", params: { login }, search: {} });
     },
-    [navigate]
+    [navigate],
   );
 
   const submit = useCallback(
@@ -56,7 +63,7 @@ function LandingPage() {
         toast({
           title: "That doesn't look like a GitHub username",
           body: "Try alice, @alice, or github.com/alice.",
-          tone: "error"
+          tone: "error",
         });
 
         return;
@@ -78,7 +85,7 @@ function LandingPage() {
         setPreview({ status: "error", error: asApiError(cause) });
       }
     },
-    [toast]
+    [toast],
   );
 
   const startIndex = useCallback(
@@ -92,7 +99,7 @@ function LandingPage() {
         if (!result.started) {
           toast({
             title: "Index up to date",
-            body: "We checked just now — nothing new to fetch yet."
+            body: "We checked just now — nothing new to fetch yet.",
           });
         }
 
@@ -107,7 +114,7 @@ function LandingPage() {
           toast({
             title: `No GitHub user named @${login}`,
             body: "Check the spelling — usernames use letters, numbers and single hyphens.",
-            tone: "error"
+            tone: "error",
           });
         } else {
           toast({ title: "Couldn't start indexing", body: error.message, tone: "error" });
@@ -116,7 +123,7 @@ function LandingPage() {
         setStarting(false);
       }
     },
-    [goSearch, toast]
+    [goSearch, toast],
   );
 
   return (
@@ -141,7 +148,14 @@ function LandingPage() {
           {SUGGESTED_USERS.map((login, index) => (
             <span key={login}>
               {index > 0 ? " · " : ""}
-              <button type="button" className="link-button" onClick={() => { setQuery(`@${login}`); void submit(`@${login}`); }}>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setQuery(`@${login}`);
+                  void submit(`@${login}`);
+                }}
+              >
                 @{login}
               </button>
             </span>
@@ -170,9 +184,7 @@ function LandingPage() {
         ) : (
           <section className="preview-card" aria-live="polite">
             <div className="preview-card__body">
-              <p className="preview-card__name">
-                @{lastLogin ?? query} isn&apos;t indexed yet
-              </p>
+              <p className="preview-card__name">@{lastLogin ?? query} isn&apos;t indexed yet</p>
               <p className="preview-card__meta">
                 Indexing reads the public star list first (searchable in seconds), then fills in
                 READMEs and semantic search in the background.
@@ -220,7 +232,13 @@ function LandingPage() {
           <h2 className="recents__title">Recent</h2>
           <div className="chip-row">
             {recents.map((user) => (
-              <Link key={user.login} className="chip" to="/u/$login" params={{ login: user.login }} search={{}}>
+              <Link
+                key={user.login}
+                className="chip"
+                to="/u/$login"
+                params={{ login: user.login }}
+                search={{}}
+              >
                 @{user.login}
               </Link>
             ))}
@@ -232,8 +250,13 @@ function LandingPage() {
         <h2 className="explainer__title">How it works</h2>
         <ul className="explainer__list">
           <li>Type any GitHub username — the shared community index is free to search.</li>
-          <li>Metadata search works in ~10 seconds; semantic search fills in over the next few minutes.</li>
-          <li>Collections come from the user&apos;s public GitHub Lists plus auto-generated ones.</li>
+          <li>
+            Metadata search works in ~10 seconds; semantic search fills in over the next few
+            minutes.
+          </li>
+          <li>
+            Collections come from the user&apos;s public GitHub Lists plus auto-generated ones.
+          </li>
           <li>Public stars only. Private stars are never fetched or stored.</li>
         </ul>
       </section>
@@ -245,7 +268,7 @@ function PreviewCard({
   data,
   busy,
   onSearch,
-  onIndex
+  onIndex,
 }: {
   data: UserPayload;
   busy: boolean;
@@ -263,7 +286,10 @@ function PreviewCard({
     ? { label: "Search what's loaded", run: onSearch }
     : indexed
       ? { label: `Search ${formatNumber(stars)} stars`, run: onSearch }
-      : { label: capped ? `Index newest ${formatNumber(MAX_STARS)}` : "Index & search", run: () => onIndex(false) };
+      : {
+          label: capped ? `Index newest ${formatNumber(MAX_STARS)}` : "Index & search",
+          run: () => onIndex(false),
+        };
 
   const secondary = stale
     ? { label: "Refresh now", run: () => onIndex(true) }

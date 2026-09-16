@@ -19,7 +19,7 @@ export const README_PROBE_PATHS = [
   "readme.md",
   "README.rst",
   "README.txt",
-  ".github/README.md"
+  ".github/README.md",
 ] as const;
 
 /** `GET /users/{login}/starred` URL: newest-first listing with `created asc`. */
@@ -28,7 +28,7 @@ export const starPageUrl = (login: string, page: number, perPage: number): strin
     per_page: String(perPage),
     page: String(page),
     sort: "created",
-    direction: "asc"
+    direction: "asc",
   });
 
   return `${GITHUB_API_BASE}/users/${encodeURIComponent(login)}/starred?${params.toString()}`;
@@ -39,10 +39,7 @@ export const starPageUrl = (login: string, page: number, perPage: number): strin
  * percent-encoded per path segment/ref; the returned order is the expected
  * display preference for the common case.
  */
-export const readmeProbeUrls = (
-  fullName: string,
-  defaultBranch: string
-): ReadonlyArray<string> => {
+export const readmeProbeUrls = (fullName: string, defaultBranch: string): ReadonlyArray<string> => {
   const repoPath = fullName.split("/").map(encodeURIComponent).join("/");
   const ref = encodeURIComponent(defaultBranch);
 

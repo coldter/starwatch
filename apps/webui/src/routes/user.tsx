@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoute } from "@tanstack/react-router";
 import * as Option from "effect/Option";
-import { MAX_STARS, type DegradedReason, type Group, type SearchHit, type SearchMode, type SyncPhase } from "@starwatch/domain";
+import {
+  MAX_STARS,
+  type DegradedReason,
+  type Group,
+  type SearchHit,
+  type SearchMode,
+  type SyncPhase,
+} from "@starwatch/domain";
 import { Avatar } from "../components/Avatar";
 import { FilterBar } from "../components/FilterBar";
 import { FreshnessChip } from "../components/FreshnessChip";
@@ -10,7 +17,12 @@ import { RepoCard } from "../components/RepoCard";
 import { RepoDrawer } from "../components/RepoDrawer";
 import { SearchBar } from "../components/SearchBar";
 import { SkeletonList } from "../components/SkeletonCard";
-import { ErrorState, NoResultsState, NotIndexedState, UserNotFoundState } from "../components/StateViews";
+import {
+  ErrorState,
+  NoResultsState,
+  NotIndexedState,
+  UserNotFoundState,
+} from "../components/StateViews";
 import { SyncBanner } from "../components/SyncBanner";
 import { useSearch, type SearchQueryState } from "../hooks/useSearch";
 import { useToast } from "../hooks/useToasts";
@@ -24,7 +36,7 @@ import {
   parseUserSearch,
   toUrlSearch,
   toggleGroup,
-  type SearchState
+  type SearchState,
 } from "../lib/search-params";
 import {
   exceedsStarCap,
@@ -32,7 +44,7 @@ import {
   isActivePhase,
   isMetadataOnly,
   isStale,
-  phaseLabel
+  phaseLabel,
 } from "../lib/state";
 import { rootRoute } from "./__root";
 
@@ -44,7 +56,7 @@ export const userRoute = createRoute({
   // `parseUserSearch` only ever sees decoded input.
   validateSearch: (search) =>
     parseUserSearch(Option.getOrElse(decodeRawSearchBag(search), () => ({}))),
-  component: UserSearchPage
+  component: UserSearchPage,
 });
 
 const EMPTY_GROUPS: Group[] = [];
@@ -54,7 +66,7 @@ const EMPTY_HITS: SearchHit[] = [];
 const DEGRADED_COPY: Record<DegradedReason, string> = {
   "keyword-only": "Semantic search is unavailable right now — showing keyword results.",
   "semantic-window": "Semantic results cover only the newest indexed repos.",
-  "rate-limited": "Search is rate-limited right now; some results may be missing."
+  "rate-limited": "Search is rate-limited right now; some results may be missing.",
 };
 
 function UserSearchPage() {
@@ -64,7 +76,8 @@ function UserSearchPage() {
   const navigate = userRoute.useNavigate();
   const toast = useToast();
 
-  const { data, loading, refreshing, error, refresh, startSync, syncPending, transport } = useUserIndex(login);
+  const { data, loading, refreshing, error, refresh, startSync, syncPending, transport } =
+    useUserIndex(login);
 
   // A 404 from the index means "not indexed yet", not "no such GitHub user";
   // only the sync POST can tell those apart (it fetches the profile itself).
@@ -76,7 +89,7 @@ function UserSearchPage() {
     lang: search.lang,
     groups: search.group,
     archived: search.archived,
-    minStars: search.minStars
+    minStars: search.minStars,
   };
 
   const { response, status, error: searchError, retry } = useSearch(login, query);
@@ -94,7 +107,7 @@ function UserSearchPage() {
 
   const applyFilters = useCallback(
     (patch: Partial<SearchState>) => applyPatch({ ...patch, page: 1 }),
-    [applyPatch]
+    [applyPatch],
   );
 
   const onSubmitQuery = useCallback((q: string) => applyPatch({ q, page: 1 }), [applyPatch]);
@@ -103,22 +116,25 @@ function UserSearchPage() {
 
   const onToggleGroup = useCallback(
     (slug: string) => applyFilters({ group: toggleGroup(searchRef.current, slug) }),
-    [applyFilters]
+    [applyFilters],
   );
 
-  const onMinStars = useCallback((minStars: number | undefined) => applyFilters({ minStars }), [applyFilters]);
+  const onMinStars = useCallback(
+    (minStars: number | undefined) => applyFilters({ minStars }),
+    [applyFilters],
+  );
   const onArchived = useCallback((archived: boolean) => applyFilters({ archived }), [applyFilters]);
 
   const onClear = useCallback(
     () => applyFilters({ lang: undefined, group: [], archived: false, minStars: undefined }),
-    [applyFilters]
+    [applyFilters],
   );
 
   const onPage = useCallback((page: number) => applyPatch({ page }), [applyPatch]);
 
   const openRepo = useCallback(
     (hit: SearchHit) => applyPatch({ repo: `${hit.repo.owner}/${hit.repo.name}` }),
-    [applyPatch]
+    [applyPatch],
   );
 
   const closeRepo = useCallback(() => applyPatch({ repo: undefined }), [applyPatch]);
@@ -131,14 +147,14 @@ function UserSearchPage() {
         } else if (!outcome.started) {
           toast({
             title: "Nothing new to index yet",
-            body: `Current phase: ${phaseLabel(outcome.phase)}. Cooldowns protect the shared GitHub budget.`
+            body: `Current phase: ${phaseLabel(outcome.phase)}. Cooldowns protect the shared GitHub budget.`,
           });
         } else {
           toast({ title: "Indexing started", body: "Progress shows up right here as it runs." });
         }
       });
     },
-    [startSync, toast]
+    [startSync, toast],
   );
 
   const state = data?.state ?? null;
@@ -205,7 +221,10 @@ function UserSearchPage() {
   const total = hits.length;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(search.page, pageCount);
-  const pageHits = useMemo(() => hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [hits, page]);
+  const pageHits = useMemo(
+    () => hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [hits, page],
+  );
   const shownStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const shownEnd = Math.min(page * PAGE_SIZE, total);
 
@@ -237,7 +256,11 @@ function UserSearchPage() {
                 } else if (outcome.error.kind === "not-found") {
                   setMissingUser(true);
                 } else {
-                  toast({ title: "Couldn't start indexing", body: outcome.error.message, tone: "error" });
+                  toast({
+                    title: "Couldn't start indexing",
+                    body: outcome.error.message,
+                    tone: "error",
+                  });
                 }
               });
             }}
@@ -272,7 +295,12 @@ function UserSearchPage() {
             busy={status === "loading" || status === "refreshing"}
           />
 
-          <SyncBanner state={state} transport={transport} busy={syncPending} onStart={handleStartSync} />
+          <SyncBanner
+            state={state}
+            transport={transport}
+            busy={syncPending}
+            onStart={handleStartSync}
+          />
 
           <FilterBar
             state={search}
@@ -291,16 +319,20 @@ function UserSearchPage() {
               {response ? (
                 <p className="results__summary">
                   {formatNumber(total)} results · {response.tookMs}ms · {response.mode}
-                  {semanticDocs > 0 ? ` · semantic coverage ${coveragePercent(response.semanticCoverage)}%` : ""}
+                  {semanticDocs > 0
+                    ? ` · semantic coverage ${coveragePercent(response.semanticCoverage)}%`
+                    : ""}
                 </p>
               ) : null}
-              {status === "refreshing" ? <span className="results__updating">Searching…</span> : null}
+              {status === "refreshing" ? (
+                <span className="results__updating">Searching…</span>
+              ) : null}
             </div>
 
             {semanticHint ? (
               <p className="inline-notice" role="status">
-                Semantic indexing is {coveragePercent(response?.semanticCoverage ?? 0)}% done — results may improve
-                soon.
+                Semantic indexing is {coveragePercent(response?.semanticCoverage ?? 0)}% done —
+                results may improve soon.
               </p>
             ) : null}
 
@@ -335,13 +367,18 @@ function UserSearchPage() {
                 <section className="state-card" role="status">
                   <h2 className="state-card__title">Indexing @{login}…</h2>
                   <p className="state-card__body">
-                    Search will refresh automatically when the first results land. This usually takes a few seconds.
+                    Search will refresh automatically when the first results land. This usually
+                    takes a few seconds.
                   </p>
                 </section>
               ) : searchError ? (
                 <ErrorState title="Search hit a snag" error={searchError} onRetry={retry}>
                   {search.mode === "semantic" || search.mode === "hybrid" ? (
-                    <button type="button" className="btn btn--ghost btn--small" onClick={() => onMode("keyword")}>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--small"
+                      onClick={() => onMode("keyword")}
+                    >
                       Search keyword-only
                     </button>
                   ) : null}
@@ -355,7 +392,11 @@ function UserSearchPage() {
                 suggestions={
                   <>
                     {search.lang ? (
-                      <button type="button" className="btn btn--small" onClick={() => onLang(undefined)}>
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => onLang(undefined)}
+                      >
                         Remove language filter
                       </button>
                     ) : null}
@@ -365,7 +406,11 @@ function UserSearchPage() {
                       </button>
                     ) : null}
                     {semanticDocs > 0 && search.mode !== "semantic" ? (
-                      <button type="button" className="btn btn--small" onClick={() => onMode("semantic")}>
+                      <button
+                        type="button"
+                        className="btn btn--small"
+                        onClick={() => onMode("semantic")}
+                      >
                         Try semantic mode
                       </button>
                     ) : null}
@@ -404,7 +449,9 @@ function UserSearchPage() {
         </>
       ) : null}
 
-      {repoOwner && repoName ? <RepoDrawer owner={repoOwner} name={repoName} onClose={closeRepo} /> : null}
+      {repoOwner && repoName ? (
+        <RepoDrawer owner={repoOwner} name={repoName} onClose={closeRepo} />
+      ) : null}
     </div>
   );
 }
@@ -414,7 +461,7 @@ function ProfileHero({
   busy,
   refreshing,
   onRefresh,
-  onStartSync
+  onStartSync,
 }: {
   data: UserPayload;
   busy: boolean;
@@ -455,7 +502,9 @@ function ProfileHero({
         <p className="profile__chips">
           <FreshnessChip state={state} />
           {isMetadataOnly(state) ? <span className="badge">◦ partial: metadata only</span> : null}
-          {exceedsStarCap(state) ? <span className="badge">capped at {formatNumber(MAX_STARS)} stars</span> : null}
+          {exceedsStarCap(state) ? (
+            <span className="badge">capped at {formatNumber(MAX_STARS)} stars</span>
+          ) : null}
         </p>
       </div>
       <div className="profile__actions">
@@ -467,7 +516,12 @@ function ProfileHero({
         >
           {label}
         </button>
-        <button type="button" className="btn btn--ghost btn--small" onClick={onRefresh} disabled={refreshing}>
+        <button
+          type="button"
+          className="btn btn--ghost btn--small"
+          onClick={onRefresh}
+          disabled={refreshing}
+        >
           {refreshing ? "Checking…" : "Re-check"}
         </button>
       </div>
@@ -479,14 +533,16 @@ function BrowseState({
   state,
   groups,
   selected,
-  onPickGroup
+  onPickGroup,
 }: {
   state: UserPayload["state"];
   groups: ReadonlyArray<Group>;
   selected: ReadonlyArray<string>;
   onPickGroup: (slug: string) => void;
 }) {
-  const selectedNames = groups.filter((group) => selected.includes(group.slug)).map((group) => group.name);
+  const selectedNames = groups
+    .filter((group) => selected.includes(group.slug))
+    .map((group) => group.name);
 
   return (
     <section className="state-card">

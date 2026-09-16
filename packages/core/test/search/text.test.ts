@@ -5,7 +5,7 @@ import {
   escapeFtsTerm,
   normalizeQuery,
   phrasesFromQuery,
-  tokenize
+  tokenize,
 } from "../../src/search/text.ts";
 
 describe("normalizeQuery", () => {
@@ -32,7 +32,7 @@ describe("tokenize", () => {
       "gql",
       "tada",
       "scope",
-      "pkg"
+      "pkg",
     ]);
   });
 
@@ -41,7 +41,13 @@ describe("tokenize", () => {
   });
 
   it("splits camelCase and acronym boundaries", () => {
-    expect(tokenize("useEffect XMLHttpRequest")).toEqual(["use", "effect", "xml", "http", "request"]);
+    expect(tokenize("useEffect XMLHttpRequest")).toEqual([
+      "use",
+      "effect",
+      "xml",
+      "http",
+      "request",
+    ]);
   });
 
   it("returns an empty array for punctuation-only input", () => {
@@ -87,13 +93,11 @@ describe("MATCH-expression injection attempts", () => {
     expect(buildMatchExpression(["NEAR("], "and")).toBe('"NEAR("');
     expect(buildMatchExpression(["-term"], "and")).toBe('"-term"');
     expect(buildMatchExpression(["a\nb"], "and")).toBe('"a b"');
-    expect(buildMatchExpression(["x\" NEAR( y"], "or")).toBe('"x"" NEAR( y"');
+    expect(buildMatchExpression(['x" NEAR( y'], "or")).toBe('"x"" NEAR( y"');
   });
 
   it("treats operator keywords as literals", () => {
-    expect(buildMatchExpression(["AND", "OR", "NOT"], "and")).toBe(
-      '"AND" AND "OR" AND "NOT"'
-    );
+    expect(buildMatchExpression(["AND", "OR", "NOT"], "and")).toBe('"AND" AND "OR" AND "NOT"');
   });
 });
 
@@ -102,7 +106,7 @@ describe("phrasesFromQuery", () => {
     expect(phrasesFromQuery("http client with retries")).toEqual([
       "http client",
       "client with",
-      "with retries"
+      "with retries",
     ]);
   });
 

@@ -45,7 +45,7 @@ export const RRF_K = 60;
 export const DEFAULT_LEG_WEIGHTS: LegWeights = {
   keyword: 1.0,
   expanded: 0.6,
-  semantic: 1.0
+  semantic: 1.0,
 };
 
 /**
@@ -117,7 +117,12 @@ export const NAME_BOOST_MAX = 1.6;
 const EMPTY_GROUPS: ReadonlyArray<string> = Object.freeze([]);
 
 /** Match-source emission order (must stay a subset of the domain MatchSource order). */
-const MATCH_SOURCE_ORDER: ReadonlyArray<MatchSource> = ["keyword", "expanded", "semantic", "name"];
+const MATCH_SOURCE_ORDER: ReadonlyArray<MatchSource> = [
+  "keyword",
+  "expanded",
+  "semantic",
+  "name",
+];
 
 /** Lowercase + strip everything that is not a letter/digit: `better-auth` → `betterauth`. */
 export const normalizeName = (value: string): string =>
@@ -127,15 +132,18 @@ export const normalizeName = (value: string): string =>
     .replace(/[^\p{L}\p{N}]+/gu, "");
 
 export const toRanked = (
-  rows: ReadonlyArray<{ readonly repoId: number; readonly rank: number }>
-): ReadonlyArray<Ranked> => rows.map((row) => ({ repoId: row.repoId, rank: row.rank }));
+  rows: ReadonlyArray<{ readonly repoId: number; readonly rank: number }>,
+): ReadonlyArray<Ranked> =>
+  rows.map((row) => ({ repoId: row.repoId, rank: row.rank }));
 
 /**
  * Convert raw per-leg scores (e.g. semantic cosine 0..1) into deterministic
  * rank order. Ties break by repoId ascending so fusion never depends on input
  * array order.
  */
-export const rankByScore = (rows: ReadonlyArray<Scored>): ReadonlyArray<Ranked> =>
+export const rankByScore = (
+  rows: ReadonlyArray<Scored>,
+): ReadonlyArray<Ranked> =>
   [...rows]
     .sort((a, b) => b.score - a.score || a.repoId - b.repoId)
     .map((row, index) => ({ repoId: row.repoId, rank: index + 1 }));
@@ -144,7 +152,9 @@ export const rankByScore = (rows: ReadonlyArray<Scored>): ReadonlyArray<Ranked> 
  * Document frequency of name tokens across the corpus (docs/17 §3.3, docs/18 §6.1).
  * Each repo contributes at most once per token.
  */
-export const computeNameStats = (repos: ReadonlyArray<Repo>): Map<string, number> => {
+export const computeNameStats = (
+  repos: ReadonlyArray<Repo>,
+): Map<string, number> => {
   const stats = new Map<string, number>();
   const seen = new Set<string>();
 
@@ -165,7 +175,10 @@ export const computeNameStats = (repos: ReadonlyArray<Repo>): Map<string, number
  * Specificity of a term against {@link computeNameStats}. Multi-token terms
  * use the most common constituent token's df (the most generic reading).
  */
-export const termSpecificity = (term: string, nameStats: ReadonlyMap<string, number>): number => {
+export const termSpecificity = (
+  term: string,
+  nameStats: ReadonlyMap<string, number>,
+): number => {
   let df = 0;
 
   for (const token of tokenize(term)) {
@@ -178,7 +191,7 @@ export const termSpecificity = (term: string, nameStats: ReadonlyMap<string, num
 /** Deduped evidence terms (query tokens + concept terms), preserving caller order. */
 export const evidenceTerms = (
   queryTokens: ReadonlyArray<string>,
-  conceptTerms: ReadonlyArray<string>
+  conceptTerms: ReadonlyArray<string>,
 ): ReadonlyArray<string> => {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -204,7 +217,7 @@ export const nameBoost = (
   repo: Repo,
   queryTokens: ReadonlyArray<string>,
   nameStats: ReadonlyMap<string, number>,
-  conceptTerms: ReadonlyArray<string> = []
+  conceptTerms: ReadonlyArray<string> = [],
 ): number => {
   const repoName = normalizeName(repo.name);
 
@@ -223,7 +236,10 @@ export const nameBoost = (
 
     if (normalized === repoName) {
       tier = NAME_EXACT_FACTOR;
-    } else if (normalized.length >= NAME_PREFIX_MIN_CHARS && repoName.startsWith(normalized)) {
+    } else if (
+      normalized.length >= NAME_PREFIX_MIN_CHARS &&
+      repoName.startsWith(normalized)
+    ) {
       tier = NAME_PREFIX_FACTOR;
     } else if (nameTokens.has(normalized)) {
       tier = NAME_TOKEN_FACTOR;
@@ -249,7 +265,7 @@ export const starPrior = (stars: number): number => {
 
 const containsTokenSequence = (
   haystack: ReadonlyArray<string>,
-  needle: ReadonlyArray<string>
+  needle: ReadonlyArray<string>,
 ): boolean => {
   if (needle.length === 0 || needle.length > haystack.length) return false;
 
@@ -264,7 +280,10 @@ const containsTokenSequence = (
   return false;
 };
 
-const countFieldMatches = (terms: ReadonlyArray<string>, field: string): number => {
+const countFieldMatches = (
+  terms: ReadonlyArray<string>,
+  field: string,
+): number => {
   if (field.length === 0) return 0;
   const fieldTokens = tokenize(field);
   let matches = 0;
@@ -277,17 +296,24 @@ const countFieldMatches = (terms: ReadonlyArray<string>, field: string): number 
 };
 
 /** Additive whole-token overlap bonus; see the constants' doc comment. */
-export const overlapBonus = (repo: Repo, terms: ReadonlyArray<string>): number => {
+export const overlapBonus = (
+  repo: Repo,
+  terms: ReadonlyArray<string>,
+): number => {
   if (terms.length === 0) return 0;
-  const topicMatches = Math.min(countFieldMatches(terms, repo.topics.join(" ")), TOPIC_OVERLAP_CAP);
+  const topicMatches = Math.min(
+    countFieldMatches(terms, repo.topics.join(" ")),
+    TOPIC_OVERLAP_CAP,
+  );
 
   const descriptionMatches = Math.min(
     countFieldMatches(terms, repo.description ?? ""),
-    DESCRIPTION_OVERLAP_CAP
+    DESCRIPTION_OVERLAP_CAP,
   );
 
   return (
-    topicMatches * TOPIC_OVERLAP_PER_TERM + descriptionMatches * DESCRIPTION_OVERLAP_PER_TERM
+    topicMatches * TOPIC_OVERLAP_PER_TERM +
+    descriptionMatches * DESCRIPTION_OVERLAP_PER_TERM
   );
 };
 
@@ -342,7 +368,7 @@ const addLeg = (
   repos: ReadonlyMap<number, Repo>,
   rows: ReadonlyArray<Ranked> | undefined,
   leg: LegName,
-  weight: number
+  weight: number,
 ): void => {
   if (!rows || rows.length === 0) return;
 
@@ -352,7 +378,8 @@ const addLeg = (
     if (!Number.isFinite(row.rank) || row.rank < 1) continue;
     const current = bestRankByRepo.get(row.repoId);
 
-    if (current === undefined || row.rank < current) bestRankByRepo.set(row.repoId, row.rank);
+    if (current === undefined || row.rank < current)
+      bestRankByRepo.set(row.repoId, row.rank);
   }
 
   for (const [repoId, rank] of bestRankByRepo) {
@@ -366,7 +393,7 @@ const addLeg = (
       rrf: 0,
       legRanks: {},
       score: 0,
-      boostFired: false
+      boostFired: false,
     };
 
     acc.rrf += weight / (RRF_K + rank);
@@ -387,7 +414,9 @@ const applyDuplicatePenalties = (hits: ReadonlyArray<Accumulator>): void => {
     const nameKey = normalizeName(hit.repo.name);
     const ownerPrior = ownerCounts.get(ownerKey) ?? 0;
     const namePrior = nameCounts.get(nameKey) ?? 0;
-    hit.score *= OWNER_DUPLICATE_PENALTY ** ownerPrior * NAME_DUPLICATE_PENALTY ** namePrior;
+    hit.score *=
+      OWNER_DUPLICATE_PENALTY ** ownerPrior *
+      NAME_DUPLICATE_PENALTY ** namePrior;
     ownerCounts.set(ownerKey, ownerPrior + 1);
     nameCounts.set(nameKey, namePrior + 1);
   }
@@ -398,11 +427,14 @@ const applyDuplicatePenalties = (hits: ReadonlyArray<Accumulator>): void => {
  * {@link FuseInput.repos} (i.e. filtered out) are dropped even if a leg ranked
  * them — filters are constraints, not boosts (docs/07 §2).
  */
-export const fuse = (input: FuseInput, options: FuseOptions = {}): ReadonlyArray<FusedHit> => {
+export const fuse = (
+  input: FuseInput,
+  options: FuseOptions = {},
+): ReadonlyArray<FusedHit> => {
   const weights: LegWeights = {
     keyword: options.weights?.keyword ?? DEFAULT_LEG_WEIGHTS.keyword,
     expanded: options.weights?.expanded ?? DEFAULT_LEG_WEIGHTS.expanded,
-    semantic: options.weights?.semantic ?? DEFAULT_LEG_WEIGHTS.semantic
+    semantic: options.weights?.semantic ?? DEFAULT_LEG_WEIGHTS.semantic,
   };
 
   const nameStats = options.nameStats ?? new Map<string, number>();
@@ -447,7 +479,7 @@ export const fuse = (input: FuseInput, options: FuseOptions = {}): ReadonlyArray
       score: acc.score,
       matchedBy,
       legRanks: { ...acc.legRanks },
-      groups: input.groups?.get(acc.repo.id) ?? EMPTY_GROUPS
+      groups: input.groups?.get(acc.repo.id) ?? EMPTY_GROUPS,
     };
   });
 };

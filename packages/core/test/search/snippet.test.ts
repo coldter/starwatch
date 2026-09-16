@@ -4,7 +4,7 @@ import {
   SNIPPET_ELLIPSIS,
   SNIPPET_MAX_CHARS,
   findFirstTermMatch,
-  makeSnippet
+  makeSnippet,
 } from "../../src/search/snippet.ts";
 
 type RepoInit = Partial<Repo> & Pick<Repo, "id" | "name" | "owner">;
@@ -25,7 +25,7 @@ const makeRepo = ({ id, name, owner, ...rest }: RepoInit): Repo => ({
   pushedAt: null,
   starredAt: null,
   htmlUrl: `https://github.com/${owner}/${name}`,
-  ...rest
+  ...rest,
 });
 
 describe("findFirstTermMatch", () => {
@@ -76,7 +76,7 @@ describe("makeSnippet", () => {
       id: 1,
       name: "x",
       owner: "o",
-      description: "An http client with retry support"
+      description: "An http client with retry support",
     });
 
     const snippet = makeSnippet(repo, ["http"], "unrelated readme text");
@@ -88,7 +88,7 @@ describe("makeSnippet", () => {
       id: 1,
       name: "x",
       owner: "o",
-      description: "d".repeat(400)
+      description: "d".repeat(400),
     });
 
     const snippet = makeSnippet(repo, ["auth"], "unrelated readme text");

@@ -14,7 +14,7 @@ describe("classifyQuery", () => {
 
   it("classifies three or more tokens as descriptive", () => {
     expect(classifyQuery("library to schedule durable background jobs with retries")).toBe(
-      "descriptive"
+      "descriptive",
     );
     expect(classifyQuery("http client retries")).toBe("descriptive");
   });

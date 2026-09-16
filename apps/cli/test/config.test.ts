@@ -16,7 +16,7 @@ import {
   splitCommaValues,
   syncPath,
   userPath,
-  validateLimit
+  validateLimit,
 } from "../src/config.ts";
 
 describe("resolveApiUrl", () => {
@@ -57,7 +57,7 @@ describe("parseRepoShorthand", () => {
   it("accepts the common spellings", () => {
     expect(parseRepoShorthand("BurntSushi/ripgrep")).toEqual({
       owner: "BurntSushi",
-      name: "ripgrep"
+      name: "ripgrep",
     });
     expect(parseRepoShorthand("github.com/o/r")).toEqual({ owner: "o", name: "r" });
     expect(parseRepoShorthand("https://github.com/o/r/")).toEqual({ owner: "o", name: "r" });
@@ -105,13 +105,19 @@ describe("exit codes", () => {
 describe("encodeQuery", () => {
   it("repeats array params and skips undefined/empty values", () => {
     expect(
-      encodeQuery({ q: "tui for git", topic: ["tui", "git"], group: [], lang: "", mode: undefined })
+      encodeQuery({
+        q: "tui for git",
+        topic: ["tui", "git"],
+        group: [],
+        lang: "",
+        mode: undefined,
+      }),
     ).toBe("q=tui%20for%20git&topic=tui&topic=git");
   });
 
   it("encodes reserved characters and booleans/numbers", () => {
     expect(encodeQuery({ q: "a&b=c", archived: false, minStars: 500 })).toBe(
-      "q=a%26b%3Dc&archived=false&minStars=500"
+      "q=a%26b%3Dc&archived=false&minStars=500",
     );
   });
 });
@@ -130,7 +136,7 @@ describe("buildSearchQueryString", () => {
       license: "MIT",
       starredAfter: "2024-01-01",
       starredBefore: "2026-01-01",
-      limit: 10
+      limit: 10,
     });
 
     expect(query).toBe(
@@ -148,8 +154,8 @@ describe("buildSearchQueryString", () => {
         "license=MIT",
         "starredAfter=2024-01-01",
         "starredBefore=2026-01-01",
-        "limit=10"
-      ].join("&")
+        "limit=10",
+      ].join("&"),
     );
   });
 

@@ -1,12 +1,23 @@
 // engine — query execution over the local SQLite FTS5 + repo-embedding index.
-import { Schema } from 'effect';
-import type { DatabaseSync } from 'node:sqlite';
+import { Schema } from "effect";
+import type { DatabaseSync } from "node:sqlite";
 import {
-  computeBoosts, embedQuery, expansionTerms, filterSql, ftsAnd, ftsOr, tokenize,
-  openDb, EMBED_DIMS, RepoRowSchema, type Filters, type Ranked, type RepoRow,
-} from './lib.ts';
+  computeBoosts,
+  embedQuery,
+  expansionTerms,
+  filterSql,
+  ftsAnd,
+  ftsOr,
+  tokenize,
+  openDb,
+  EMBED_DIMS,
+  RepoRowSchema,
+  type Filters,
+  type Ranked,
+  type RepoRow,
+} from "./lib.ts";
 
-export type Mode = 'keyword' | 'semantic' | 'hybrid' | 'hybrid+expand';
+export type Mode = "keyword" | "semantic" | "hybrid" | "hybrid+expand";
 
 export interface SearchOptions {
   query: string;
@@ -61,13 +72,19 @@ interface Candidate {
   boost: number;
 }
 
-const FTS_WEIGHTS = '8.0, 3.0, 3.0, 1.0'; // name, description, topics, readme
+const FTS_WEIGHTS = "8.0, 3.0, 3.0, 1.0"; // name, description, topics, readme
 
-const TopicsJson = Schema.fromJsonString(Schema.mutable(Schema.Array(Schema.String)));
+const TopicsJson = Schema.fromJsonString(
+  Schema.mutable(Schema.Array(Schema.String)),
+);
 
 /** Parse a `topics_json` column; malformed data degrades to "no topics". */
 export function parseTopics(json: string): string[] {
-  try { return Schema.decodeUnknownSync(TopicsJson)(json); } catch { return []; }
+  try {
+    return Schema.decodeUnknownSync(TopicsJson)(json);
+  } catch {
+    return [];
+  }
 }
 
 const RepoIdRow = Schema.Struct({ id: Schema.Number });
@@ -77,7 +94,10 @@ const EmbeddingRowSchema = Schema.Struct({
   vector: Schema.Uint8Array,
 });
 
-const KeywordRowSchema = Schema.Struct({ id: Schema.Number, score: Schema.Number });
+const KeywordRowSchema = Schema.Struct({
+  id: Schema.Number,
+  score: Schema.Number,
+});
 
 type KeywordRow = typeof KeywordRowSchema.Type;
 
@@ -93,7 +113,7 @@ export class LabIndex {
   constructor(db: DatabaseSync) {
     this.db = db;
 
-    for (const r of db.prepare('SELECT * FROM repos').all()) {
+    for (const r of db.prepare("SELECT * FROM repos").all()) {
       const row = Schema.decodeUnknownSync(RepoRowSchema)(r);
       this.rows.set(row.id, row);
     }
@@ -103,18 +123,27 @@ export class LabIndex {
     return new LabIndex(openDb(true));
   }
 
-  get repoCount(): number { return this.rows.size; }
+  get repoCount(): number {
+    return this.rows.size;
+  }
 
-  repo(id: number): RepoRow | undefined { return this.rows.get(id); }
+  repo(id: number): RepoRow | undefined {
+    return this.rows.get(id);
+  }
 
   loadVectors(): Map<number, Float32Array> {
     if (this.vectors) return this.vectors;
     const map = new Map<number, Float32Array>();
 
-    for (const r of this.db.prepare('SELECT repo_id, vector FROM embeddings').all()) {
+    for (const r of this.db
+      .prepare("SELECT repo_id, vector FROM embeddings")
+      .all()) {
       const row = Schema.decodeUnknownSync(EmbeddingRowSchema)(r);
       const bytes = row.vector.slice();
-      map.set(row.repo_id, new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4));
+      map.set(
+        row.repo_id,
+        new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
+      );
     }
 
     this.vectors = map;
@@ -126,14 +155,20 @@ export class LabIndex {
   filteredIds(filters: Filters | undefined): Set<number> | null {
     const f = filters ?? {};
 
-    const active = f.language !== undefined || f.minStars !== undefined || f.maxStars !== undefined
-      || f.includeArchived === false || (f.topics && f.topics.length > 0);
+    const active =
+      f.language !== undefined ||
+      f.minStars !== undefined ||
+      f.maxStars !== undefined ||
+      f.includeArchived === false ||
+      (f.topics && f.topics.length > 0);
 
     if (!active) return null;
     const { where, params } = filterSql(f);
     const set = new Set<number>();
 
-    for (const r of this.db.prepare(`SELECT id FROM repos WHERE 1=1${where}`).all(...params)) {
+    for (const r of this.db
+      .prepare(`SELECT id FROM repos WHERE 1=1${where}`)
+      .all(...params)) {
       set.add(Schema.decodeUnknownSync(RepoIdRow)(r).id);
     }
 
@@ -141,48 +176,63 @@ export class LabIndex {
   }
 
   private inClause(ids: Set<number>): string {
-    return ids.size === 0 ? ' AND 0' : ` AND r.id IN (${[...ids].join(',')})`;
+    return ids.size === 0 ? " AND 0" : ` AND r.id IN (${[...ids].join(",")})`;
   }
 
   /** Porter bm25 keyword leg with AND→OR fallback and a trigram rescue for identifiers. */
-  keyword(terms: string[], filterIds: Set<number> | null, useExpansion: boolean): KeywordLeg {
-    if (terms.length === 0) return { list: [], fallback: null, primaryCount: 0 };
+  keyword(
+    terms: string[],
+    filterIds: Set<number> | null,
+    useExpansion: boolean,
+  ): KeywordLeg {
+    if (terms.length === 0)
+      return { list: [], fallback: null, primaryCount: 0 };
 
-    if (filterIds && filterIds.size === 0) return { list: [], fallback: null, primaryCount: 0 };
-    const filterWhere = filterIds ? this.inClause(filterIds) : '';
+    if (filterIds && filterIds.size === 0)
+      return { list: [], fallback: null, primaryCount: 0 };
+    const filterWhere = filterIds ? this.inClause(filterIds) : "";
 
-    const run = (table: 'repos_fts' | 'repos_tri', match: string): KeywordRow[] => {
+    const run = (
+      table: "repos_fts" | "repos_tri",
+      match: string,
+    ): KeywordRow[] => {
       const sql = `SELECT f.rowid AS id, bm25(${table}, ${FTS_WEIGHTS}) AS score
                    FROM ${table} f JOIN repos r ON r.id = f.rowid
                    WHERE ${table} MATCH ?${filterWhere}
                    ORDER BY score LIMIT 50`;
 
-      return Schema.decodeUnknownSync(KeywordRows)(this.db.prepare(sql).all(match));
+      return Schema.decodeUnknownSync(KeywordRows)(
+        this.db.prepare(sql).all(match),
+      );
     };
 
     const rank = (rows: KeywordRow[]): Ranked[] =>
       rows.map((row, i) => ({ id: row.id, rank: i + 1, score: row.score }));
 
     let fallback: string | null = null;
-    let primary = run('repos_fts', ftsAnd(terms));
+    let primary = run("repos_fts", ftsAnd(terms));
     const primaryCount = primary.length;
 
     if (primary.length === 0 && terms.length > 1) {
-      primary = run('repos_fts', ftsOr(terms));
-      fallback = 'or';
+      primary = run("repos_fts", ftsOr(terms));
+      fallback = "or";
     }
 
     let list = rank(primary);
 
     if (useExpansion) {
-      const exp = expansionTerms(terms.join(' '));
+      const exp = expansionTerms(terms.join(" "));
 
       if (exp.length > 0) {
-        const expanded = rank(run('repos_fts', ftsOr(exp)));
+        const expanded = rank(run("repos_fts", ftsOr(exp)));
         const merged = new Map<number, number>();
 
         for (const l of [list, expanded]) {
-          for (const item of l) merged.set(item.id, (merged.get(item.id) ?? 0) + 1 / (60 + item.rank));
+          for (const item of l)
+            merged.set(
+              item.id,
+              (merged.get(item.id) ?? 0) + 1 / (60 + item.rank),
+            );
         }
 
         list = [...merged.entries()]
@@ -198,10 +248,18 @@ export class LabIndex {
 
       if (triTerms.length > 0) {
         try {
-          const rows = run('repos_tri', triTerms.map((t) => `"${t.replaceAll('"', '""')}"`).join(' OR '));
+          const rows = run(
+            "repos_tri",
+            triTerms.map((t) => `"${t.replaceAll('"', '""')}"`).join(" OR "),
+          );
 
-          if (rows.length > 0) { list = rank(rows); fallback = fallback ?? 'trigram'; }
-        } catch { /* trigram needs >= 3 chars per phrase; ignore */ }
+          if (rows.length > 0) {
+            list = rank(rows);
+            fallback = fallback ?? "trigram";
+          }
+        } catch {
+          /* trigram needs >= 3 chars per phrase; ignore */
+        }
       }
     }
 
@@ -223,11 +281,16 @@ export class LabIndex {
 
     scored.sort((a, b) => b.score - a.score);
 
-    return scored.slice(0, 50).map((item, i) => ({ id: item.id, rank: i + 1, score: item.score }));
+    return scored
+      .slice(0, 50)
+      .map((item, i) => ({ id: item.id, rank: i + 1, score: item.score }));
   }
 }
 
-export async function runSearch(index: LabIndex, opts: SearchOptions): Promise<SearchOutput> {
+export async function runSearch(
+  index: LabIndex,
+  opts: SearchOptions,
+): Promise<SearchOutput> {
   const tStart = performance.now();
   const mode = opts.mode;
   const limit = opts.limit ?? 10;
@@ -238,24 +301,25 @@ export async function runSearch(index: LabIndex, opts: SearchOptions): Promise<S
   timings.filter = performance.now() - tStart;
 
   const qTerms = tokenize(opts.query);
-  const useExpansion = mode === 'hybrid+expand';
+  const useExpansion = mode === "hybrid+expand";
   const expansion = useExpansion ? expansionTerms(opts.query) : [];
 
   let lex: Ranked[] = [];
   let fallback: string | null = null;
   let tLeg = performance.now();
 
-  if (mode === 'keyword' || mode === 'hybrid' || mode === 'hybrid+expand') {
+  if (mode === "keyword" || mode === "hybrid" || mode === "hybrid+expand") {
     const r = index.keyword(qTerms, filterIds, useExpansion);
-    lex = r.list; fallback = r.fallback;
+    lex = r.list;
+    fallback = r.fallback;
   }
 
   timings.keyword = performance.now() - tLeg;
 
   let sem: Ranked[] = [];
 
-  if (mode === 'semantic' || mode === 'hybrid' || mode === 'hybrid+expand') {
-    const extra = useExpansion ? expansion.join(' ') : '';
+  if (mode === "semantic" || mode === "hybrid" || mode === "hybrid+expand") {
+    const extra = useExpansion ? expansion.join(" ") : "";
     tLeg = performance.now();
     const qvec = await embedQuery(opts.query, extra);
     timings.embed = performance.now() - tLeg;
@@ -312,7 +376,9 @@ export async function runSearch(index: LabIndex, opts: SearchOptions): Promise<S
     }
   }
 
-  candidates.sort((a, b) => (b.base * b.boost) - (a.base * a.boost) || b.base - a.base);
+  candidates.sort(
+    (a, b) => b.base * b.boost - a.base * a.boost || b.base - a.base,
+  );
 
   const hits: Hit[] = candidates.slice(0, limit).map((c, i) => {
     const row = index.repo(c.id)!;
@@ -320,12 +386,17 @@ export async function runSearch(index: LabIndex, opts: SearchOptions): Promise<S
 
     if (c.lex_rank) {
       try {
-        const row = index.db.prepare(
-          `SELECT snippet(repos_fts, 3, '<mark>', '</mark>', ' … ', 20) AS s FROM repos_fts WHERE rowid = ?`,
-        ).get(c.id);
+        const row = index.db
+          .prepare(
+            `SELECT snippet(repos_fts, 3, '<mark>', '</mark>', ' … ', 20) AS s FROM repos_fts WHERE rowid = ?`,
+          )
+          .get(c.id);
 
-        if (row !== undefined) snippet = Schema.decodeUnknownSync(SnippetRow)(row).s;
-      } catch { /* no snippet */ }
+        if (row !== undefined)
+          snippet = Schema.decodeUnknownSync(SnippetRow)(row).s;
+      } catch {
+        /* no snippet */
+      }
     }
 
     return {
@@ -354,7 +425,11 @@ export async function runSearch(index: LabIndex, opts: SearchOptions): Promise<S
     filters: opts.filters ?? {},
     expansion,
     keyword_fallback: fallback,
-    legs: { keyword: lex.length, semantic: sem.length, filtered_universe: filterIds ? filterIds.size : null },
+    legs: {
+      keyword: lex.length,
+      semantic: sem.length,
+      filtered_universe: filterIds ? filterIds.size : null,
+    },
     timing_ms: timings,
     hits,
   };

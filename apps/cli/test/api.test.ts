@@ -21,18 +21,16 @@ describe("mapHttpError", () => {
 
   it("prefers the API message when the body carries one", () => {
     const body = JSON.stringify({
-      error: UserNotFoundBody.make({ message: "Could not resolve @ghost" })
+      error: UserNotFoundBody.make({ message: "Could not resolve @ghost" }),
     });
 
     expect(mapHttpError(404, body, {}).message).toBe("Could not resolve @ghost");
   });
 
   it("turns sync 429s into attach/cooldown guidance", () => {
-    const inProgress = mapHttpError(
-      429,
-      JSON.stringify({ error: SyncInProgressBody.make({}) }),
-      { login: "alice" }
-    );
+    const inProgress = mapHttpError(429, JSON.stringify({ error: SyncInProgressBody.make({}) }), {
+      login: "alice",
+    });
 
     expect(inProgress.code).toBe("RATE_LIMITED");
     expect(inProgress.message).toContain("already running");
@@ -41,7 +39,7 @@ describe("mapHttpError", () => {
     const cooldown = mapHttpError(
       429,
       JSON.stringify({ error: { code: "SyncCooldown", retryAfterSeconds: 90 } }),
-      { login: "alice" }
+      { login: "alice" },
     );
 
     expect(cooldown.hint).toContain("90s");

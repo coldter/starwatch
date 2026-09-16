@@ -13,7 +13,7 @@ import {
   SearchResponse,
   SyncPhase,
   UserIndexState,
-  UserProfile
+  UserProfile,
 } from "@starwatch/domain";
 import {
   DEFAULT_API_URL,
@@ -25,7 +25,7 @@ import {
   searchPath,
   syncPath,
   userPath,
-  type SearchQueryParams
+  type SearchQueryParams,
 } from "./config.ts";
 
 export const CLI_VERSION = "0.0.0";
@@ -37,21 +37,21 @@ export const CLI_VERSION = "0.0.0";
 export const UserPageResponse = Schema.Struct({
   profile: UserProfile,
   state: UserIndexState,
-  groups: Schema.Array(Group)
+  groups: Schema.Array(Group),
 });
 
 export type UserPageResponse = typeof UserPageResponse.Type;
 
 export const RepoPageResponse = Schema.Struct({
   repo: Repo,
-  groups: Schema.Array(Group)
+  groups: Schema.Array(Group),
 });
 
 export type RepoPageResponse = typeof RepoPageResponse.Type;
 
 export const SyncStartResponse = Schema.Struct({
   started: Schema.Boolean,
-  phase: SyncPhase
+  phase: SyncPhase,
 });
 
 export type SyncStartResponse = typeof SyncStartResponse.Type;
@@ -59,7 +59,7 @@ export type SyncStartResponse = typeof SyncStartResponse.Type;
 export const HealthResponse = Schema.Struct({
   ok: Schema.Boolean,
   service: Schema.String,
-  version: Schema.String
+  version: Schema.String,
 });
 
 export type HealthResponse = typeof HealthResponse.Type;
@@ -72,7 +72,7 @@ export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
   code: Schema.String,
   message: Schema.String,
   hint: Schema.optional(Schema.String),
-  status: Schema.optional(Schema.Number)
+  status: Schema.optional(Schema.Number),
 }) {
   override readonly [Runtime.errorExitCode] = 1;
   override readonly [Runtime.errorReported] = false;
@@ -81,7 +81,7 @@ export class ApiError extends Schema.TaggedError<ApiError>()("ApiError", {
 /** Bad input (missing `--user`, unparseable `owner/repo`) — exit 1. */
 export class CliInputError extends Schema.TaggedError<CliInputError>()("CliInputError", {
   message: Schema.String,
-  hint: Schema.optional(Schema.String)
+  hint: Schema.optional(Schema.String),
 }) {
   override readonly [Runtime.errorExitCode] = 1;
   override readonly [Runtime.errorReported] = false;
@@ -89,7 +89,7 @@ export class CliInputError extends Schema.TaggedError<CliInputError>()("CliInput
 
 /** `search` succeeded with zero hits — exit 2 (`docs/05-cli.md` §4.6). */
 export class NoResultsError extends Schema.TaggedError<NoResultsError>()("NoResultsError", {
-  query: Schema.String
+  query: Schema.String,
 }) {
   override readonly [Runtime.errorExitCode] = 2;
   override readonly [Runtime.errorReported] = false;
@@ -121,17 +121,14 @@ const ErrorBodyFields = Schema.Struct({
   _tag: Schema.optional(Schema.String),
   code: Schema.optional(Schema.String),
   message: Schema.optional(Schema.String),
-  retryAfterSeconds: Schema.optional(Schema.Finite)
+  retryAfterSeconds: Schema.optional(Schema.Finite),
 });
 
 /**
  * The envelope comes first: the flat variant tolerates excess properties, so
  * it must not get the chance to discard a nested `error` object.
  */
-const ErrorBodyPayload = Schema.Union([
-  Schema.Struct({ error: ErrorBodyFields }),
-  ErrorBodyFields
-]);
+const ErrorBodyPayload = Schema.Union([Schema.Struct({ error: ErrorBodyFields }), ErrorBodyFields]);
 
 const ErrorBodyJson = Schema.fromJsonString(ErrorBodyPayload);
 
@@ -150,7 +147,7 @@ const errorFields = (bodyText: string): BodyFields => {
   return {
     code: nonEmptyString(record.code) ?? nonEmptyString(record._tag),
     message: nonEmptyString(record.message),
-    retryAfterSeconds: record.retryAfterSeconds
+    retryAfterSeconds: record.retryAfterSeconds,
   };
 };
 
@@ -161,7 +158,7 @@ const userLabel = (context: ErrorContext): string =>
 export const mapHttpError = (
   status: number,
   bodyText: string,
-  context: ErrorContext
+  context: ErrorContext,
 ): HttpErrorInfo => {
   const fields = errorFields(bodyText);
   const apiMessage = fields.message ?? `The starwatch API returned HTTP ${status}.`;
@@ -175,7 +172,7 @@ export const mapHttpError = (
         message: `Repository "${context.repo}" is not indexed.`,
         hint:
           "Check the spelling, or search for it from a user's page: " +
-          `starwatch search "${name}" --user <login>`
+          `starwatch search "${name}" --user <login>`,
       };
     }
 
@@ -183,7 +180,7 @@ export const mapHttpError = (
       return {
         code: "NOT_FOUND",
         message: `No GitHub user named "${context.login}".`,
-        hint: "Check the spelling — usernames use letters, numbers and single hyphens."
+        hint: "Check the spelling — usernames use letters, numbers and single hyphens.",
       };
     }
 
@@ -195,18 +192,20 @@ export const mapHttpError = (
       return {
         code: "RATE_LIMITED",
         message: fields.message ?? `An index is already running for ${userLabel(context)}.`,
-        hint: `Follow it with: starwatch sync ${context.login ?? "<login>"} --wait`
+        hint: `Follow it with: starwatch sync ${context.login ?? "<login>"} --wait`,
       };
     }
 
     if (fields.code === "SyncCooldown") {
       const retry =
-        fields.retryAfterSeconds === undefined ? "" : ` Try again in ~${fields.retryAfterSeconds}s.`;
+        fields.retryAfterSeconds === undefined
+          ? ""
+          : ` Try again in ~${fields.retryAfterSeconds}s.`;
 
       return {
         code: "RATE_LIMITED",
         message: fields.message ?? `Indexing ${userLabel(context)} is in cooldown.`,
-        hint: retry.trim() === "" ? "Wait for the cooldown to pass, then retry." : retry.trim()
+        hint: retry.trim() === "" ? "Wait for the cooldown to pass, then retry." : retry.trim(),
       };
     }
 
@@ -216,7 +215,7 @@ export const mapHttpError = (
       hint:
         fields.retryAfterSeconds === undefined
           ? "Wait a moment and try again."
-          : `Retry in ~${fields.retryAfterSeconds}s.`
+          : `Retry in ~${fields.retryAfterSeconds}s.`,
     };
   }
 
@@ -224,7 +223,7 @@ export const mapHttpError = (
     return {
       code: "CONFLICT",
       message: fields.message ?? "The request conflicts with the current state of the index.",
-      hint: "Re-run without --full, or follow the active run with: starwatch sync <login> --wait"
+      hint: "Re-run without --full, or follow the active run with: starwatch sync <login> --wait",
     };
   }
 
@@ -232,7 +231,7 @@ export const mapHttpError = (
     return {
       code: "BAD_REQUEST",
       message: fields.message ?? "The service rejected the request.",
-      hint: "Check the query and filters, then retry."
+      hint: "Check the query and filters, then retry.",
     };
   }
 
@@ -240,7 +239,7 @@ export const mapHttpError = (
     return {
       code: "SERVER",
       message: fields.message ?? `The starwatch API had a problem (HTTP ${status}).`,
-      hint: "Try again in a moment; if it persists, run: starwatch health"
+      hint: "Try again in a moment; if it persists, run: starwatch health",
     };
   }
 
@@ -256,7 +255,7 @@ const networkError = (url: string, cause: unknown): ApiError => {
     message: `Could not reach the starwatch API at ${origin}${detail}.`,
     hint:
       `Check the service is running and that --api is correct (default ${DEFAULT_API_URL}); ` +
-      `run: starwatch health --api ${origin}`
+      `run: starwatch health --api ${origin}`,
   });
 };
 
@@ -264,7 +263,7 @@ const badResponse = (url: string, detail: string): ApiError =>
   new ApiError({
     code: "BAD_RESPONSE",
     message: `The starwatch API ${detail} at ${originOf(url)}.`,
-    hint: "The service may be an older or newer version — check: starwatch health"
+    hint: "The service may be an older or newer version — check: starwatch health",
   });
 
 // ---------------------------------------------------------------------------
@@ -280,7 +279,7 @@ const fetchJson = <A>(
   schema: Schema.ConstraintDecoder<A, never>,
   url: string,
   context: ErrorContext,
-  init?: RequestInit
+  init?: RequestInit,
 ): Effect.Effect<A, ApiError, HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;
@@ -302,61 +301,66 @@ const fetchJson = <A>(
           code: info.code,
           message: info.message,
           hint: info.hint,
-          status: response.status
-        })
+          status: response.status,
+        }),
       );
     }
 
     const body = yield* response.json.pipe(
-      Effect.mapError(() => badResponse(url, "returned a malformed JSON body"))
+      Effect.mapError(() => badResponse(url, "returned a malformed JSON body")),
     );
 
     return yield* Schema.decodeUnknownEffect(schema)(body).pipe(
-      Effect.mapError(() => badResponse(url, "returned an unexpected response shape"))
+      Effect.mapError(() => badResponse(url, "returned an unexpected response shape")),
     );
   });
 
 export const getUserPage = (
   apiUrl: string,
-  login: string
+  login: string,
 ): Effect.Effect<UserPageResponse, ApiError, HttpClient.HttpClient> =>
   fetchJson(UserPageResponse, buildUrl(apiUrl, userPath(login)), { login });
 
 export const searchStars = (
   apiUrl: string,
   login: string,
-  params: SearchQueryParams
+  params: SearchQueryParams,
 ): Effect.Effect<SearchResponse, ApiError, HttpClient.HttpClient> =>
-  fetchJson(
-    SearchResponse,
-    buildUrl(apiUrl, searchPath(login), buildSearchQueryString(params)),
-    { login }
-  );
+  fetchJson(SearchResponse, buildUrl(apiUrl, searchPath(login), buildSearchQueryString(params)), {
+    login,
+  });
 
 export const startSync = (
   apiUrl: string,
   login: string,
-  full: boolean
+  full: boolean,
 ): Effect.Effect<SyncStartResponse, ApiError, HttpClient.HttpClient> =>
-  fetchJson(SyncStartResponse, buildUrl(apiUrl, syncPath(login)), { login }, {
-    method: "POST",
-    body: { full }
-  });
+  fetchJson(
+    SyncStartResponse,
+    buildUrl(apiUrl, syncPath(login)),
+    { login },
+    {
+      method: "POST",
+      body: { full },
+    },
+  );
 
 export const getSyncState = (
   apiUrl: string,
-  login: string
+  login: string,
 ): Effect.Effect<UserIndexState, ApiError, HttpClient.HttpClient> =>
   fetchJson(UserIndexState, buildUrl(apiUrl, syncPath(login)), { login });
 
 export const getRepoPage = (
   apiUrl: string,
   owner: string,
-  name: string
+  name: string,
 ): Effect.Effect<RepoPageResponse, ApiError, HttpClient.HttpClient> =>
-  fetchJson(RepoPageResponse, buildUrl(apiUrl, repoPath(owner, name)), { repo: `${owner}/${name}` });
+  fetchJson(RepoPageResponse, buildUrl(apiUrl, repoPath(owner, name)), {
+    repo: `${owner}/${name}`,
+  });
 
 export const getHealth = (
-  apiUrl: string
+  apiUrl: string,
 ): Effect.Effect<HealthResponse, ApiError, HttpClient.HttpClient> =>
   fetchJson(HealthResponse, buildUrl(apiUrl, healthPath), {});

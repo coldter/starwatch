@@ -6,14 +6,21 @@ import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT } from "../constants.ts";
 import type { SearchQuery } from "../api.ts";
 
 /** Canonical login handling: GitHub logins are case-insensitive. */
-export const normalizeLogin = (raw: string): string => raw.trim().replace(/^@+/, "").toLowerCase();
+export const normalizeLogin = (raw: string): string =>
+  raw.trim().replace(/^@+/, "").toLowerCase();
 
 /** `cf-connecting-ip`, then the first `x-forwarded-for` hop (dev). */
-export const clientIp = (request: HttpServerRequest.HttpServerRequest): string => {
-  const direct = Option.getOrUndefined(Headers.get(request.headers, "cf-connecting-ip"));
+export const clientIp = (
+  request: HttpServerRequest.HttpServerRequest,
+): string => {
+  const direct = Option.getOrUndefined(
+    Headers.get(request.headers, "cf-connecting-ip"),
+  );
 
   if (direct !== undefined && direct.length > 0) return direct;
-  const forwarded = Option.getOrUndefined(Headers.get(request.headers, "x-forwarded-for"));
+  const forwarded = Option.getOrUndefined(
+    Headers.get(request.headers, "x-forwarded-for"),
+  );
   const first = forwarded?.split(",")[0]?.trim();
 
   return first !== undefined && first.length > 0 ? first : "unknown";
@@ -29,7 +36,7 @@ export const idleState = (login: string): UserIndexState => ({
   semanticDocs: 0,
   lastSyncedAt: null,
   lastError: null,
-  updatedAt: new Date().toISOString()
+  updatedAt: new Date().toISOString(),
 });
 
 /** ISO-8601 -> epoch ms, `null` for missing/invalid values. */
@@ -58,7 +65,9 @@ const parseBoolean = (value: string | undefined): boolean | undefined => {
   return undefined;
 };
 
-const splitList = (value: string | undefined): ReadonlyArray<string> | undefined => {
+const splitList = (
+  value: string | undefined,
+): ReadonlyArray<string> | undefined => {
   if (value === undefined) return undefined;
 
   const items = value
@@ -88,13 +97,15 @@ export const parseFilters = (query: SearchQuery) => ({
   archived: parseBoolean(query.archived),
   license: optionalText(query.license),
   starredAfter: optionalText(query.starredAfter),
-  starredBefore: optionalText(query.starredBefore)
+  starredBefore: optionalText(query.starredBefore),
 });
 
 export const parseMode = (value: string | undefined): SearchMode => {
   const normalized = value?.trim().toLowerCase();
 
-  return normalized === "keyword" || normalized === "hybrid" || normalized === "semantic"
+  return normalized === "keyword" ||
+    normalized === "hybrid" ||
+    normalized === "semantic"
     ? normalized
     : "auto";
 };

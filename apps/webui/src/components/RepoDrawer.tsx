@@ -25,7 +25,8 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
   const toast = useToast();
 
   useEffect(() => {
-    restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    restoreRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
 
     return () => {
@@ -48,7 +49,7 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
       if (!panel) return;
 
       const focusable = panel.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
 
       const first = focusable[0];
@@ -73,7 +74,12 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
   const copy = (value: string, label: string) => {
     navigator.clipboard.writeText(value).then(
       () => toast({ title: `${label} copied` }),
-      () => toast({ title: "Couldn't copy", body: "Select the URL and copy it manually.", tone: "error" })
+      () =>
+        toast({
+          title: "Couldn't copy",
+          body: "Select the URL and copy it manually.",
+          tone: "error",
+        }),
     );
   };
 
@@ -83,7 +89,12 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
 
   return (
     <div className="drawer-layer">
-      <button type="button" className="drawer-backdrop" aria-label="Close details" onClick={onClose} />
+      <button
+        type="button"
+        className="drawer-backdrop"
+        aria-label="Close details"
+        onClick={onClose}
+      />
       <aside
         ref={panelRef}
         className="drawer"
@@ -114,7 +125,9 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
 
         <div className="drawer__body">
           {loading ? <SkeletonCard /> : null}
-          {error ? <ErrorState title="Couldn't load this repository" error={error} onRetry={retry} /> : null}
+          {error ? (
+            <ErrorState title="Couldn't load this repository" error={error} onRetry={retry} />
+          ) : null}
 
           {repo ? (
             <>
@@ -143,7 +156,11 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
                 </div>
                 <div className="meta-grid__item">
                   <dt>Pushed</dt>
-                  <dd>{repo.pushedAt ? `${formatDate(repo.pushedAt)} (${relativeTime(repo.pushedAt)})` : "—"}</dd>
+                  <dd>
+                    {repo.pushedAt
+                      ? `${formatDate(repo.pushedAt)} (${relativeTime(repo.pushedAt)})`
+                      : "—"}
+                  </dd>
                 </div>
                 <div className="meta-grid__item">
                   <dt>Starred</dt>
@@ -169,13 +186,21 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
                 <h3 className="drawer__section-title">Clone</h3>
                 <div className="copy-row">
                   <code className="copy-row__value">{cloneHttps}</code>
-                  <button type="button" className="btn btn--small" onClick={() => copy(cloneHttps, "Clone URL")}>
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => copy(cloneHttps, "Clone URL")}
+                  >
                     Copy
                   </button>
                 </div>
                 <div className="copy-row">
                   <code className="copy-row__value">{cloneSsh}</code>
-                  <button type="button" className="btn btn--small" onClick={() => copy(cloneSsh, "SSH clone URL")}>
+                  <button
+                    type="button"
+                    className="btn btn--small"
+                    onClick={() => copy(cloneSsh, "SSH clone URL")}
+                  >
                     Copy
                   </button>
                 </div>
@@ -185,11 +210,21 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
                 <a className="btn" href={repo.htmlUrl} target="_blank" rel="noreferrer noopener">
                   Open on GitHub ↗
                 </a>
-                <a className="btn btn--ghost" href={`${repo.htmlUrl}#readme`} target="_blank" rel="noreferrer noopener">
+                <a
+                  className="btn btn--ghost"
+                  href={`${repo.htmlUrl}#readme`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
                   README on GitHub ↗
                 </a>
                 {repo.homepage ? (
-                  <a className="btn btn--ghost" href={repo.homepage} target="_blank" rel="noreferrer noopener">
+                  <a
+                    className="btn btn--ghost"
+                    href={repo.homepage}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
                     Homepage ↗
                   </a>
                 ) : null}

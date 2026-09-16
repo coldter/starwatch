@@ -17,7 +17,7 @@ export default Alchemy.Stack(
     providers: Cloudflare.providers(),
     // Local state file under <cwd>/.alchemy/state/... ; swap for
     // `Cloudflare.state()` once we want remote/shared state.
-    state: Alchemy.localState()
+    state: Alchemy.localState(),
   },
   Effect.gen(function* () {
     const worker = yield* Worker;
@@ -27,12 +27,12 @@ export default Alchemy.Stack(
     // plan/deploy (see https://v2.alchemy.run/command/dev-servers).
     const web = yield* Command.Dev("Web", {
       command: "pnpm run dev",
-      cwd: webuiDir
+      cwd: webuiDir,
     });
 
     return {
       apiUrl: worker.url,
-      webUrl: web.url
+      webUrl: web.url,
     };
-  })
+  }),
 );

@@ -18,7 +18,7 @@ import type {
   Group,
   Repo,
   UserNotFound,
-  UserProfile
+  UserProfile,
 } from "@starwatch/domain";
 
 /** Every error a GitHub client method can fail with (docs/03 §1.3 taxonomy). */
@@ -58,7 +58,7 @@ export interface GithubClientService {
   readonly getUserProfile: (login: string) => Effect.Effect<UserProfile, GithubClientError>;
   readonly listStarPage: (
     login: string,
-    options: ListStarPageOptions
+    options: ListStarPageOptions,
   ) => Effect.Effect<StarPage, GithubClientError>;
   /** Public Lists of any user (`user(login).lists`), private lists skipped. */
   readonly listGroups: (login: string) => Effect.Effect<ReadonlyArray<Group>, GithubClientError>;
@@ -68,12 +68,12 @@ export interface GithubClientService {
    */
   readonly getReadme: (
     fullName: string,
-    defaultBranch: string
+    defaultBranch: string,
   ) => Effect.Effect<GithubReadme | null, GithubRateLimited | GithubUpstream>;
 }
 
 export class GithubClient extends Context.Service<GithubClient, GithubClientService>()(
-  "@starwatch/GithubClient"
+  "@starwatch/GithubClient",
 ) {}
 
 /** A README hit plus which path served it (docs/09 §3.2). */
@@ -87,13 +87,13 @@ export interface GithubReadme {
  * public API — embed errors are retried/degraded inside the workflow.
  */
 export class EmbedFailed extends Schema.TaggedError<EmbedFailed>()("EmbedFailed", {
-  message: Schema.String
+  message: Schema.String,
 }) {}
 
 /** Bounded-batch embedder; vectors are `Float32Array` rows in input order. */
 export interface EmbedderService {
   readonly embed: (
-    texts: ReadonlyArray<string>
+    texts: ReadonlyArray<string>,
   ) => Effect.Effect<ReadonlyArray<Float32Array>, EmbedFailed>;
 }
 

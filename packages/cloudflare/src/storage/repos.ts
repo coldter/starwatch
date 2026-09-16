@@ -25,7 +25,7 @@ import {
   StarPageRow,
   UserRow,
   VectorBlobRow,
-  type ReadmeState
+  type ReadmeState,
 } from "./sql.ts";
 
 /** Aggregate counts for `user_index_state` (docs/08 status payload). */
@@ -92,7 +92,10 @@ export interface RepoStoreService {
    * `login` in `user_stars`. Safe to re-run: `first_seen_at` is preserved on
    * conflict and an explicit `starredAt` wins over an existing value.
    */
-  readonly upsertRepos: (login: string, repos: ReadonlyArray<Repo>) => Effect.Effect<void, SqlError>;
+  readonly upsertRepos: (
+    login: string,
+    repos: ReadonlyArray<Repo>,
+  ) => Effect.Effect<void, SqlError>;
   /**
    * Bulk variant of {@link upsertRepos} for listing pages: writes `repos` and
    * `user_stars` with one JSON1 statement per ≤{@link REPO_BATCH_SIZE}-repo
@@ -106,7 +109,7 @@ export interface RepoStoreService {
   readonly upsertRepoBatch: (
     login: string,
     repos: ReadonlyArray<Repo>,
-    page?: number
+    page?: number,
   ) => Effect.Effect<void, SqlError>;
   readonly listRepoIds: (login: string) => Effect.Effect<ReadonlyArray<number>, SqlError>;
   /**
@@ -115,11 +118,20 @@ export interface RepoStoreService {
    * must keep them rather than treat them as unstarred.
    */
   readonly getStarPageRows: (
-    login: string
-  ) => Effect.Effect<ReadonlyArray<{ readonly starPage: number | null; readonly repoId: number }>, SqlError>;
+    login: string,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly starPage: number | null; readonly repoId: number }>,
+    SqlError
+  >;
   /** Drop the user↔repo links; shared `repos` rows survive for other users. */
-  readonly markUnstarred: (login: string, repoIds: ReadonlyArray<number>) => Effect.Effect<void, SqlError>;
-  readonly getRepos: (login: string, ids: ReadonlyArray<number>) => Effect.Effect<ReadonlyArray<Repo>, SqlError>;
+  readonly markUnstarred: (
+    login: string,
+    repoIds: ReadonlyArray<number>,
+  ) => Effect.Effect<void, SqlError>;
+  readonly getRepos: (
+    login: string,
+    ids: ReadonlyArray<number>,
+  ) => Effect.Effect<ReadonlyArray<Repo>, SqlError>;
   /**
    * Resolve a filter set to full repo rows in the user's star universe.
    *
@@ -131,18 +143,28 @@ export interface RepoStoreService {
    * but combined topics+groups should stay under ~90 to respect D1's
    * 100-parameter-per-statement ceiling.
    */
-  readonly listReposForSearch: (login: string, filters: SearchFilters) => Effect.Effect<ReadonlyArray<Repo>, SqlError>;
+  readonly listReposForSearch: (
+    login: string,
+    filters: SearchFilters,
+  ) => Effect.Effect<ReadonlyArray<Repo>, SqlError>;
   readonly getRepoByFullName: (fullName: string) => Effect.Effect<Repo | null, SqlError>;
   readonly countStats: (login: string) => Effect.Effect<RepoStats, SqlError>;
   readonly starEtag: (login: string, page: number) => Effect.Effect<string | null, SqlError>;
-  readonly putStarEtag: (login: string, page: number, etag: string) => Effect.Effect<void, SqlError>;
+  readonly putStarEtag: (
+    login: string,
+    page: number,
+    etag: string,
+  ) => Effect.Effect<void, SqlError>;
   /** Replace the login's groups and memberships in one pass (delete + insert). */
-  readonly replaceGroups: (login: string, groups: ReadonlyArray<Group>) => Effect.Effect<void, SqlError>;
+  readonly replaceGroups: (
+    login: string,
+    groups: ReadonlyArray<Group>,
+  ) => Effect.Effect<void, SqlError>;
   readonly listGroups: (login: string) => Effect.Effect<ReadonlyArray<Group>, SqlError>;
   /** Map `repo_id` → group **slugs**, for `SearchHit.groups` (docs/05 §4.4). */
   readonly groupsForRepos: (
     login: string,
-    repoIds: ReadonlyArray<number>
+    repoIds: ReadonlyArray<number>,
   ) => Effect.Effect<ReadonlyMap<number, ReadonlyArray<string>>, SqlError>;
   /** Write the README budget fields; `readme_text` is capped at 64 KB. */
   readonly putReadme: (repoId: number, update: ReadmeUpdate) => Effect.Effect<void, SqlError>;
@@ -152,7 +174,7 @@ export interface RepoStoreService {
    */
   readonly getReadmeTexts: (
     login: string,
-    ids: ReadonlyArray<number>
+    ids: ReadonlyArray<number>,
   ) => Effect.Effect<ReadonlyMap<number, string>, SqlError>;
   /**
    * README bookkeeping for every repo in the user's star universe, keyed by
@@ -160,7 +182,11 @@ export interface RepoStoreService {
    */
   readonly getReadmeStates: (login: string) => Effect.Effect<ReadmeStateMap, SqlError>;
   /** Upsert the pointer for `vectors/{login}.bin` (the blob store stays pure). */
-  readonly putVectorBlob: (login: string, dims: number, bytesLen: number) => Effect.Effect<void, SqlError>;
+  readonly putVectorBlob: (
+    login: string,
+    dims: number,
+    bytesLen: number,
+  ) => Effect.Effect<void, SqlError>;
   readonly getVectorBlob: (login: string) => Effect.Effect<VectorBlobPointer | null, SqlError>;
   readonly deleteVectorBlob: (login: string) => Effect.Effect<void, SqlError>;
 }
@@ -176,7 +202,7 @@ const toUser = (row: UserRow): UserProfile => ({
   location: row.location,
   followers: row.followers,
   publicRepos: row.publicRepos,
-  createdAt: row.createdAtGh ?? ""
+  createdAt: row.createdAtGh ?? "",
 });
 
 const toRepo = (row: RepoRow): Repo => ({
@@ -194,7 +220,7 @@ const toRepo = (row: RepoRow): Repo => ({
   homepage: row.homepage,
   pushedAt: row.pushedAt,
   starredAt: row.starredAt,
-  htmlUrl: row.htmlUrl
+  htmlUrl: row.htmlUrl,
 });
 
 const toIndexState = (row: IndexStateRow): UserIndexState => ({
@@ -206,7 +232,7 @@ const toIndexState = (row: IndexStateRow): UserIndexState => ({
   semanticDocs: row.semanticDocs,
   lastSyncedAt: row.lastSyncedAt,
   lastError: row.lastError,
-  updatedAt: row.updatedAt
+  updatedAt: row.updatedAt,
 });
 
 export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("RepoStore") {
@@ -246,7 +272,9 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         return row === undefined ? null : toUser(Schema.decodeUnknownSync(UserRow)(row));
       });
 
-      const upsertIndexState = Effect.fn("RepoStore.upsertIndexState")(function* (state: UserIndexState) {
+      const upsertIndexState = Effect.fn("RepoStore.upsertIndexState")(function* (
+        state: UserIndexState,
+      ) {
         yield* sql`
           INSERT INTO user_index_state (
             login, phase, stars_total, repos_metadata, readmes_fetched,
@@ -269,15 +297,18 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       });
 
       const getIndexState = Effect.fn("RepoStore.getIndexState")(function* (login: string) {
-        const rows = yield* sql<IndexStateRow>`SELECT * FROM user_index_state WHERE login = ${login} LIMIT 1`;
+        const rows =
+          yield* sql<IndexStateRow>`SELECT * FROM user_index_state WHERE login = ${login} LIMIT 1`;
         const row = rows[0];
 
-        return row === undefined ? null : toIndexState(Schema.decodeUnknownSync(IndexStateRow)(row));
+        return row === undefined
+          ? null
+          : toIndexState(Schema.decodeUnknownSync(IndexStateRow)(row));
       });
 
       const upsertRepos = Effect.fn("RepoStore.upsertRepos")(function* (
         login: string,
-        repos: ReadonlyArray<Repo>
+        repos: ReadonlyArray<Repo>,
       ) {
         for (const repo of repos) {
           const now = nowIso();
@@ -320,7 +351,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       const upsertRepoBatch = Effect.fn("RepoStore.upsertRepoBatch")(function* (
         login: string,
         repos: ReadonlyArray<Repo>,
-        page?: number
+        page?: number,
       ) {
         if (repos.length === 0) return;
         const now = nowIso();
@@ -343,8 +374,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
               license: repo.license,
               homepage: repo.homepage,
               pushedAt: repo.pushedAt,
-              htmlUrl: repo.htmlUrl
-            }))
+              htmlUrl: repo.htmlUrl,
+            })),
           );
 
           // `WHERE true` disambiguates SQLite's INSERT…SELECT…ON CONFLICT parse.
@@ -393,8 +424,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
             batch.map((repo) => ({
               repoId: repo.id,
               starredAt: repo.starredAt,
-              page: page ?? null
-            }))
+              page: page ?? null,
+            })),
           );
 
           yield* sql`
@@ -435,7 +466,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
 
       const markUnstarred = Effect.fn("RepoStore.markUnstarred")(function* (
         login: string,
-        repoIds: ReadonlyArray<number>
+        repoIds: ReadonlyArray<number>,
       ) {
         for (const ids of chunk(repoIds, 90)) {
           yield* sql`DELETE FROM user_stars WHERE login = ${login} AND repo_id IN ${sql.in(ids)}`;
@@ -444,7 +475,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
 
       const getRepos = Effect.fn("RepoStore.getRepos")(function* (
         login: string,
-        ids: ReadonlyArray<number>
+        ids: ReadonlyArray<number>,
       ) {
         const repos: Array<Repo> = [];
 
@@ -467,7 +498,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
 
       const listReposForSearch = Effect.fn("RepoStore.listReposForSearch")(function* (
         login: string,
-        filters: SearchFilters
+        filters: SearchFilters,
       ) {
         const conditions: Array<Fragment> = [];
 
@@ -506,7 +537,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         // but user input need not be.
         for (const topic of filters.topics ?? []) {
           conditions.push(
-            sql`EXISTS (SELECT 1 FROM json_each(r.topics_json) AS t WHERE lower(t.value) = lower(${topic}))`
+            sql`EXISTS (SELECT 1 FROM json_each(r.topics_json) AS t WHERE lower(t.value) = lower(${topic}))`,
           );
         }
 
@@ -519,7 +550,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
               SELECT 1 FROM group_repos gr
               JOIN groups g ON g.id = gr.group_id
               WHERE gr.repo_id = r.id AND g.login = ${login} AND g.slug IN ${sql.in(groupSlugs)}
-            )`
+            )`,
           );
         }
 
@@ -536,7 +567,9 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         return rows.map((row) => toRepo(Schema.decodeUnknownSync(RepoRow)(row)));
       });
 
-      const getRepoByFullName = Effect.fn("RepoStore.getRepoByFullName")(function* (fullName: string) {
+      const getRepoByFullName = Effect.fn("RepoStore.getRepoByFullName")(function* (
+        fullName: string,
+      ) {
         const rows = yield* sql<RepoRow>`
           SELECT r.*, NULL AS starred_at FROM repos r WHERE r.full_name = ${fullName} LIMIT 1
         `;
@@ -578,7 +611,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       const putStarEtag = Effect.fn("RepoStore.putStarEtag")(function* (
         login: string,
         page: number,
-        etag: string
+        etag: string,
       ) {
         yield* sql`
           INSERT INTO star_etags (login, page, etag, fetched_at)
@@ -591,7 +624,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
 
       const replaceGroups = Effect.fn("RepoStore.replaceGroups")(function* (
         login: string,
-        groups: ReadonlyArray<Group>
+        groups: ReadonlyArray<Group>,
       ) {
         const now = nowIso();
         const existing = yield* sql<GroupIdRow>`SELECT id FROM groups WHERE login = ${login}`;
@@ -660,14 +693,14 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
             name: group.name,
             slug: group.slug,
             position: group.position,
-            repoIds: memberships.get(group.id) ?? []
+            repoIds: memberships.get(group.id) ?? [],
           };
         });
       });
 
       const groupsForRepos = Effect.fn("RepoStore.groupsForRepos")(function* (
         login: string,
-        repoIds: ReadonlyArray<number>
+        repoIds: ReadonlyArray<number>,
       ) {
         const byRepo = new Map<number, Array<string>>();
 
@@ -695,7 +728,10 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         return byRepo;
       });
 
-      const putReadme = Effect.fn("RepoStore.putReadme")(function* (repoId: number, update: ReadmeUpdate) {
+      const putReadme = Effect.fn("RepoStore.putReadme")(function* (
+        repoId: number,
+        update: ReadmeUpdate,
+      ) {
         const text =
           update.text === null
             ? null
@@ -716,7 +752,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
 
       const getReadmeTexts = Effect.fn("RepoStore.getReadmeTexts")(function* (
         login: string,
-        ids: ReadonlyArray<number>
+        ids: ReadonlyArray<number>,
       ) {
         const out = new Map<number, string>();
 
@@ -753,7 +789,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
           out.set(decoded.repoId, {
             repoId: decoded.repoId,
             pushedAt: decoded.pushedAt,
-            status: toFetchStatus(decoded.readmeState)
+            status: toFetchStatus(decoded.readmeState),
           });
         }
 
@@ -763,7 +799,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       const putVectorBlob = Effect.fn("RepoStore.putVectorBlob")(function* (
         login: string,
         dims: number,
-        bytesLen: number
+        bytesLen: number,
       ) {
         yield* sql`
           INSERT INTO vector_blobs (login, dims, bytes_len, updated_at)
@@ -776,7 +812,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       });
 
       const getVectorBlob = Effect.fn("RepoStore.getVectorBlob")(function* (login: string) {
-        const rows = yield* sql<VectorBlobRow>`SELECT * FROM vector_blobs WHERE login = ${login} LIMIT 1`;
+        const rows =
+          yield* sql<VectorBlobRow>`SELECT * FROM vector_blobs WHERE login = ${login} LIMIT 1`;
         const row = rows[0];
 
         if (row === undefined) return null;
@@ -813,8 +850,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         getReadmeStates,
         putVectorBlob,
         getVectorBlob,
-        deleteVectorBlob
+        deleteVectorBlob,
       });
-    })
+    }),
   );
 }

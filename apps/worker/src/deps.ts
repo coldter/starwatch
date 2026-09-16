@@ -1,6 +1,10 @@
 import type { Ai, D1Database } from "@cloudflare/workers-types";
 import { D1Client } from "@effect/sql-d1";
-import { makeWorkersAiEmbedder, WorkersAiTextEmbedding, type WorkersAiBinding } from "@starwatch/cloudflare/ai";
+import {
+  makeWorkersAiEmbedder,
+  WorkersAiTextEmbedding,
+  type WorkersAiBinding,
+} from "@starwatch/cloudflare/ai";
 import { makeGithubClient } from "@starwatch/cloudflare/github";
 import { camelize, RepoStore, UserFts } from "@starwatch/cloudflare/storage";
 import { Embedder, GithubClient, type EmbedderService } from "@starwatch/core/sync";
@@ -8,7 +12,11 @@ import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import { layerVectorBlobFiles, type RawR2Bucket, type VectorBlobFiles } from "./adapters/vector-bucket.ts";
+import {
+  layerVectorBlobFiles,
+  type RawR2Bucket,
+  type VectorBlobFiles,
+} from "./adapters/vector-bucket.ts";
 
 /**
  * Everything a sync workflow needs, resolved once per Worker isolate in the
@@ -55,14 +63,14 @@ const toWorkersAiBinding = (raw: Ai | undefined): WorkersAiBinding => ({
   run: async (model, input) => {
     if (raw === undefined) {
       return Promise.reject(
-        new Error("Workers AI binding unavailable (plan-time construction or missing AI binding)")
+        new Error("Workers AI binding unavailable (plan-time construction or missing AI binding)"),
       );
     }
 
     const result = await raw.run(model, input);
 
     return Schema.decodeUnknownSync(WorkersAiTextEmbedding)(result);
-  }
+  },
 });
 
 /**
@@ -77,14 +85,14 @@ export const syncDepsFrom = (options: SyncDepsOptions): SyncDepsService => {
   const sql = D1Client.layer({
     db: options.rawD1,
     // The storage layer expects post-transform camelCase keys (docs/08 §sql).
-    transformResultNames: camelize
+    transformResultNames: camelize,
   }).pipe(Layer.orDie);
 
   const storage = Layer.mergeAll(RepoStore.layer, UserFts.layer).pipe(Layer.provide(sql));
 
   const github = makeGithubClient({
     token: options.githubToken,
-    userAgent: options.userAgent
+    userAgent: options.userAgent,
   }).pipe(Layer.provide(FetchHttpClient.layer));
 
   const embedder = makeWorkersAiEmbedder(toWorkersAiBinding(options.rawAi));
@@ -97,8 +105,8 @@ export const syncDepsFrom = (options: SyncDepsOptions): SyncDepsService => {
       storage,
       github,
       Layer.succeed(Embedder, embedder),
-      layerVectorBlobFiles(options.rawBucket)
-    )
+      layerVectorBlobFiles(options.rawBucket),
+    ),
   };
 };
 

@@ -5,7 +5,7 @@ import { EmptyState } from "../components/StateViews";
 export const rootRoute = createRootRoute({
   component: RootLayout,
   notFoundComponent: NotFoundPage,
-  errorComponent: RootErrorBoundary
+  errorComponent: RootErrorBoundary,
 });
 
 function RootLayout() {

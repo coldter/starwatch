@@ -6,7 +6,7 @@ import {
   hashReadme,
   planEmbedWork,
   planReadmeWork,
-  type ReadmeStateMap
+  type ReadmeStateMap,
 } from "@starwatch/core/sync";
 import { repoEmbeddingText } from "@starwatch/cloudflare/ai";
 import { README_MAX_CHARS, RepoStore, UserFts } from "@starwatch/cloudflare/storage";
@@ -22,7 +22,7 @@ import {
   vectorIdsKey,
   vectorBlobBinKey,
   vectorMergeBaseKey,
-  vectorPartBaseKey
+  vectorPartBaseKey,
 } from "../adapters/vector-bucket.ts";
 
 /**
@@ -81,11 +81,11 @@ interface FinalizeOutcome {
 const decodePart = (bytes: Uint8Array): Effect.Effect<ReadonlyArray<Float32Array>, never> =>
   Effect.try({
     try: () => decodeVectors(bytes),
-    catch: (cause) => cause
+    catch: (cause) => cause,
   }).pipe(Effect.orDie);
 
 const readPart = (
-  base: string
+  base: string,
 ): Effect.Effect<
   { readonly ids: ReadonlyArray<number>; readonly vectors: ReadonlyArray<Float32Array> } | null,
   never,
@@ -109,7 +109,7 @@ const mergeParts = (
   login: string,
   round: number,
   index: number,
-  bases: ReadonlyArray<string>
+  bases: ReadonlyArray<string>,
 ): Effect.Effect<string, never, VectorBlobFiles> =>
   Effect.gen(function* () {
     const vectorFiles = yield* VectorBlobFiles;
@@ -157,7 +157,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
 
       return { batches, windowIds };
     }),
-    { retries: { limit: 2, delay: "5 seconds" } }
+    { retries: { limit: 2, delay: "5 seconds" } },
   );
 
   // ---- per-batch README fetch + embed + part write ----------------------
@@ -190,8 +190,9 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
           const fetched = yield* github.getReadme(repo.fullName, "HEAD").pipe(
             Effect.matchEffect({
               onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-              onFailure: (error) => Effect.succeed({ ok: false as const, message: describeGithubError(error) })
-            })
+              onFailure: (error) =>
+                Effect.succeed({ ok: false as const, message: describeGithubError(error) }),
+            }),
           );
 
           if (!fetched.ok) {
@@ -199,7 +200,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
               ok: false,
               partBase: null,
               embedded: 0,
-              error: fetched.message
+              error: fetched.message,
             } satisfies BatchOutcome;
           }
 
@@ -212,10 +213,17 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
             newTexts.set(id, "");
           } else {
             const text =
-              readme.text.length > README_MAX_CHARS ? readme.text.slice(0, README_MAX_CHARS) : readme.text;
+              readme.text.length > README_MAX_CHARS
+                ? readme.text.slice(0, README_MAX_CHARS)
+                : readme.text;
 
             yield* repos
-              .putReadme(id, { text, hash: hashReadme(text), state: "present", checkedAt: nowIso() })
+              .putReadme(id, {
+                text,
+                hash: hashReadme(text),
+                state: "present",
+                checkedAt: nowIso(),
+              })
               .pipe(Effect.orDie);
             newTexts.set(id, text);
           }
@@ -233,8 +241,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
                   fullName: repo.fullName,
                   description: repo.description,
                   topics: repo.topics,
-                  readme: newTexts.get(id) ?? ""
-                }
+                  readme: newTexts.get(id) ?? "",
+                },
               ];
         });
 
@@ -270,10 +278,10 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
               ok: false,
               partBase: null,
               embedded: 0,
-              error: String(error)
-            } satisfies BatchOutcome)
-        })
-      )
+              error: String(error),
+            } satisfies BatchOutcome),
+        }),
+      ),
     );
 
     embeddedTotal += outcome.embedded;
@@ -299,7 +307,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
     for (let index = 0; index < groups.length; index++) {
       const merged = yield* Cloudflare.Workflows.task(
         `merge-${round}-${index}`,
-        mergeParts(login, round, index, groups[index] ?? [])
+        mergeParts(login, round, index, groups[index] ?? []),
       );
 
       next.push(merged);
@@ -335,7 +343,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
             const id = existingIds[i];
             const vector = decoded[i];
 
-            if (id !== undefined && vector !== undefined && windowSet.has(id)) overlay.set(id, vector);
+            if (id !== undefined && vector !== undefined && windowSet.has(id))
+              overlay.set(id, vector);
           }
         }
       }
@@ -351,7 +360,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
           const id = part.ids[i];
           const vector = part.vectors[i];
 
-          if (id !== undefined && vector !== undefined && windowSet.has(id)) overlay.set(id, vector);
+          if (id !== undefined && vector !== undefined && windowSet.has(id))
+            overlay.set(id, vector);
         }
       }
 
@@ -370,7 +380,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
         if (vectors.length > 0) {
           const bytes = yield* Effect.try({
             try: () => encodeVectors(vectors),
-            catch: (cause) => cause
+            catch: (cause) => cause,
           }).pipe(Effect.orDie);
 
           yield* vectorFiles.putBytes(vectorBlobBinKey(login), bytes).pipe(Effect.orDie);
@@ -396,24 +406,33 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
           semanticDocs,
           lastSyncedAt: previous?.lastSyncedAt ?? null,
           lastError: null,
-          updatedAt: nowIso()
+          updatedAt: nowIso(),
         })
         .pipe(Effect.orDie);
 
       // One R2 delete call for every scratch object (parts + intermediates).
       const scratch = [...partBases, ...intermediateBases].flatMap((base) => [
         `${base}.bin`,
-        `${base}.ids.json`
+        `${base}.ids.json`,
       ]);
 
       yield* vectorFiles.deleteMany(scratch).pipe(Effect.orDie);
 
-      return { ok: true, semanticDocs, embedded: embeddedTotal, error: null } satisfies FinalizeOutcome;
+      return {
+        ok: true,
+        semanticDocs,
+        embedded: embeddedTotal,
+        error: null,
+      } satisfies FinalizeOutcome;
     }),
-    { retries: { limit: 3, delay: "5 seconds" } }
+    { retries: { limit: 3, delay: "5 seconds" } },
   );
 
-  return { ok: finalize.ok, semanticDocs: finalize.semanticDocs, embedded: finalize.embedded } satisfies StarRefreshResult;
+  return {
+    ok: finalize.ok,
+    semanticDocs: finalize.semanticDocs,
+    embedded: finalize.embedded,
+  } satisfies StarRefreshResult;
 });
 
 export class StarRefreshWorkflow extends Cloudflare.Workflow<StarRefreshWorkflow>()(
@@ -429,12 +448,12 @@ export class StarRefreshWorkflow extends Cloudflare.Workflow<StarRefreshWorkflow
       if (Exit.isSuccess(exit)) return exit.value;
       yield* markFailed(input.login, "semantic refresh failed").pipe(
         Effect.provide(deps.runLayers),
-        Effect.ignore
+        Effect.ignore,
       );
 
       return { ok: false, semanticDocs: 0, embedded: 0 } satisfies StarRefreshResult;
     });
-  })
+  }),
 ) {}
 
 /** Pure step-count budget helper (documented math, exported for tests). */

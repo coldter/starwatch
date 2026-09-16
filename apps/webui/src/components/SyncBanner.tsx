@@ -1,7 +1,13 @@
 import type { UserIndexState } from "@starwatch/domain";
 import type { SyncTransport } from "../hooks/useUserIndex";
 import { formatDateTime, formatNumber } from "../lib/format";
-import { isActivePhase, isMetadataOnly, phaseLabel, phaseProgress, semanticWindow } from "../lib/state";
+import {
+  isActivePhase,
+  isMetadataOnly,
+  phaseLabel,
+  phaseProgress,
+  semanticWindow,
+} from "../lib/state";
 
 export interface SyncBannerProps {
   state: UserIndexState | null | undefined;
@@ -45,7 +51,11 @@ export function SyncBanner({ state, transport, busy, onStart }: SyncBannerProps)
   const progress = phaseProgress(state);
 
   return (
-    <section className={`sync-banner sync-banner--${state.phase}`} aria-live="polite" aria-busy={active}>
+    <section
+      className={`sync-banner sync-banner--${state.phase}`}
+      aria-live="polite"
+      aria-busy={active}
+    >
       {active ? (
         <>
           <div className="sync-banner__line">
@@ -54,7 +64,9 @@ export function SyncBanner({ state, transport, busy, onStart }: SyncBannerProps)
               {formatNumber(total)}
             </span>
             {transport === "polling" ? (
-              <span className="sync-banner__transport">live updates paused — checking every 5s</span>
+              <span className="sync-banner__transport">
+                live updates paused — checking every 5s
+              </span>
             ) : (
               <span className="sync-banner__transport">{progress}%</span>
             )}
@@ -82,7 +94,9 @@ export function SyncBanner({ state, transport, busy, onStart }: SyncBannerProps)
           <span className="sync-banner__label">
             <span aria-hidden="true">⏸</span> Waiting on GitHub&apos;s rate limit
           </span>
-          {state.lastError ? <span className="sync-banner__transport">{state.lastError}</span> : null}
+          {state.lastError ? (
+            <span className="sync-banner__transport">{state.lastError}</span>
+          ) : null}
         </div>
       ) : null}
 
@@ -91,7 +105,12 @@ export function SyncBanner({ state, transport, busy, onStart }: SyncBannerProps)
           <span className="sync-banner__label">
             <span aria-hidden="true">⚠</span> Indexing hit a snag
           </span>
-          <button type="button" className="btn btn--small" onClick={() => onStart({ full: true })} disabled={busy}>
+          <button
+            type="button"
+            className="btn btn--small"
+            onClick={() => onStart({ full: true })}
+            disabled={busy}
+          >
             {busy ? "Retrying…" : "Retry now"}
           </button>
         </div>
@@ -102,7 +121,12 @@ export function SyncBanner({ state, transport, busy, onStart }: SyncBannerProps)
           <span className="sync-banner__label">
             <span aria-hidden="true">◦</span> Metadata search only
           </span>
-          <button type="button" className="btn btn--small" onClick={() => onStart({ full: false })} disabled={busy}>
+          <button
+            type="button"
+            className="btn btn--small"
+            onClick={() => onStart({ full: false })}
+            disabled={busy}
+          >
             {busy ? "Starting…" : "Enable semantic indexing"}
           </button>
         </div>

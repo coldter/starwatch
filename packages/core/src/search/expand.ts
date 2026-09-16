@@ -28,7 +28,7 @@ const EMPTY_EXPANSION: QueryExpansion = {
   activated: false,
   conceptIds: [],
   terms: [],
-  expression: undefined
+  expression: undefined,
 };
 
 const normalizeTrigger = (trigger: string): string => tokenize(trigger).join(" ");
@@ -36,7 +36,7 @@ const normalizeTrigger = (trigger: string): string => tokenize(trigger).join(" "
 const triggerMatches = (
   trigger: string,
   tokens: ReadonlyArray<string>,
-  phrases: ReadonlyArray<string>
+  phrases: ReadonlyArray<string>,
 ): boolean => {
   const normalized = normalizeTrigger(trigger);
 
@@ -57,7 +57,7 @@ const triggerMatches = (
  */
 export const expandQuery = (
   raw: string,
-  lexicon: ReadonlyArray<Concept> = LEXICON
+  lexicon: ReadonlyArray<Concept> = LEXICON,
 ): QueryExpansion => {
   const text = normalizeQuery(raw);
 
@@ -92,6 +92,6 @@ export const expandQuery = (
     activated: true,
     conceptIds,
     terms,
-    expression: terms.length > 0 ? buildMatchExpression(terms, "or") : undefined
+    expression: terms.length > 0 ? buildMatchExpression(terms, "or") : undefined,
   };
 };

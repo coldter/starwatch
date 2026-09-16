@@ -5,7 +5,7 @@
 **TL;DR**
 
 1. **The acceptance example does not clear the [07 §3.2](07-search-contract.md) mixed-class gate on the default hybrid mode.** `auth --lang typescript`: better-auth lands at **#3**, logto **outside the top 10**, and a 24-star exact-name repo (`nuxflare/auth`) takes #1 in every mode. `hybrid+expand` fixes the ordering (better-auth #2, logto #3, melody-auth #4) and lifts nDCG@10 **0.700 → 0.808** (target 0.75); plain hybrid misses by 0.05.
-2. **Static expansion is the strongest single lever in the whole run**: overall nDCG@10 0.692 → **0.742** (+0.050), P@5(g=2) 0.475 → 0.550, Success@3 0.875 → **1.000**. [15 §8](15-free-semantic-search.md)/[07 §8](07-search-contract.md) scope expansion to a v2 LLM stage — this data says a *deterministic* expansion stage earns its place in v1.5 first.
+2. **Static expansion is the strongest single lever in the whole run**: overall nDCG@10 0.692 → **0.742** (+0.050), P@5(g=2) 0.475 → 0.550, Success@3 0.875 → **1.000**. [15 §8](15-free-semantic-search.md)/[07 §8](07-search-contract.md) scope expansion to a v2 LLM stage — this data says a _deterministic_ expansion stage earns its place in v1.5 first.
 3. **Repo-level retrieval is good enough; ranking is the problem.** Semantic recall is not the bottleneck (hybrid R@10 0.740 vs semantic 0.689); first-rank precision is (P@5(g=2) 0.475). Chunk-level indexing is **not justified** by this eval; rerank is the lever to test next.
 4. **Two concrete bugs in the contract's defaults show up immediately**: (a) the ×1.60 exact-name boost promotes generic-word name matches (`auth` → `nuxflare/auth` #1; un-boosted RRF had better-auth #1); (b) the AND→OR fallback only fires on zero results, so `tui for git` never falls back and scores **nDCG 0.0** in keyword mode while some junk repo matches `tui AND for AND git`.
 5. `effect` (the ambiguous known-item canary, Q2) is the model behavior to keep: `Effect-TS/effect` is **#1 in all four modes** (nDCG 1.000), and the animated-effects distractor never enters the top 10.
@@ -24,18 +24,18 @@
 
 ## 2. Corpus and index stats
 
-| Stat | Value |
-|---|---|
-| Repos / with language / TypeScript | 3,448 / 3,278 / 1,235 |
-| READMEs found / missing | **3,432 (99.5%) / 16** (incl. `better-auth/skills`, 0 bytes; `oslo-project/.github`) |
-| README bytes median / p90 / max | 6,788 / 25,403 / 497,688 |
-| Embedding doc chars mean | 1,562 (1,500-char cap + metadata line) |
-| DB size / of which trigram / porter / embeddings | 173.3 MB / 113.7 MB / 45.3 MB / 13.5 MB |
-| Build: FTS insert / embeddings | 8.5 s / **652 s** (5.3 docs/s, fp32 CPU) |
-| Warm query latency (Node floor): keyword p50 / semantic p50 / hybrid p50 / expand p50 | 3.2 / 14.3 / 16.9 / 25.0 ms (first semantic run 355 ms = model load) |
-| Filter precision (auth-ts, all modes) | **1.000** (asserted) |
+| Stat                                                                                  | Value                                                                                |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Repos / with language / TypeScript                                                    | 3,448 / 3,278 / 1,235                                                                |
+| READMEs found / missing                                                               | **3,432 (99.5%) / 16** (incl. `better-auth/skills`, 0 bytes; `oslo-project/.github`) |
+| README bytes median / p90 / max                                                       | 6,788 / 25,403 / 497,688                                                             |
+| Embedding doc chars mean                                                              | 1,562 (1,500-char cap + metadata line)                                               |
+| DB size / of which trigram / porter / embeddings                                      | 173.3 MB / 113.7 MB / 45.3 MB / 13.5 MB                                              |
+| Build: FTS insert / embeddings                                                        | 8.5 s / **652 s** (5.3 docs/s, fp32 CPU)                                             |
+| Warm query latency (Node floor): keyword p50 / semantic p50 / hybrid p50 / expand p50 | 3.2 / 14.3 / 16.9 / 25.0 ms (first semantic run 355 ms = model load)                 |
+| Filter precision (auth-ts, all modes)                                                 | **1.000** (asserted)                                                                 |
 
-The local embedding throughput (5.3 docs/s) is an ONNX-CPU artifact, not a statement about the deployed design: [15 §2.5](15-free-semantic-search.md) budgets 108 Workers AI calls per user. What *does* transfer is query-side cost: a 384-d scan over 3,448 vectors is ~5–7 ms of plain JS in Node, i.e. the repo-level vector leg is not the CPU risk at this corpus size.
+The local embedding throughput (5.3 docs/s) is an ONNX-CPU artifact, not a statement about the deployed design: [15 §2.5](15-free-semantic-search.md) budgets 108 Workers AI calls per user. What _does_ transfer is query-side cost: a 384-d scan over 3,448 vectors is ~5–7 ms of plain JS in Node, i.e. the repo-level vector leg is not the CPU risk at this corpus size.
 
 ## 3. Overall results
 
@@ -88,13 +88,13 @@ rank keyword                          semantic                         hybrid   
 
 Where the acceptance targets actually land:
 
-| Target | keyword | semantic | hybrid | hybrid+expand |
-|---|---|---|---|---|
-| better-auth/better-auth | #3 | #3 | #3 | **#2** |
-| logto-io/logto | >10 | 11 | 15 | **#3** |
-| lucia-auth/lucia | #9 | #9 | #8 | 15 |
-| anomalyco/openauth | >10 | #5 | #10 | #6 |
-| voidauth/voidauth | >10 | #4 | 18 | #7 |
+| Target                  | keyword | semantic | hybrid | hybrid+expand |
+| ----------------------- | ------- | -------- | ------ | ------------- |
+| better-auth/better-auth | #3      | #3       | #3     | **#2**        |
+| logto-io/logto          | >10     | 11       | 15     | **#3**        |
+| lucia-auth/lucia        | #9      | #9       | #8     | 15            |
+| anomalyco/openauth      | >10     | #5       | #10    | #6            |
+| voidauth/voidauth       | >10     | #4       | 18     | #7            |
 
 The filter itself is exact: every returned repo is TypeScript for all four modes (filter precision 1.000, 1,235-repo universe).
 
@@ -109,7 +109,7 @@ The filter itself is exact: every returned repo is TypeScript for all four modes
 #5 GeKorm/better-auth-harmony     (lex:2 sem:10)
 ```
 
-Without boosts the fusion already returns the contract's intent; with boosts it drops better-auth to #3 (+0.083 nDCG per our labels because nuxflare/auth *is* graded 2 — it is a real self-hosted auth server, just 24 stars — but the ordering is not what the acceptance example asks for). Expansion is what recovers the ask: appending `authentication, oauth, oidc, sso, identity provider, …` moves logto to #3 and lands four grade-2 auth servers in the top 5.
+Without boosts the fusion already returns the contract's intent; with boosts it drops better-auth to #3 (+0.083 nDCG per our labels because nuxflare/auth _is_ graded 2 — it is a real self-hosted auth server, just 24 stars — but the ordering is not what the acceptance example asks for). Expansion is what recovers the ask: appending `authentication, oauth, oidc, sso, identity provider, …` moves logto to #3 and lands four grade-2 auth servers in the top 5.
 
 **Gap quantification:** plain hybrid nDCG@10 0.700 vs the 0.75 mixed gate ≠ **−0.050**; R@10 0.545 vs the 0.85 gate ≠ **−0.305** (the strict R@10 denominator is 11 grade-2 repos, so 10/11 is the theoretical max; the gate as written is unreachable for broad multi-target queries — see §6.9). `hybrid+expand` clears the nDCG gate at 0.808.
 
@@ -215,7 +215,7 @@ rank keyword                          semantic                         hybrid   
 10   ChrisTitusTech/linutil [0]       go-git/go-git [0]                tiimgreen/github-cheat-sheet [0] go-git/go-git [0]
 ```
 
-**Keyword is broken here** (nDCG 0.0, MRR n/a): `tui AND for AND git` matches `awesome-tuis` (a list README that contains all three strings) so the zero-result OR fallback never fires, and lazygit — whose description is "simple terminal UI for git commands", note *not* the token "tui" — never enters the top 10. Semantic rescues recall (gitbutler #2, lazygit #7, R@10 1.0) and expansion puts lazygit #2, but both fail to hold both targets in the top 3 simultaneously. This is the [07 §7.2](07-search-contract.md) OR-fallback rule failing exactly as doc 07 predicted for long queries, only worse: it needs to fire on *low-quality* AND matches, not only zero results.
+**Keyword is broken here** (nDCG 0.0, MRR n/a): `tui AND for AND git` matches `awesome-tuis` (a list README that contains all three strings) so the zero-result OR fallback never fires, and lazygit — whose description is "simple terminal UI for git commands", note _not_ the token "tui" — never enters the top 10. Semantic rescues recall (gitbutler #2, lazygit #7, R@10 1.0) and expansion puts lazygit #2, but both fail to hold both targets in the top 3 simultaneously. This is the [07 §7.2](07-search-contract.md) OR-fallback rule failing exactly as doc 07 predicted for long queries, only worse: it needs to fire on _low-quality_ AND matches, not only zero results.
 
 ### 4.6 `vector database`
 
@@ -297,12 +297,12 @@ Exact-name behavior works precisely as [07 §5.3](07-search-contract.md) intends
 
 ## 5. Boost ablation (nDCG@10 means, 8 queries)
 
-| Mode | boosts ON | boosts OFF | Δ |
-|---|---|---|---|
-| keyword | 0.626 | 0.587 | **+0.039** |
-| semantic | 0.626 | 0.569 | **+0.058** |
-| hybrid | 0.692 | 0.665 | **+0.028** |
-| hybrid+expand | 0.742 | 0.738 | +0.004 |
+| Mode          | boosts ON | boosts OFF | Δ          |
+| ------------- | --------- | ---------- | ---------- |
+| keyword       | 0.626     | 0.587      | **+0.039** |
+| semantic      | 0.626     | 0.569      | **+0.058** |
+| hybrid        | 0.692     | 0.665      | **+0.028** |
+| hybrid+expand | 0.742     | 0.738      | +0.004     |
 
 Per-query, boosts are uneven: they help the two `auth` queries and `durable-jobs` strongly, are neutral elsewhere, and **hurt** `http-client-retries` hybrid (0.512 vs 0.554), `tui-for-git` semantic (0.535 vs 0.561), `vector-db` expand (0.704 vs 0.834) and `rate-limit` hybrid (0.866 vs 0.901). The pattern: name-family boosts help when the query contains a distinctive token that actually appears in intended repo names, and hurt when the query's head token is a generic vocabulary word (`auth`, `vector`, `tui`).
 
@@ -312,7 +312,7 @@ Per-query, boosts are uneven: they help the two `auth` queries and `durable-jobs
 2. **AND poisoning + zero-only OR fallback** — `tui for git` keeps AND semantics because list repos match all three strings; lazygit ("terminal UI") is not "tui". Fix: IDF/stopword split (`for` optional), min-should-match, or run both AND and OR and fuse.
 3. **Embedding name dominance** — repo docs lead with `owner/name` twice; cosine #1 for `auth-ts` is a 1★ service `quanghuy1242/auther`, for `vector database` an observability pipeline `vectordotdev/vector`. Fix: down-weight/omit the name in the embedded doc (keep it in a separate exact-match field), or length-normalize when a name token is also the query; hybrid fusion already mitigates this at the top-10 level (it demotes `vector` out).
 4. **Thin-README targets are invisible to semantic search** — `better-fetch` (323 B) and `zodios` have no retry vocabulary in their docs, so "http client with retries" cannot retrieve them at all. Expansion is the only cheap fix; a reranker can't rerank what wasn't retrieved.
-5. **Expansion is not precision-safe** — it injects RAG/blog noise when the query already has good lexical anchors (`rate limit`, `vector database`). Fix: trigger only on weak keywords / use cluster terms as *boosts to the existing legs* rather than additional retrievers, or add negative terms.
+5. **Expansion is not precision-safe** — it injects RAG/blog noise when the query already has good lexical anchors (`rate limit`, `vector database`). Fix: trigger only on weak keywords / use cluster terms as _boosts to the existing legs_ rather than additional retrievers, or add negative terms.
 6. **Strict R@10 is unreachable for broad queries** — `auth` has 24 grade-2 repos; top-10 recall maxes at 10/24 = 0.417. The [07](07-search-contract.md) gate (≥0.85) is undefined for that shape; add a "core targets in top-k" metric or grade a narrower target set.
 7. **Local embedding throughput** (5.3 docs/s fp32, 1.5-kB docs) makes full-corpus re-indexing an 11-minute affair locally; not a deployment issue, but any doc-text change in eval costs ~10 min (or a model dtype change to q8).
 
@@ -320,8 +320,8 @@ Per-query, boosts are uneven: they help the two `auth` queries and `durable-jobs
 
 1. **Ship `hybrid+expand` as the default intent for descriptive queries; keep plain hybrid for known-item/identifier.** Concretely: route by presence of an expansion cluster and/or by keyword quality. The measured gain (overall nDCG 0.692 → 0.742, auth-ts 0.700 → 0.808, durable-jobs 0.791 → 0.949) is larger than the [07](07-search-contract.md) launch-gate margin for hybrid over keyword.
 2. **Do not wait for an LLM for expansion** ([07 §8](07-search-contract.md), [15 §8](15-free-semantic-search.md) both push it to v2). A static cluster table is deterministic, free, auditable and already pays. Design the stage as `expand(query) → {terms, cluster_id}` so the LLM can replace the implementation later without moving the pipeline slot.
-3. **Model/dims**: `bge-small-en-v1.5` at **384 d** is a viable free-tier repo-level default and is *cheaper* than doc 15's 512-d plan (5.3 MB of f32 vectors for 3.4k repos; ~5–7 ms scalar scan in Node). It is not MRL, so the 512 → 256 fallback ladder in [15 §6.1](15-free-semantic-search.md) would not apply; if the Workers AI path stays on qwen3-embedding, run this gold set at 512/384/256 before freezing dims. ⚠️ We could not test the actual deployed models here.
-4. **Keep one vector per repo; chunking is not the bottleneck.** The failures are top-rank precision and vocabulary, not recall. Semantic R@10 (0.689) already exceeds keyword (0.604) and hybrid (0.740) is best; chunk-level indexing would multiply embedding cost ([15 §5](15-free-semantic-search.md): ~6.3×) without addressing the observed errors. Revisit only if rerank needs passages (rerank passages can still come from `repo_chunks` text without chunk *vectors*).
+3. **Model/dims**: `bge-small-en-v1.5` at **384 d** is a viable free-tier repo-level default and is _cheaper_ than doc 15's 512-d plan (5.3 MB of f32 vectors for 3.4k repos; ~5–7 ms scalar scan in Node). It is not MRL, so the 512 → 256 fallback ladder in [15 §6.1](15-free-semantic-search.md) would not apply; if the Workers AI path stays on qwen3-embedding, run this gold set at 512/384/256 before freezing dims. ⚠️ We could not test the actual deployed models here.
+4. **Keep one vector per repo; chunking is not the bottleneck.** The failures are top-rank precision and vocabulary, not recall. Semantic R@10 (0.689) already exceeds keyword (0.604) and hybrid (0.740) is best; chunk-level indexing would multiply embedding cost ([15 §5](15-free-semantic-search.md): ~6.3×) without addressing the observed errors. Revisit only if rerank needs passages (rerank passages can still come from `repo_chunks` text without chunk _vectors_).
 5. **Boost table needs an IDF/specificity modifier and a weaker star-prior asymmetry** — the current ×1.60/×1.45/×1.20 family makes generic tokens sticky; [07 §5.3](07-search-contract.md) should add "boosts only when the matched token is discriminative" and revisit the ×1.25 star cap (a 30k★ auth leader only gets ×1.18, which cannot compete with a 24★ exact-name match once one leg ranks it #1).
 6. **Replace zero-only OR fallback with quality-aware matching** ([07 §7.2](07-search-contract.md)) **and add an IDF stopword list**; `with`, `for` must not be mandatory. This is a cheap, high-leverage change: `tui for git` keyword goes from nDCG 0.0 / MRR n/a to (with fallback fired) at least lazygit reachable.
 7. **Filters are validated**: SQL pre-filtering by language produced 1,235 candidates for the TS query with precision 1.000 and sub-2 ms filter time; topic AND semantics and star ranges are the right shape for the free design ([15 §2.1](15-free-semantic-search.md)). No need for Vectorize metadata indexes.
@@ -330,7 +330,7 @@ Per-query, boosts are uneven: they help the two `auth` queries and `durable-jobs
 
 ## 8. Open questions
 
-1. **Gold-set bias**: pass-2 labels were added after seeing ranker output; the *absolute* numbers are inflated relative to a pre-registered gold set. Directional deltas (expand > hybrid > keyword, boost wins/losses) are the durable result.
+1. **Gold-set bias**: pass-2 labels were added after seeing ranker output; the _absolute_ numbers are inflated relative to a pre-registered gold set. Directional deltas (expand > hybrid > keyword, boost wins/losses) are the durable result.
 2. **Only 8 queries, 1 known-item, 0 deliberate misses/browse queries.** No latency targets or empty-result behavior measured. The full golden set in [07 §3.3](07-search-contract.md) (60–100 queries) is still required before launch gates.
 3. **Model transfer**: do qwen3-embedding-0.6b (512/256 MRL) and bge-m3 rank this same gold set better or worse than bge-small-en-v1.5? Which model fixes the `http client with retries` class on Workers AI? ⚠️ Needs a deployed run.
 4. **Boost/IDF thresholds** (what counts as a generic token) are untuned; are name boosts still needed at all for hybrid, given un-boosted fusion fixed the auth example?

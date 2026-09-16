@@ -4,34 +4,34 @@
 
 > Status: **draft for discussion** · 2026-09-13 · Endpoints, scopes, rate limits and ETag behavior verified live against `api.github.com` on this date (account `coldter`); ⚠️ marks low-confidence items to re-check at implementation time. Companions: [00](00-requirements.md) · [01](01-search-and-index.md) · [02](02-stack-and-pipeline.md).
 
-This doc owns: every GitHub API call starwatch makes, its quota cost, ETag/304 semantics, error handling, token choices, and the sync run state machine. Lists *consumption* is covered here only at the quota level; list→group UX lives in [04](04-groups.md).
+This doc owns: every GitHub API call starwatch makes, its quota cost, ETag/304 semantics, error handling, token choices, and the sync run state machine. Lists _consumption_ is covered here only at the quota level; list→group UX lives in [04](04-groups.md).
 
 ## 0. Headline numbers
 
-| Step | Endpoint | Requests at N=3,277 | Requests at live N=3,448 ⚠️ | Rate class |
-|---|---|---|---|---|
-| Login + profile | `GET /user` | 1, once | 1, once | REST core |
-| Star listing, full sweep | `GET /user/starred?per_page=100` | **33 pages** | **35 pages** | REST core |
-| README backfill | `GET /repos/{o}/{r}/readme` | **3,277** | **3,448** | REST core |
-| Lists (groups) | GraphQL `viewer.lists` | ~1–3 points | ~1–3 points | GraphQL points |
-| Nightly incremental, typical | listing sweep + changed READMEs | ~40–70 | ~40–70 | REST core |
-| **Backfill total** | | **3,310 ≈ 66% of one 5,000/h window** | **3,483 ≈ 70%** | fits one window |
+| Step                         | Endpoint                         | Requests at N=3,277                   | Requests at live N=3,448 ⚠️ | Rate class      |
+| ---------------------------- | -------------------------------- | ------------------------------------- | --------------------------- | --------------- |
+| Login + profile              | `GET /user`                      | 1, once                               | 1, once                     | REST core       |
+| Star listing, full sweep     | `GET /user/starred?per_page=100` | **33 pages**                          | **35 pages**                | REST core       |
+| README backfill              | `GET /repos/{o}/{r}/readme`      | **3,277**                             | **3,448**                   | REST core       |
+| Lists (groups)               | GraphQL `viewer.lists`           | ~1–3 points                           | ~1–3 points                 | GraphQL points  |
+| Nightly incremental, typical | listing sweep + changed READMEs  | ~40–70                                | ~40–70                      | REST core       |
+| **Backfill total**           |                                  | **3,310 ≈ 66% of one 5,000/h window** | **3,483 ≈ 70%**             | fits one window |
 
 - ⚠️ **Count discrepancy.** [00](00-requirements.md) says 3,277 stars; live `gh api user/starred` on 2026-09-13 returns **3,448** (35 pages of 100; `Link: rel="last"` page 35). Anonymous `/users/coldter/starred` shows 3,446 public; the authenticated token sees **2 private stars**. Formulas below are parametric in N; concrete numbers show the spec's N=3,277 and live N=3,448 where they differ. Reconcile before finalizing ETAs.
 - **304s are free** when the request is correctly authorized — verified live: `x-ratelimit-used` stayed at 82 across 3 consecutive conditional requests (matches docs, see Sources). A 404 does consume quota (observed).
 - Conditional requests require every request parameter to be identical, or GitHub treats it as a different representation and returns a fresh ETag.
-- GitHub's July 2026 access restrictions apply to `/repos/{o}/{r}/stargazers` (the *list of people who starred a repo*), **not** to `/user/starred`. starwatch is unaffected — but do not confuse the two.
+- GitHub's July 2026 access restrictions apply to `/repos/{o}/{r}/stargazers` (the _list of people who starred a repo_), **not** to `/user/starred`. starwatch is unaffected — but do not confuse the two.
 - Bigger risks than the primary quota: secondary limits (concurrency/CPU/points-per-minute), stale ETag assumptions (the listing embeds volatile fields like `stargazers_count`), and private-resource visibility (private stars, SSO, org token policy).
 
 ## 1. Rate-limit model (what actually throttles us)
 
 ### 1.1 Primary limits (per authenticated user, shared by all tokens/apps on that account)
 
-| Resource | Limit | Applies to | Reset semantics |
-|---|---|---|---|
-| REST `core` | **5,000 req/h** | `/user/*`, `/repos/*`, `/rate_limit`, everything non-search | Sliding window from the token's first request of the window; read `x-ratelimit-reset` (epoch seconds) — do **not** assume clock-hour |
-| REST `search` | 30 req/min | `/search/*` (unused by sync) | 60 s |
-| GraphQL | **5,000 points/h** | `graphql` endpoint; cost ≈ connections/100, min 1 | Same sliding-window behavior |
+| Resource      | Limit              | Applies to                                                  | Reset semantics                                                                                                                      |
+| ------------- | ------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| REST `core`   | **5,000 req/h**    | `/user/*`, `/repos/*`, `/rate_limit`, everything non-search | Sliding window from the token's first request of the window; read `x-ratelimit-reset` (epoch seconds) — do **not** assume clock-hour |
+| REST `search` | 30 req/min         | `/search/*` (unused by sync)                                | 60 s                                                                                                                                 |
+| GraphQL       | **5,000 points/h** | `graphql` endpoint; cost ≈ connections/100, min 1           | Same sliding-window behavior                                                                                                         |
 
 Headers on every response: `x-ratelimit-limit`, `-remaining`, `-used`, `-reset`, `-resource` (`core`/`search`/`graphql`). `GET /rate_limit` does not count against primary (but counts against secondary — don't poll it more than ~1×/5 min; prefer response headers).
 
@@ -43,30 +43,30 @@ Headers on every response: `x-ratelimit-limit`, `-remaining`, `-used`, `-reset`,
 
 Documented values ([REST limits], [GraphQL limits]):
 
-| Rule | Limit | Our exposure |
-|---|---|---|
-| Concurrent requests | **100 max** (REST + GraphQL shared) | We cap at **5** (Workers allows 6 outbound connections) |
-| Points/min per endpoint | **900** REST / **2,000** GraphQL | Pacing ≤700 req/min keeps us clear |
-| Server CPU | ≤90 s CPU per 60 s real time (≤60 s GraphQL) | Trivially satisfied by README fetches |
-| Content generation | 80/min, 500/h (mutating calls) | We are read-only → N/A |
-| OAuth token creation | 2,000/h per app | N/A unless device flow is added |
+| Rule                    | Limit                                        | Our exposure                                            |
+| ----------------------- | -------------------------------------------- | ------------------------------------------------------- |
+| Concurrent requests     | **100 max** (REST + GraphQL shared)          | We cap at **5** (Workers allows 6 outbound connections) |
+| Points/min per endpoint | **900** REST / **2,000** GraphQL             | Pacing ≤700 req/min keeps us clear                      |
+| Server CPU              | ≤90 s CPU per 60 s real time (≤60 s GraphQL) | Trivially satisfied by README fetches                   |
+| Content generation      | 80/min, 500/h (mutating calls)               | We are read-only → N/A                                  |
+| OAuth token creation    | 2,000/h per app                              | N/A unless device flow is added                         |
 
 Secondary limits are undocumented in detail and can trigger for undisclosed reasons. Practical envelope for starwatch: **concurrency 5, sustained ≤700 req/min, burst ≤12 req/s for README phase, always read `retry-after`**.
 
 ### 1.3 Error taxonomy and handling
 
-| Symptom | Meaning | Action |
-|---|---|---|
-| 403/429 + `x-ratelimit-remaining: 0` | Primary exhausted | Persist cursor, `step.sleepUntil(x-ratelimit-reset + 30s)`, set state `paused_rate_limit` |
-| 403/429 + message contains "secondary rate limit" | Secondary hit | Honor `retry-after` (seconds) if present; else wait ≥60 s; exponential backoff; halve concurrency for the next window |
-| 401 | Token expired/revoked | `needs_auth` terminal state; surface "run `starwatch login`" |
-| 403 + `Resource not accessible by personal access token` | Missing fine-grained permission | Check `X-Accepted-GitHub-Permissions` header; fix token, `needs_auth` |
-| 404 on a repo we expect | Gone, private without access, or renamed path not canonical | Follow 301 `Location` first; then treat as visibility loss, not deletion (see §5) |
-| 403 + SSO (see `X-GitHub-SSO`) | Token not SSO-authorized for an org | Re-authorize token; retry after user action |
-| 301 | Renamed/moved repo | Follow to `https://api.github.com/repositories/{id}`; id is stable |
-| 410 | Unsupported API version | Bump `X-GitHub-Api-Version` |
-| 422 | Malformed params (e.g. bad `per_page`) | Bug; do not retry |
-| 5xx / timeout | GitHub incident | Exponential backoff (cap ~10 attempts), mark run `error`, next cron retries |
+| Symptom                                                  | Meaning                                                     | Action                                                                                                                |
+| -------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 403/429 + `x-ratelimit-remaining: 0`                     | Primary exhausted                                           | Persist cursor, `step.sleepUntil(x-ratelimit-reset + 30s)`, set state `paused_rate_limit`                             |
+| 403/429 + message contains "secondary rate limit"        | Secondary hit                                               | Honor `retry-after` (seconds) if present; else wait ≥60 s; exponential backoff; halve concurrency for the next window |
+| 401                                                      | Token expired/revoked                                       | `needs_auth` terminal state; surface "run `starwatch login`"                                                          |
+| 403 + `Resource not accessible by personal access token` | Missing fine-grained permission                             | Check `X-Accepted-GitHub-Permissions` header; fix token, `needs_auth`                                                 |
+| 404 on a repo we expect                                  | Gone, private without access, or renamed path not canonical | Follow 301 `Location` first; then treat as visibility loss, not deletion (see §5)                                     |
+| 403 + SSO (see `X-GitHub-SSO`)                           | Token not SSO-authorized for an org                         | Re-authorize token; retry after user action                                                                           |
+| 301                                                      | Renamed/moved repo                                          | Follow to `https://api.github.com/repositories/{id}`; id is stable                                                    |
+| 410                                                      | Unsupported API version                                     | Bump `X-GitHub-Api-Version`                                                                                           |
+| 422                                                      | Malformed params (e.g. bad `per_page`)                      | Bug; do not retry                                                                                                     |
+| 5xx / timeout                                            | GitHub incident                                             | Exponential backoff (cap ~10 attempts), mark run `error`, next cron retries                                           |
 
 Retry config per Workflows step: `retries { limit: 8, delay: dynamic (rate-limit-aware), backoff: exponential }`, `throw NonRetryableError` for 401/403-permission/422. Workflows defaults: 5 retries, 10 s, exponential, 10 min timeout per attempt — override explicitly.
 
@@ -100,7 +100,7 @@ Accept: application/vnd.github.star+json   ← adds starred_at
 ```
 
 - **Cost**: 1 core request/page; 33 pages (N=3,277) / 35 (N=3,448); 0.7% of a window. 304 responses are **free** (authorized, verified).
-- **Sort semantics**: `sort=created` = when *you* starred it (`starred_at`, default direction `desc`); `sort=updated` = when the repo was last *pushed to* — unstable ordering, never use for ETag caching. Use `created + asc`: new stars append at the tail, so only the last page changes on a normal day.
+- **Sort semantics**: `sort=created` = when _you_ starred it (`starred_at`, default direction `desc`); `sort=updated` = when the repo was last _pushed to_ — unstable ordering, never use for ETag caching. Use `created + asc`: new stars append at the tail, so only the last page changes on a normal day.
 - **Pagination**: trust `Link` (`rel="next"`, `rel="last"`) — never construct URLs. `per_page` max 100.
 - **Payload**: with `star+json`, each item is `{ starred_at, repo: {...} }`. Pin the media type in the ETag key; without it you get a different representation.
 - **ETag reality check**: the page body includes volatile fields (`stargazers_count`, `pushed_at`), so pages will often return 200 even with no star changes. That's fine — a full sweep is ~0.7% of quota. Treat ETags as a resume/optimization mechanism, not the design premise. Unchanged responses still save bandwidth/CPU.
@@ -109,8 +109,34 @@ Accept: application/vnd.github.star+json   ← adds starred_at
 ### (e) GitHub Lists (GraphQL only)
 
 ```graphql
-query { viewer { lists(first: 100) { totalCount pageInfo { hasNextPage endCursor }
-  nodes { id name isPrivate items(first: 100) { pageInfo { hasNextPage endCursor } nodes { ... on Repository { id nameWithOwner } } } } } } }
+query {
+  viewer {
+    lists(first: 100) {
+      totalCount
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        id
+        name
+        isPrivate
+        items(first: 100) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          nodes {
+            ... on Repository {
+              id
+              nameWithOwner
+            }
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
 - **Cost**: documented formula = sum of connection requests ÷ 100, rounded up, minimum 1. `lists` = 1 request; each list's `items` = 1 per page. 22 lists → ~1 point; all 22 × one items page → ~1 point (min). Verified live: `rateLimit.cost: 1` for the list query and lists are readable (including private ones) with the `gh` token.
@@ -136,13 +162,13 @@ If-None-Match: "<stored etag>"
 
 Store `star_pages(page PK, etag, fetched_at, item_count)` with a `etag_key = hash(url + accept + api_version)`. Nightly: sweep pages 1..last (last known), conditional GETs; if the final page has 100 items, probe page+1 (new stars may have created a page).
 
-| Invalidation event | Pages returning 200 (`created asc`) |
-|---|---|
-| New star appended | Last page only (+ new page at every 100-crossing) |
-| Unstar removed anywhere | The removed item's page **and all subsequent pages** (suffix shift) |
-| Rename / description / topics change | Containing page |
-| Any repo on the page gains/loses a star (`stargazers_count`) | Containing page — common; expect many 200s |
-| Different params/media/version in request | Everything (different representation) |
+| Invalidation event                                           | Pages returning 200 (`created asc`)                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------- |
+| New star appended                                            | Last page only (+ new page at every 100-crossing)                   |
+| Unstar removed anywhere                                      | The removed item's page **and all subsequent pages** (suffix shift) |
+| Rename / description / topics change                         | Containing page                                                     |
+| Any repo on the page gains/loses a star (`stargazers_count`) | Containing page — common; expect many 200s                          |
+| Different params/media/version in request                    | Everything (different representation)                               |
 
 - Unstar detection requires the **full sweep**; a single page cannot prove absence. After a complete sweep, `is_starred=0` for DB ids not present; delete vectors; keep rows 90 days.
 - If a page fails terminally, keep old rows, mark the run degraded (not `error`), and re-run the sweep next night. Do not mark any repo unstarred from a partial sweep.
@@ -150,15 +176,15 @@ Store `star_pages(page PK, etag, fetched_at, item_count)` with a `etag_key = has
 
 ### (h) Metadata refresh trigger policy
 
-| Trigger | Check | Action |
-|---|---|---|
-| New repo id (new star) | none | Full pipeline: README → chunk → embed → upsert |
-| `pushed_at > readme_checked_at` | Conditional README (ETag) | 304 → just touch `readme_checked_at` (free); 200 → re-chunk, re-embed changed hashes |
-| `readme_state='missing'` and `checked < now-30d` | unconditional retry | Still 404 → push date forward |
-| `readme_state='error'` (5xx/timeout) | next run | Retry with backoff |
-| `default_branch` changed | unconditional | Refetch (rare) |
+| Trigger                                          | Check                     | Action                                                                               |
+| ------------------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------ |
+| New repo id (new star)                           | none                      | Full pipeline: README → chunk → embed → upsert                                       |
+| `pushed_at > readme_checked_at`                  | Conditional README (ETag) | 304 → just touch `readme_checked_at` (free); 200 → re-chunk, re-embed changed hashes |
+| `readme_state='missing'` and `checked < now-30d` | unconditional retry       | Still 404 → push date forward                                                        |
+| `readme_state='error'` (5xx/timeout)             | next run                  | Retry with backoff                                                                   |
+| `default_branch` changed                         | unconditional             | Refetch (rare)                                                                       |
 
-README **ETag is the source of truth** for content; `pushed_at` is only the cheap trigger that avoids 3,448 nightly conditional probes. Since 304s are free, an always-conditional sweep is *possible* (~0.7% quota + secondary exposure) but pointless — a README cannot change without a push. Known false-negative: none in practice; force-pushes still update `pushed_at`.
+README **ETag is the source of truth** for content; `pushed_at` is only the cheap trigger that avoids 3,448 nightly conditional probes. Since 304s are free, an always-conditional sweep is _possible_ (~0.7% quota + secondary exposure) but pointless — a README cannot change without a push. Known false-negative: none in practice; force-pushes still update `pushed_at`.
 
 ### (i) Misc calls / limit detection
 
@@ -171,12 +197,12 @@ README **ETag is the source of truth** for content; `pushed_at` is only the chea
 
 All options debit the same user quota (5,000/h REST, 5,000 points/h GraphQL). Verified fine-grained mapping: `GET /user/starred` requires account permission **Starring: read** (`starring=read`), no additional permissions.
 
-| Option | Scopes/permissions | Expiry | Private stars | Org/SSO | Verdict |
-|---|---|---|---|---|---|
-| **Fine-grained PAT** ✅ recommended | `starring=read` (+ repository access if private stars are indexed) | user selects; ≤366 days via template, "none" allowed unless org policy caps it | only repos the token can access | org owner may require approval; fine-grained PATs are authorized at creation (no separate SSO step) | least privilege, no OAuth app needed, simplest storage |
-| Classic PAT | `repo` for private stars (no scope needed for public) | user-set, recommended; auto-revoked after 1 year unused | yes, with `repo` | must be SSO-authorized per org; orgs can disable classic PATs | broad scope (`repo` = all private repos) |
-| OAuth app via **device flow** | `public_repo` (public starring/reading) or `repo` (private) | non-expiring by default; 8 h if app enables expiring tokens or `offline_access` requested (+refresh token) | needs `repo` | orgs can block OAuth apps for org resources | best UX, broader scopes, extra app registration |
-| GitHub App user token | account permission **Starring** ⚠️ (verify) | **8 h**; refresh token 6 months; owner can configure never-expire | needs repo access grants | app must be installed/approved; refresh machinery required for nightly cron | overkill for single user |
+| Option                              | Scopes/permissions                                                 | Expiry                                                                                                     | Private stars                   | Org/SSO                                                                                             | Verdict                                                |
+| ----------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **Fine-grained PAT** ✅ recommended | `starring=read` (+ repository access if private stars are indexed) | user selects; ≤366 days via template, "none" allowed unless org policy caps it                             | only repos the token can access | org owner may require approval; fine-grained PATs are authorized at creation (no separate SSO step) | least privilege, no OAuth app needed, simplest storage |
+| Classic PAT                         | `repo` for private stars (no scope needed for public)              | user-set, recommended; auto-revoked after 1 year unused                                                    | yes, with `repo`                | must be SSO-authorized per org; orgs can disable classic PATs                                       | broad scope (`repo` = all private repos)               |
+| OAuth app via **device flow**       | `public_repo` (public starring/reading) or `repo` (private)        | non-expiring by default; 8 h if app enables expiring tokens or `offline_access` requested (+refresh token) | needs `repo`                    | orgs can block OAuth apps for org resources                                                         | best UX, broader scopes, extra app registration        |
+| GitHub App user token               | account permission **Starring** ⚠️ (verify)                        | **8 h**; refresh token 6 months; owner can configure never-expire                                          | needs repo access grants        | app must be installed/approved; refresh machinery required for nightly cron                         | overkill for single user                               |
 
 **Private-stars visibility caveat**: a token that cannot see a private repo silently omits it from `/user/starred`; there is no flag distinguishing "not starred" from "not visible". At login, compare the token's total star count vs. an expected count and warn if lower. Today: 3,448 total vs 3,446 public → 2 private stars.
 
@@ -190,7 +216,7 @@ All options debit the same user quota (5,000/h REST, 5,000 points/h GraphQL). Ve
 
 **Recommendation: fine-grained PAT as the sync credential (v1).** Rationale: least privilege (`Starring: read`), no OAuth app registration to maintain, no 8-hour refresh machinery (GitHub App) and no broad `repo` scope that device flow needs for private stars. Device flow becomes attractive at MCP/multi-machine time (v2).
 
-> ⚠️ **Cross-doc conflict:** [05](05-cli.md) §6.3 currently makes device flow the default `starwatch login` UX and issues a `sw_…` deployment token via `/auth/exchange`. That decides *how the CLI authenticates to the Worker*; this doc decides *which GitHub credential sits in the Worker secret*. Both can coexist: `login --token` can deliver the fine-grained PAT, or device flow can deliver an OAuth token (broader scopes). Resolve in Open question 3. This doc only specifies where the **GitHub** credential lives: a Worker secret, never D1/local files.
+> ⚠️ **Cross-doc conflict:** [05](05-cli.md) §6.3 currently makes device flow the default `starwatch login` UX and issues a `sw_…` deployment token via `/auth/exchange`. That decides _how the CLI authenticates to the Worker_; this doc decides _which GitHub credential sits in the Worker secret_. Both can coexist: `login --token` can deliver the fine-grained PAT, or device flow can deliver an OAuth token (broader scopes). Resolve in Open question 3. This doc only specifies where the **GitHub** credential lives: a Worker secret, never D1/local files.
 
 ```
 $ starwatch login
@@ -205,12 +231,12 @@ $ starwatch login
      Local copy: not stored (CLI delegates everything to the Worker)
 ```
 
-| Storage option | Verdict |
-|---|---|
+| Storage option                                                        | Verdict                                                                            |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | **Worker secret** (env binding, encrypted at rest, not readable back) | ✅ required by [00 R14]; `secrets.required` in wrangler fails deploys when missing |
-| D1 | ❌ any query/console can read it |
-| Local config file | ❌ plaintext disk; optional OS keyring only if the CLI ever calls GitHub directly |
-| `.dev.vars` / `.env` | local dev only; gitignored |
+| D1                                                                    | ❌ any query/console can read it                                                   |
+| Local config file                                                     | ❌ plaintext disk; optional OS keyring only if the CLI ever calls GitHub directly  |
+| `.dev.vars` / `.env`                                                  | local dev only; gitignored                                                         |
 
 Front the login/status endpoint with the user's own admin auth (Cloudflare Access or a bootstrap secret); the CLI needs Cloudflare credentials anyway for deploy. Rotation: re-run `starwatch login`; revocation: delete the secret + revoke token on GitHub, run shows `needs_auth` until then. Expiry UX: nightly sync's first listing detects 401 → run state `needs_auth` → CLI/WebUI banner "GitHub token rejected or expired — run starwatch login"; cron keeps failing fast (no retry storm).
 
@@ -218,14 +244,14 @@ Front the login/status endpoint with the user's own admin auth (Cloudflare Acces
 
 One Workflow instance per run: id `sw-sync-{run_id}` (≤100 chars; retention 30 days on Paid). Every phase is idempotent and checkpointed in D1; `step.sleep`/`sleepUntil` don't count toward the 10,000-step limit; waiting instances don't consume concurrency.
 
-| Phase | Work | Request cost | Checkpoint | ETA @ conc. 5 |
-|---|---|---|---|---|
-| 1 `listing` | 35 pages → upsert repo metadata, write metadata-only FTS rows, `star_pages`, diff | 35 | per page (`star_pages.page+etag`) | ~30–60 s (paced) |
-| 2 `planning` | worklist = new + `pushed_at`-changed + retry-due; snapshot id | 0 | worklist table | seconds |
-| 3 `fetching` | batches of 25: README (ETag) → R2 archive (optional) → chunk+hash → D1 batch (repo + chunks + FTS, `index_state`) | ≤3,448 (304s free) | per batch (25) | **~5–15 min** (3448 × 0.4–1.0 s ÷ 5) |
-| 4 `embedding` | ≤100 chunks/call (bge-m3) → Workers AI | ~200 AI calls | per embed batch | ~3–10 min |
-| 5 `vectorizing` | upsert ≤1,000/batch, delete removed ids (async visibility) | ~25 calls | per upsert batch | ~1–2 min |
-| 6 `finalizing` | counters, `index_state='full'`, run summary | 0 | — | <1 s |
+| Phase           | Work                                                                                                              | Request cost       | Checkpoint                        | ETA @ conc. 5                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------ | --------------------------------- | ------------------------------------ |
+| 1 `listing`     | 35 pages → upsert repo metadata, write metadata-only FTS rows, `star_pages`, diff                                 | 35                 | per page (`star_pages.page+etag`) | ~30–60 s (paced)                     |
+| 2 `planning`    | worklist = new + `pushed_at`-changed + retry-due; snapshot id                                                     | 0                  | worklist table                    | seconds                              |
+| 3 `fetching`    | batches of 25: README (ETag) → R2 archive (optional) → chunk+hash → D1 batch (repo + chunks + FTS, `index_state`) | ≤3,448 (304s free) | per batch (25)                    | **~5–15 min** (3448 × 0.4–1.0 s ÷ 5) |
+| 4 `embedding`   | ≤100 chunks/call (bge-m3) → Workers AI                                                                            | ~200 AI calls      | per embed batch                   | ~3–10 min                            |
+| 5 `vectorizing` | upsert ≤1,000/batch, delete removed ids (async visibility)                                                        | ~25 calls          | per upsert batch                  | ~1–2 min                             |
+| 6 `finalizing`  | counters, `index_state='full'`, run summary                                                                       | 0                  | —                                 | <1 s                                 |
 
 **Realistic wall clock 15–40 min**; worst case +≤60 min if the hourly window is already partly consumed — preflight `x-ratelimit-remaining` ≥ ~3,600 before starting, else `paused_rate_limit` until reset. Backfill writes ~10–15k subrequests (README 3.4k + D1/R2/Vectorize counts as subrequests) > the 10,000 default → **set `limits.subrequests ≥ 50_000`** in wrangler. Step count ~35 + ~138 + ~200 + finalize ≪ 10,000.
 
@@ -279,11 +305,24 @@ CREATE TABLE sync_runs (
 `GET /api/sync/status` JSON (CLI polls; shared with the WebUI stream):
 
 ```json
-{ "run_id": 42, "state": "fetching", "kind": "incremental", "started_at": "…", "heartbeat_at": "…",
-  "progress": { "pages": {"done": 35, "total": 35}, "repos": {"done": 812, "total": 3448},
-                "readme": {"ok": 120, "not_modified": 690, "missing": 2}, "chunks": {"embedded": 5400, "total": 19700} },
-  "eta_seconds": 480, "paused": null, "rate_limit": {"remaining": 4120, "limit": 5000, "reset_at": "…"},
-  "error": null, "last_success_at": "…" }
+{
+  "run_id": 42,
+  "state": "fetching",
+  "kind": "incremental",
+  "started_at": "…",
+  "heartbeat_at": "…",
+  "progress": {
+    "pages": { "done": 35, "total": 35 },
+    "repos": { "done": 812, "total": 3448 },
+    "readme": { "ok": 120, "not_modified": 690, "missing": 2 },
+    "chunks": { "embedded": 5400, "total": 19700 }
+  },
+  "eta_seconds": 480,
+  "paused": null,
+  "rate_limit": { "remaining": 4120, "limit": 5000, "reset_at": "…" },
+  "error": null,
+  "last_success_at": "…"
+}
 ```
 
 - **CLI**: `starwatch sync` starts and tails by default ([05](05-cli.md) §3.2; Ctrl-C detaches, run continues); it polls `/api/sync/status` every 2 s (1 s during `listing`), prints transitions + progress, and prints final counters on stdout; `--json` emits NDJSON `{seq, ts, type, data}` lines; exits non-zero on `error`/`needs_auth`.
@@ -292,32 +331,32 @@ CREATE TABLE sync_runs (
 
 ## 5. Edge cases
 
-| # | Case | Detection | Handling |
-|---|---|---|---|
-| 1 | No README | 404 | `readme_state='missing'`, retry ≤30 d; metadata still searchable |
-| 2 | Empty repo | listing `size == 0`; 404 | Skip README, metadata only |
-| 3 | README >1 MB | contents/readme 403 or size field ⚠️ | Skip/truncate, `too_big`; optional `raw.githubusercontent.com` refetch (no API quota) |
-| 4 | Renamed repo | 301 → `/repositories/{id}` | Match by `id`; update `full_name`; refetch README under new name |
-| 5 | Deleted repo | Absent from sweep (and/or 404) | Soft-delete after **complete** sweep; keep rows 90 d |
-| 6 | Repo goes private | 404 while token lacks access / absent from listing | Keep row, flag `visibility_unknown`; never hard-delete on 404 |
-| 7 | Unstar mid-sync | Later sweep diff | In-flight fetch is harmless; delete at next complete sweep |
-| 8 | Same `full_name` re-starred | id match (same repo) vs new id | Same id → reactivate, skip re-embed if ETag unchanged; new id → new row |
-| 9 | Rate-limit exhaustion mid-backfill | 403/429, remaining=0 | Cursor is committed per batch; `sleepUntil(reset+30s)`; resume |
-| 10 | Revoked/expired token | 401 (or 404 for private-only) | `needs_auth`, halt, banner; no retries |
-| 11 | Worker crash mid-step | stale heartbeat / instance status | Step retried (defaults 5×, we use 8×); writes idempotent by `repo.id`/chunk hash |
-| 12 | GitHub outage/5xx | 502/503/504, timeouts, status API | Exponential backoff; run `error`; next cron retries; status page check |
-| 13 | Secondary CPU/concurrency limit | 403/429 "secondary rate limit" | `retry-after` first; drop to concurrency 1–2 for 10 min; exponential |
-| 14 | Org SSO | `X-GitHub-SSO`, missing private org stars, 403/404 | Authorize classic PAT per org (fine-grained authorized at creation); surface fix-IT action |
-| 15 | Org blocks PATs/OAuth apps | 403/404 on org-owned resources | Use fine-grained PAT with org approval or GitHub App |
-| 16 | Avatar CDN blocked | broken `<img>` | CSP allowlist; local initials placeholder; optional Worker/KV proxy |
-| 17 | Star-list page shifted by unstar | suffix of pages returns 200 | Expected; sweep is still ≤35 requests; never infer unstars from one page |
-| 18 | Stargazers-endpoint restrictions (Jul 2026) | N/A | We use `/user/starred`, not `/repos/{o}/{r}/stargazers`; no impact |
+| #   | Case                                        | Detection                                          | Handling                                                                                   |
+| --- | ------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 1   | No README                                   | 404                                                | `readme_state='missing'`, retry ≤30 d; metadata still searchable                           |
+| 2   | Empty repo                                  | listing `size == 0`; 404                           | Skip README, metadata only                                                                 |
+| 3   | README >1 MB                                | contents/readme 403 or size field ⚠️               | Skip/truncate, `too_big`; optional `raw.githubusercontent.com` refetch (no API quota)      |
+| 4   | Renamed repo                                | 301 → `/repositories/{id}`                         | Match by `id`; update `full_name`; refetch README under new name                           |
+| 5   | Deleted repo                                | Absent from sweep (and/or 404)                     | Soft-delete after **complete** sweep; keep rows 90 d                                       |
+| 6   | Repo goes private                           | 404 while token lacks access / absent from listing | Keep row, flag `visibility_unknown`; never hard-delete on 404                              |
+| 7   | Unstar mid-sync                             | Later sweep diff                                   | In-flight fetch is harmless; delete at next complete sweep                                 |
+| 8   | Same `full_name` re-starred                 | id match (same repo) vs new id                     | Same id → reactivate, skip re-embed if ETag unchanged; new id → new row                    |
+| 9   | Rate-limit exhaustion mid-backfill          | 403/429, remaining=0                               | Cursor is committed per batch; `sleepUntil(reset+30s)`; resume                             |
+| 10  | Revoked/expired token                       | 401 (or 404 for private-only)                      | `needs_auth`, halt, banner; no retries                                                     |
+| 11  | Worker crash mid-step                       | stale heartbeat / instance status                  | Step retried (defaults 5×, we use 8×); writes idempotent by `repo.id`/chunk hash           |
+| 12  | GitHub outage/5xx                           | 502/503/504, timeouts, status API                  | Exponential backoff; run `error`; next cron retries; status page check                     |
+| 13  | Secondary CPU/concurrency limit             | 403/429 "secondary rate limit"                     | `retry-after` first; drop to concurrency 1–2 for 10 min; exponential                       |
+| 14  | Org SSO                                     | `X-GitHub-SSO`, missing private org stars, 403/404 | Authorize classic PAT per org (fine-grained authorized at creation); surface fix-IT action |
+| 15  | Org blocks PATs/OAuth apps                  | 403/404 on org-owned resources                     | Use fine-grained PAT with org approval or GitHub App                                       |
+| 16  | Avatar CDN blocked                          | broken `<img>`                                     | CSP allowlist; local initials placeholder; optional Worker/KV proxy                        |
+| 17  | Star-list page shifted by unstar            | suffix of pages returns 200                        | Expected; sweep is still ≤35 requests; never infer unstars from one page                   |
+| 18  | Stargazers-endpoint restrictions (Jul 2026) | N/A                                                | We use `/user/starred`, not `/repos/{o}/{r}/stargazers`; no impact                         |
 
 ## 6. Open questions
 
 1. **Count reconciliation**: 3,277 (docs) vs 3,448 (live). Which number is canonical for planning?
 2. **Private stars**: index them? If yes, fine-grained PAT needs repository access (all vs selected) and the org-approval path may apply.
-3. **Login method final call**: fine-grained PAT as sync credential (recommended) vs device flow with a registered OAuth app — [05](05-cli.md) §6.3 currently defaults the *CLI UX* to device flow; align once decided. If device flow, expiring tokens or not?
+3. **Login method final call**: fine-grained PAT as sync credential (recommended) vs device flow with a registered OAuth app — [05](05-cli.md) §6.3 currently defaults the _CLI UX_ to device flow; align once decided. If device flow, expiring tokens or not?
 4. **Backfill trigger**: auto-start after first successful login, or explicit `starwatch sync --full`?
 5. **Schedule**: 03:00 UTC nightly — or shift to match the token's rate-limit window so backfills never start pre-consumed?
 6. **Missing-README retry cadence**: 30 days proposed; longer for genuinely empty docs?

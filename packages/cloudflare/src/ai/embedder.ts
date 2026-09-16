@@ -24,7 +24,7 @@ export const EMBEDDING_DIMS = 384;
  * adapter never has to assert the payload shape.
  */
 export const WorkersAiTextEmbedding = Schema.Struct({
-  data: Schema.Array(Schema.Array(Schema.Number))
+  data: Schema.Array(Schema.Array(Schema.Number)),
 });
 
 export type WorkersAiTextEmbedding = typeof WorkersAiTextEmbedding.Type;
@@ -33,7 +33,7 @@ export type WorkersAiTextEmbedding = typeof WorkersAiTextEmbedding.Type;
 export interface WorkersAiBinding {
   readonly run: (
     model: string,
-    input: { readonly text: ReadonlyArray<string> }
+    input: { readonly text: ReadonlyArray<string> },
   ) => Promise<{ readonly data: ReadonlyArray<ReadonlyArray<number>> }>;
 }
 
@@ -55,7 +55,7 @@ const WHITESPACE = /\s+/g;
 /** Split `texts` into consecutive fixed-size chunks (last chunk may be short). */
 export const batchTexts = (
   texts: ReadonlyArray<string>,
-  size: number
+  size: number,
 ): ReadonlyArray<ReadonlyArray<string>> => {
   if (!Number.isInteger(size) || size < 1) {
     throw new RangeError(`batch size must be a positive integer, got ${size}`);
@@ -91,13 +91,15 @@ export interface RepoEmbeddingTextOptions {
 export const repoEmbeddingText = (
   repo: Repo,
   readme: string | null | undefined,
-  options: RepoEmbeddingTextOptions = {}
+  options: RepoEmbeddingTextOptions = {},
 ): string => {
   const maxChars = options.maxChars ?? MAX_README_CHARS;
   const description = repo.description?.replace(WHITESPACE, " ").trim() ?? "";
 
   const lines: string[] =
-    description.length > 0 ? [`${repo.fullName} — ${description}`] : [repo.fullName];
+    description.length > 0
+      ? [`${repo.fullName} — ${description}`]
+      : [repo.fullName];
 
   if (repo.topics.length > 0) {
     lines.push(`Topics: ${repo.topics.join(", ")}`);
@@ -133,21 +135,27 @@ const validateDimension = (value: number, where: string): number => {
  */
 export const makeWorkersAiEmbedder = (
   binding: WorkersAiBinding,
-  options: WorkersAiEmbedderOptions = {}
+  options: WorkersAiEmbedderOptions = {},
 ): EmbedderService => {
-  const batchSize = validateDimension(options.batchSize ?? DEFAULT_BATCH_SIZE, "batchSize");
-  const concurrency = validateDimension(options.concurrency ?? DEFAULT_CONCURRENCY, "concurrency");
+  const batchSize = validateDimension(
+    options.batchSize ?? DEFAULT_BATCH_SIZE,
+    "batchSize",
+  );
+  const concurrency = validateDimension(
+    options.concurrency ?? DEFAULT_CONCURRENCY,
+    "concurrency",
+  );
 
   const runBatch = (
     batch: ReadonlyArray<string>,
-    index: number
+    index: number,
   ): Effect.Effect<ReadonlyArray<Float32Array>, EmbedFailed> =>
     Effect.tryPromise({
       try: () => binding.run(EMBEDDING_MODEL, { text: [...batch] }),
       catch: (cause) =>
         new EmbedFailed({
-          message: `Workers AI embedding batch ${index} failed: ${String(cause)}`
-        })
+          message: `Workers AI embedding batch ${index} failed: ${String(cause)}`,
+        }),
     }).pipe(
       Effect.flatMap((result) => {
         const rows = result.data;
@@ -157,19 +165,19 @@ export const makeWorkersAiEmbedder = (
             new EmbedFailed({
               message: `Workers AI returned ${
                 Array.isArray(rows) ? rows.length : "no"
-              } embeddings for ${batch.length} texts`
-            })
+              } embeddings for ${batch.length} texts`,
+            }),
           );
         }
 
         return Effect.succeed(rows.map((row) => Float32Array.from(row)));
-      })
+      }),
     );
 
   return {
     embed: (texts) =>
-      Effect.forEach(batchTexts(texts, batchSize), runBatch, { concurrency }).pipe(
-        Effect.map((results) => results.flat())
-      )
+      Effect.forEach(batchTexts(texts, batchSize), runBatch, {
+        concurrency,
+      }).pipe(Effect.map((results) => results.flat())),
   };
 };

@@ -57,7 +57,7 @@ export const EMPTY_SEARCH: SearchState = {
   archived: false,
   minStars: undefined,
   page: 1,
-  repo: undefined
+  repo: undefined,
 };
 
 /**
@@ -69,7 +69,7 @@ const RawSearchValue = Schema.Union([
   Schema.String,
   Schema.Number,
   Schema.Boolean,
-  Schema.Array(Schema.String)
+  Schema.Array(Schema.String),
 ]);
 
 export type RawSearchValue = typeof RawSearchValue.Type;
@@ -119,7 +119,9 @@ function asPositiveInt(value: RawSearchValue | undefined): number | undefined {
   return parsed;
 }
 
-export function toSearchMode(value: string | number | ReadonlyArray<string> | undefined): SearchMode {
+export function toSearchMode(
+  value: string | number | ReadonlyArray<string> | undefined,
+): SearchMode {
   const raw = asString(value);
 
   return Option.getOrElse(Schema.decodeUnknownOption(SearchMode)(raw), () => DEFAULT_MODE);
@@ -197,7 +199,7 @@ export function normalizeUserSearch(raw: UserSearch): SearchState {
     archived: raw.archived ?? false,
     minStars: raw.minStars,
     page: raw.page ?? 1,
-    repo: raw.repo
+    repo: raw.repo,
   };
 }
 

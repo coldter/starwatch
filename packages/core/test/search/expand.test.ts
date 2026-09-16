@@ -10,7 +10,7 @@ describe("expandQuery — activation", () => {
     expect(result.terms).toContain("authentication");
     expect(result.terms).toContain("oauth");
     expect(result.expression).toBe(
-      '"authentication" OR "authorization" OR "oauth" OR "oidc" OR "jwt" OR "sso" OR "session" OR "permissions"'
+      '"authentication" OR "authorization" OR "oauth" OR "oidc" OR "jwt" OR "sso" OR "session" OR "permissions"',
     );
   });
 
@@ -49,7 +49,7 @@ describe("expandQuery — activation", () => {
       activated: false,
       conceptIds: [],
       terms: [],
-      expression: undefined
+      expression: undefined,
     });
     expect(expandQuery("").activated).toBe(false);
   });
@@ -66,7 +66,7 @@ describe("expandQuery — terms", () => {
   it("dedupes terms across activated concepts deterministically", () => {
     const lexicon: ReadonlyArray<Concept> = [
       { id: "alpha", label: "Alpha", triggers: ["alpha"], expand: ["shared", "one"] },
-      { id: "beta", label: "Beta", triggers: ["beta"], expand: ["shared", "two"] }
+      { id: "beta", label: "Beta", triggers: ["beta"], expand: ["shared", "two"] },
     ];
 
     const result = expandQuery("alpha beta", lexicon);
@@ -81,8 +81,8 @@ describe("expandQuery — terms", () => {
         id: "custom",
         label: "Custom",
         triggers: ["foo bar"],
-        expand: ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"]
-      }
+        expand: ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"],
+      },
     ];
 
     const result = expandQuery("foo bar extra words here", lexicon);
@@ -93,7 +93,7 @@ describe("expandQuery — terms", () => {
 
   it("activates a concept with an empty expand list but emits no expression", () => {
     const lexicon: ReadonlyArray<Concept> = [
-      { id: "zap", label: "Zap", triggers: ["zap"], expand: [] }
+      { id: "zap", label: "Zap", triggers: ["zap"], expand: [] },
     ];
 
     const result = expandQuery("zap", lexicon);

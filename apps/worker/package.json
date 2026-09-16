@@ -11,11 +11,11 @@
     "destroy": "node scripts/preflight.mjs && alchemy destroy"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-d1": "catalog:",
     "@starwatch/cloudflare": "workspace:*",
     "@starwatch/core": "workspace:*",
     "@starwatch/domain": "workspace:*",
-    "@effect/sql-d1": "catalog:",
-    "@effect/platform-node": "catalog:",
     "alchemy": "catalog:",
     "effect": "catalog:"
   },

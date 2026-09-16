@@ -4,13 +4,13 @@ import {
   README_PROBE_PATHS,
   parseLinkNext,
   readmeProbeUrls,
-  starPageUrl
+  starPageUrl,
 } from "../../src/github/github-urls.ts";
 
 describe("starPageUrl", () => {
   it("builds a newest-first star listing URL", () => {
     expect(starPageUrl("coldter", 2, 100)).toBe(
-      `${GITHUB_API_BASE}/users/coldter/starred?per_page=100&page=2&sort=created&direction=asc`
+      `${GITHUB_API_BASE}/users/coldter/starred?per_page=100&page=2&sort=created&direction=asc`,
     );
   });
 
@@ -30,16 +30,14 @@ describe("readmeProbeUrls", () => {
       "https://raw.githubusercontent.com/Effect-TS/effect/main/readme.md",
       "https://raw.githubusercontent.com/Effect-TS/effect/main/README.rst",
       "https://raw.githubusercontent.com/Effect-TS/effect/main/README.txt",
-      "https://raw.githubusercontent.com/Effect-TS/effect/main/.github/README.md"
+      "https://raw.githubusercontent.com/Effect-TS/effect/main/.github/README.md",
     ]);
     expect(urls).toHaveLength(README_PROBE_PATHS.length);
   });
 
   it("uses the given branch (not HEAD) and encodes the ref", () => {
     const urls = readmeProbeUrls("owner/repo", "release/2.x");
-    expect(urls[0]).toBe(
-      "https://raw.githubusercontent.com/owner/repo/release%2F2.x/README.md"
-    );
+    expect(urls[0]).toBe("https://raw.githubusercontent.com/owner/repo/release%2F2.x/README.md");
   });
 
   it("encodes each segment of full_name", () => {
@@ -66,7 +64,7 @@ describe("parseLinkNext", () => {
 
   it("returns undefined when there is no next page", () => {
     expect(
-      parseLinkNext('<https://api.github.com/user/1/starred?page=1>; rel="first"')
+      parseLinkNext('<https://api.github.com/user/1/starred?page=1>; rel="first"'),
     ).toBeUndefined();
     expect(parseLinkNext(undefined)).toBeUndefined();
     expect(parseLinkNext(null)).toBeUndefined();
@@ -75,7 +73,9 @@ describe("parseLinkNext", () => {
 
   it("returns undefined for malformed headers", () => {
     expect(parseLinkNext('rel="next"')).toBeUndefined();
-    expect(parseLinkNext('<https://api.github.com/user/1/starred?page=nope>; rel="next"')).toBeUndefined();
+    expect(
+      parseLinkNext('<https://api.github.com/user/1/starred?page=nope>; rel="next"'),
+    ).toBeUndefined();
     expect(parseLinkNext('<not a url>; rel="next"')).toBeUndefined();
   });
 });

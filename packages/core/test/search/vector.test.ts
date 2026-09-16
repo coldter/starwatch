@@ -5,7 +5,7 @@ import {
   cosineSimilarity,
   decodeVectors,
   encodeVectors,
-  topK
+  topK,
 } from "../../src/search/vector.ts";
 
 describe("vector codec", () => {
@@ -27,7 +27,7 @@ describe("vector codec", () => {
 
   it("rejects vectors with mismatched dims", () => {
     expect(() => encodeVectors([new Float32Array([1, 2]), new Float32Array([1])])).toThrow(
-      VectorCodecError
+      VectorCodecError,
     );
   });
 
@@ -56,7 +56,7 @@ describe("cosineSimilarity", () => {
 
   it("throws on dims mismatch", () => {
     expect(() => cosineSimilarity(new Float32Array([1]), new Float32Array([1, 2]))).toThrow(
-      VectorCodecError
+      VectorCodecError,
     );
   });
 });
@@ -68,7 +68,7 @@ describe("topK", () => {
     const entries = [
       { id: 1, vector: new Float32Array([0, 1]) },
       { id: 2, vector: new Float32Array([1, 0]) },
-      { id: 3, vector: new Float32Array([0.5, 0.5]) }
+      { id: 3, vector: new Float32Array([0.5, 0.5]) },
     ];
 
     const result = topK(query, entries, 2);
@@ -81,7 +81,7 @@ describe("topK", () => {
 
     const entries = [
       { id: 9, vector: new Float32Array([1, 0]) },
-      { id: 4, vector: new Float32Array([1, 0]) }
+      { id: 4, vector: new Float32Array([1, 0]) },
     ];
 
     expect(topK(query, entries, 2).map((entry) => entry.id)).toEqual([4, 9]);

@@ -18,7 +18,7 @@ export const EXIT_CODES = {
   success: 0,
   error: 1,
   noResults: 2,
-  interrupted: 130
+  interrupted: 130,
 } as const;
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];
@@ -51,7 +51,10 @@ export const normalizeLogin = (value: string | undefined): string => {
 };
 
 /** `flag > env`; `undefined` means the user-scoped command cannot run. */
-export const resolveUser = (flag: string | undefined, env: string | undefined): string | undefined => {
+export const resolveUser = (
+  flag: string | undefined,
+  env: string | undefined,
+): string | undefined => {
   const fromFlag = normalizeLogin(flag);
 
   if (fromFlag !== "") return fromFlag;
@@ -98,7 +101,7 @@ export const splitCommaValues = (values: readonly string[]): ReadonlyArray<strin
     value
       .split(",")
       .map((part) => part.trim())
-      .filter((part) => part !== "")
+      .filter((part) => part !== ""),
   );
 
 /** Returns a human error message, or `undefined` when the limit is valid. */
@@ -167,7 +170,7 @@ export const buildSearchQueryString = (params: SearchQueryParams): string =>
     license: params.license,
     starredAfter: params.starredAfter,
     starredBefore: params.starredBefore,
-    limit: params.limit
+    limit: params.limit,
   });
 
 export const userPath = (login: string): string => `/api/users/${encodeURIComponent(login)}`;

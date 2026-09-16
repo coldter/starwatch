@@ -11,10 +11,12 @@ export const nowIso = (): string => new Date().toISOString();
 export const describeGithubError = (error: GithubClientError): string =>
   Match.value(error).pipe(
     Match.tagsExhaustive({
-      GithubRateLimited: (error) => `GitHub rate limit (reset ${error.resetAt ?? "unknown"})`,
-      GithubUpstream: (error) => `GitHub upstream error ${error.status}: ${error.message}`,
-      UserNotFound: (error) => `GitHub user ${error.login} not found`
-    })
+      GithubRateLimited: (error) =>
+        `GitHub rate limit (reset ${error.resetAt ?? "unknown"})`,
+      GithubUpstream: (error) =>
+        `GitHub upstream error ${error.status}: ${error.message}`,
+      UserNotFound: (error) => `GitHub user ${error.login} not found`,
+    }),
   );
 
 export interface StatePatch {
@@ -34,7 +36,7 @@ export interface StatePatch {
  */
 export const patchState = (
   login: string,
-  patch: StatePatch
+  patch: StatePatch,
 ): Effect.Effect<void, never, RepoStore> =>
   Effect.gen(function* () {
     const repos = yield* RepoStore;
@@ -48,9 +50,11 @@ export const patchState = (
         readmesFetched: patch.readmesFetched ?? previous?.readmesFetched ?? 0,
         semanticDocs: patch.semanticDocs ?? previous?.semanticDocs ?? 0,
         lastSyncedAt:
-          patch.lastSyncedAt !== undefined ? patch.lastSyncedAt : (previous?.lastSyncedAt ?? null),
+          patch.lastSyncedAt !== undefined
+            ? patch.lastSyncedAt
+            : (previous?.lastSyncedAt ?? null),
         lastError: patch.lastError ?? null,
-        updatedAt: nowIso()
+        updatedAt: nowIso(),
       })
       .pipe(Effect.orDie);
   });

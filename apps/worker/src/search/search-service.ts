@@ -12,7 +12,7 @@ import {
   rankByScore,
   tokenize,
   topK,
-  type Ranked
+  type Ranked,
 } from "@starwatch/core/search";
 import { Embedder } from "@starwatch/core/sync";
 import { RepoStore, UserFts, VectorBlobStore } from "@starwatch/cloudflare/storage";
@@ -53,8 +53,8 @@ const optional = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A | nu
   effect.pipe(
     Effect.matchEffect({
       onSuccess: (value) => Effect.succeed(value),
-      onFailure: () => Effect.succeed(null)
-    })
+      onFailure: () => Effect.succeed(null),
+    }),
   );
 
 const emptyResponse = (query: string, startedAt: number): SearchResponse => ({
@@ -62,11 +62,11 @@ const emptyResponse = (query: string, startedAt: number): SearchResponse => ({
   mode: "keyword",
   hits: [],
   tookMs: Date.now() - startedAt,
-  semanticCoverage: 0
+  semanticCoverage: 0,
 });
 
 export const runSearch = (
-  input: SearchInput
+  input: SearchInput,
 ): Effect.Effect<
   SearchResponse,
   SqlError,
@@ -140,7 +140,12 @@ export const runSearch = (
     // queries rely on exact/trigram evidence and stay precision-first.
     let expandedRanks: ReadonlyArray<Ranked> = [];
 
-    if (hybridRequested && queryKind !== "identifier" && expansion.activated && expansion.expression !== undefined) {
+    if (
+      hybridRequested &&
+      queryKind !== "identifier" &&
+      expansion.activated &&
+      expansion.expression !== undefined
+    ) {
       const hits = yield* fts.searchKeyword(input.login, expansion.expression, searchOptions);
       expandedRanks = hits.map((hit) => ({ repoId: hit.repoId, rank: hit.rank }));
     }
@@ -178,7 +183,10 @@ export const runSearch = (
             });
 
             semanticRanks = rankByScore(
-              topK(queryVector, entries, SEARCH_LEG_LIMIT).map(({ id, score }) => ({ repoId: id, score }))
+              topK(queryVector, entries, SEARCH_LEG_LIMIT).map(({ id, score }) => ({
+                repoId: id,
+                score,
+              })),
             );
             semanticRan = true;
             semanticDocs = vectors.length;
@@ -203,7 +211,7 @@ export const runSearch = (
         const repo = repoMap.get(id);
 
         return repo === undefined ? [] : [repo];
-      })
+      }),
     );
 
     const fused = fuse(
@@ -211,13 +219,13 @@ export const runSearch = (
         keyword: keywordRanks,
         expanded: expandedRanks,
         semantic: semanticRanks,
-        repos: repoMap
+        repos: repoMap,
       },
       {
         queryTokens: tokens,
         conceptTerms: expansion.terms,
-        nameStats
-      }
+        nameStats,
+      },
     );
 
     const selected = fused.slice(0, input.limit);
@@ -226,7 +234,7 @@ export const runSearch = (
 
     const [groupMap, readmeMap] = yield* Effect.all(
       [repos.groupsForRepos(input.login, resultIds), repos.getReadmeTexts(input.login, snippetIds)],
-      { concurrency: 2 }
+      { concurrency: 2 },
     );
 
     const snippetTerms = evidenceTerms(tokens, expansion.terms);
@@ -237,10 +245,10 @@ export const runSearch = (
       snippet: makeSnippet(
         hit.repo,
         snippetTerms,
-        index < SNIPPET_HITS ? readmeMap.get(hit.repo.id) : undefined
+        index < SNIPPET_HITS ? readmeMap.get(hit.repo.id) : undefined,
       ),
       matchedBy: [...hit.matchedBy],
-      groups: [...(groupMap.get(hit.repo.id) ?? [])]
+      groups: [...(groupMap.get(hit.repo.id) ?? [])],
     }));
 
     const mode: SearchResponse["mode"] = semanticRan
@@ -256,7 +264,7 @@ export const runSearch = (
       mode,
       hits,
       tookMs: Date.now() - startedAt,
-      semanticCoverage
+      semanticCoverage,
     };
 
     if (semanticRequested && !semanticRan) {

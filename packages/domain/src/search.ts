@@ -17,7 +17,7 @@ export const SearchFilters = Schema.Struct({
   archived: Schema.optional(Schema.Boolean),
   license: Schema.optional(Schema.String),
   starredAfter: Schema.optional(Schema.String),
-  starredBefore: Schema.optional(Schema.String)
+  starredBefore: Schema.optional(Schema.String),
 });
 
 export type SearchFilters = typeof SearchFilters.Type;
@@ -26,7 +26,7 @@ export const SearchRequest = Schema.Struct({
   query: Schema.String,
   mode: Schema.optional(SearchMode),
   filters: Schema.optional(SearchFilters),
-  limit: Schema.optional(Schema.Number)
+  limit: Schema.optional(Schema.Number),
 });
 
 export type SearchRequest = typeof SearchRequest.Type;
@@ -41,7 +41,7 @@ export const SearchHit = Schema.Struct({
   score: Schema.Number,
   snippet: Schema.String,
   matchedBy: Schema.Array(MatchSource),
-  groups: Schema.Array(Schema.String)
+  groups: Schema.Array(Schema.String),
 });
 
 export type SearchHit = typeof SearchHit.Type;
@@ -56,7 +56,7 @@ export const SearchResponse = Schema.Struct({
   hits: Schema.Array(SearchHit),
   tookMs: Schema.Number,
   semanticCoverage: Schema.Number,
-  degraded: Schema.optional(DegradedReason)
+  degraded: Schema.optional(DegradedReason),
 });
 
 export type SearchResponse = typeof SearchResponse.Type;

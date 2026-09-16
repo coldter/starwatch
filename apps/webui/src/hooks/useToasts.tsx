@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { ToastViewport, type ToastItem, type ToastTone } from "../components/ToastViewport";
 
 export interface ToastInput {
@@ -42,12 +50,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = useCallback(
     (input: ToastInput) => {
       const id = nextToastId++;
-      const item: ToastItem = { id, title: input.title, body: input.body, tone: input.tone ?? "info" };
+      const item: ToastItem = {
+        id,
+        title: input.title,
+        body: input.body,
+        tone: input.tone ?? "info",
+      };
       setItems((prev) => [...prev.slice(-3), item]);
       const timeout = window.setTimeout(() => dismiss(id), item.tone === "error" ? 8000 : 5000);
       timers.current.set(id, timeout);
     },
-    [dismiss]
+    [dismiss],
   );
 
   const value = useMemo(() => ({ toast, dismiss }), [toast, dismiss]);

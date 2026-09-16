@@ -66,7 +66,10 @@ export const FTS_CANDIDATE_CHUNK = 90;
  * logins, so this mapping is injective over valid logins.
  */
 export const ftsTableName = (login: string): string =>
-  `fts_u_${login.toLowerCase().replace(/-/g, "_").replace(/[^a-z0-9_]/g, "")}`;
+  `fts_u_${login
+    .toLowerCase()
+    .replace(/-/g, "_")
+    .replace(/[^a-z0-9_]/g, "")}`;
 
 /** Trigram companion table (`full_name, description, topics` only). */
 export const ftsTrigramTableName = (login: string): string => `${ftsTableName(login)}_tri`;
@@ -88,7 +91,10 @@ export interface UserFtsService {
    * Not atomic — D1 has no transactions — but idempotent: re-run it after any
    * failure and the index converges to the supplied docs.
    */
-  readonly replaceUserDocs: (login: string, docs: ReadonlyArray<FtsDoc>) => Effect.Effect<void, SqlError>;
+  readonly replaceUserDocs: (
+    login: string,
+    docs: ReadonlyArray<FtsDoc>,
+  ) => Effect.Effect<void, SqlError>;
   /**
    * Incremental variant of {@link replaceUserDocs} for the sync workflows:
    * replaces only the listed repo ids (delete-by-rowid + multi-row inserts),
@@ -99,17 +105,20 @@ export interface UserFtsService {
    * Each README is capped at 64 KB; the per-user 20 MB budget stays enforced
    * by {@link replaceUserDocs} (whole-index rebuilds).
    */
-  readonly upsertUserDocs: (login: string, docs: ReadonlyArray<FtsDoc>) => Effect.Effect<void, SqlError>;
+  readonly upsertUserDocs: (
+    login: string,
+    docs: ReadonlyArray<FtsDoc>,
+  ) => Effect.Effect<void, SqlError>;
   readonly deleteUserFts: (login: string) => Effect.Effect<void, SqlError>;
   readonly searchKeyword: (
     login: string,
     matchExpr: string,
-    options?: FtsSearchOptions
+    options?: FtsSearchOptions,
   ) => Effect.Effect<ReadonlyArray<FtsHit>, SqlError>;
   readonly searchTrigram: (
     login: string,
     matchExpr: string,
-    options?: FtsSearchOptions
+    options?: FtsSearchOptions,
   ) => Effect.Effect<ReadonlyArray<FtsHit>, SqlError>;
 }
 
@@ -138,7 +147,7 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
 
       const replaceUserDocs = Effect.fn("UserFts.replaceUserDocs")(function* (
         login: string,
-        docs: ReadonlyArray<FtsDoc>
+        docs: ReadonlyArray<FtsDoc>,
       ) {
         yield* ensureUserFts(login);
         const porter = ftsTableName(login);
@@ -166,14 +175,17 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
 
       const upsertUserDocs = Effect.fn("UserFts.upsertUserDocs")(function* (
         login: string,
-        docs: ReadonlyArray<FtsDoc>
+        docs: ReadonlyArray<FtsDoc>,
       ) {
         if (docs.length === 0) return;
         yield* ensureUserFts(login);
         const porter = ftsTableName(login);
         const trigram = ftsTrigramTableName(login);
 
-        for (const ids of chunk(docs.map((doc) => doc.repoId), FTS_CANDIDATE_CHUNK)) {
+        for (const ids of chunk(
+          docs.map((doc) => doc.repoId),
+          FTS_CANDIDATE_CHUNK,
+        )) {
           yield* sql`DELETE FROM ${sql(porter)} WHERE rowid IN ${sql.in(ids)}`;
           yield* sql`DELETE FROM ${sql(trigram)} WHERE rowid IN ${sql.in(ids)}`;
         }
@@ -183,7 +195,7 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
         for (const batch of chunk(docs, 19)) {
           const values = batch.map(
             (doc) =>
-              sql`(${doc.repoId}, ${doc.fullName}, ${doc.description ?? ""}, ${doc.topics.join(" ")}, ${capReadme(doc.readme)})`
+              sql`(${doc.repoId}, ${doc.fullName}, ${doc.description ?? ""}, ${doc.topics.join(" ")}, ${capReadme(doc.readme)})`,
           );
 
           yield* sql`
@@ -195,7 +207,7 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
         for (const batch of chunk(docs, 24)) {
           const values = batch.map(
             (doc) =>
-              sql`(${doc.repoId}, ${doc.fullName}, ${doc.description ?? ""}, ${doc.topics.join(" ")})`
+              sql`(${doc.repoId}, ${doc.fullName}, ${doc.description ?? ""}, ${doc.topics.join(" ")})`,
           );
 
           yield* sql`
@@ -213,7 +225,7 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
       const searchTable = (
         table: string,
         matchExpr: string,
-        options: FtsSearchOptions | undefined
+        options: FtsSearchOptions | undefined,
       ): Effect.Effect<ReadonlyArray<FtsHit>, SqlError> =>
         Effect.gen(function* () {
           const limit = options?.limit ?? DEFAULT_FTS_LIMIT;
@@ -267,14 +279,14 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
           return hits.slice(0, limit).map((row, index) => ({
             repoId: row.repoId,
             rank: index + 1,
-            score: Math.abs(row.score)
+            score: Math.abs(row.score),
           }));
         });
 
       const searchKeyword = Effect.fn("UserFts.searchKeyword")(function* (
         login: string,
         matchExpr: string,
-        options?: FtsSearchOptions
+        options?: FtsSearchOptions,
       ) {
         return yield* searchTable(ftsTableName(login), matchExpr, options);
       });
@@ -282,7 +294,7 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
       const searchTrigram = Effect.fn("UserFts.searchTrigram")(function* (
         login: string,
         matchExpr: string,
-        options?: FtsSearchOptions
+        options?: FtsSearchOptions,
       ) {
         return yield* searchTable(ftsTrigramTableName(login), matchExpr, options);
       });
@@ -293,8 +305,8 @@ export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts
         upsertUserDocs,
         deleteUserFts,
         searchKeyword,
-        searchTrigram
+        searchTrigram,
       });
-    })
+    }),
   );
 }

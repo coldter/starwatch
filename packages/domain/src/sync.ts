@@ -7,7 +7,7 @@ export const SyncPhase = Schema.Literals([
   "embedding",
   "ready",
   "failed",
-  "paused"
+  "paused",
 ]);
 
 export type SyncPhase = typeof SyncPhase.Type;
@@ -22,7 +22,7 @@ export const UserIndexState = Schema.Struct({
   semanticDocs: Schema.Number,
   lastSyncedAt: Schema.NullOr(Schema.String),
   lastError: Schema.NullOr(Schema.String),
-  updatedAt: Schema.String
+  updatedAt: Schema.String,
 });
 
 export type UserIndexState = typeof UserIndexState.Type;
@@ -30,14 +30,14 @@ export type UserIndexState = typeof UserIndexState.Type;
 /** Cooldown policy (see docs/08, docs/14). */
 export const SyncCooldowns = Schema.Struct({
   relistSeconds: Schema.Number,
-  fullRefreshSeconds: Schema.Number
+  fullRefreshSeconds: Schema.Number,
 });
 
 export type SyncCooldowns = typeof SyncCooldowns.Type;
 
 export const DEFAULT_SYNC_COOLDOWNS: SyncCooldowns = {
   relistSeconds: 15 * 60,
-  fullRefreshSeconds: 24 * 60 * 60
+  fullRefreshSeconds: 24 * 60 * 60,
 };
 
 /** Full-index ceiling (docs/13, docs/14: MAX_STARS). */

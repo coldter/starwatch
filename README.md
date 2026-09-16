@@ -13,6 +13,7 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 ## Docs
 
 **Current design (public multi-tenant service):**
+
 - [docs/08-public-service-ux.md](docs/08-public-service-ux.md) — first-use flow, eager-lazy sync UX, username-context search, groups context
 - [docs/09-public-data-and-limits.md](docs/09-public-data-and-limits.md) — GitHub public-data strategy + rate-limit/capacity dossier (live-verified)
 - [docs/10-multitenant-architecture.md](docs/10-multitenant-architecture.md) — shared corpus, Vectorize namespaces, D1 sharding, costs, eviction
@@ -27,6 +28,7 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 - [docs/19-implementation-status.md](docs/19-implementation-status.md) — what's built, test counts, how to deploy, known gaps
 
 **Original design (pre-pivot; parts superseded — see doc 11):**
+
 - [00-requirements.md](docs/00-requirements.md) · [01-search-and-index.md](docs/01-search-and-index.md) · [02-stack-and-pipeline.md](docs/02-stack-and-pipeline.md)
 - [03-sync-and-limits.md](docs/03-sync-and-limits.md) · [04-groups.md](docs/04-groups.md) · [05-cli.md](docs/05-cli.md) · [06-webui.md](docs/06-webui.md) · [07-search-contract.md](docs/07-search-contract.md)
 

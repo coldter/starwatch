@@ -9,8 +9,8 @@
     "dev": "node src/main.ts"
   },
   "dependencies": {
-    "@starwatch/domain": "workspace:*",
     "@effect/platform-node": "catalog:",
+    "@starwatch/domain": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

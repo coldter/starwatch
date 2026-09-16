@@ -19,7 +19,7 @@ export type VectorBlobStoreError = typeof VectorBlobStoreError.Type;
 export class VectorStoreError extends Schema.TaggedError<VectorStoreError>()("VectorStoreError", {
   operation: VectorBlobStoreError,
   key: Schema.String,
-  cause: Schema.Defect()
+  cause: Schema.Defect(),
 }) {}
 
 /** Minimal structural view of an R2 object body. */
@@ -48,33 +48,37 @@ export interface VectorBlobWrite {
 export interface VectorBlobStoreService {
   readonly putVectors: (
     login: string,
-    vectors: ReadonlyArray<Float32Array>
+    vectors: ReadonlyArray<Float32Array>,
   ) => Effect.Effect<VectorBlobWrite, VectorStoreError>;
   /** `null` when no blob exists; vectors are returned in stored order. */
-  readonly getVectors: (login: string) => Effect.Effect<ReadonlyArray<Float32Array> | null, VectorStoreError>;
+  readonly getVectors: (
+    login: string,
+  ) => Effect.Effect<ReadonlyArray<Float32Array> | null, VectorStoreError>;
   readonly deleteVectors: (login: string) => Effect.Effect<void, VectorStoreError>;
 }
 
-export class VectorBlobStore extends Context.Service<VectorBlobStore, VectorBlobStoreService>()("VectorBlobStore") {}
+export class VectorBlobStore extends Context.Service<VectorBlobStore, VectorBlobStoreService>()(
+  "VectorBlobStore",
+) {}
 
 const tryPromise = <A>(
   operation: VectorBlobStoreError,
   key: string,
-  run: () => Promise<A>
+  run: () => Promise<A>,
 ): Effect.Effect<A, VectorStoreError> =>
   Effect.tryPromise({
     try: run,
-    catch: (cause) => new VectorStoreError({ operation, key, cause })
+    catch: (cause) => new VectorStoreError({ operation, key, cause }),
   });
 
 const trySync = <A>(
   operation: VectorBlobStoreError,
   key: string,
-  run: () => A
+  run: () => A,
 ): Effect.Effect<A, VectorStoreError> =>
   Effect.try({
     try: run,
-    catch: (cause) => new VectorStoreError({ operation, key, cause })
+    catch: (cause) => new VectorStoreError({ operation, key, cause }),
   });
 
 /** Effect wrapper over the promise-based bucket adapter used in production. */
@@ -100,7 +104,7 @@ export class R2VectorBlobStore implements VectorBlobStoreService {
         key,
         count: vectors.length,
         dims: vectors[0]?.length ?? 0,
-        bytesLen: bytes.byteLength
+        bytesLen: bytes.byteLength,
       } satisfies VectorBlobWrite;
     });
   };
@@ -173,6 +177,6 @@ export class InMemoryVectorBlobStore extends R2VectorBlobStore {
 
   static readonly layer: Layer.Layer<VectorBlobStore> = Layer.sync(
     VectorBlobStore,
-    () => new InMemoryVectorBlobStore()
+    () => new InMemoryVectorBlobStore(),
   );
 }

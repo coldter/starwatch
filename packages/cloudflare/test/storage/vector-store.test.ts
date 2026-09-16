@@ -6,7 +6,7 @@ import {
   InMemoryVectorBlobStore,
   R2VectorBlobStore,
   VectorBlobStore,
-  vectorBlobKey
+  vectorBlobKey,
 } from "../../src/storage/vector-store.ts";
 
 const LOGIN = "coldter";
@@ -14,7 +14,7 @@ const LOGIN = "coldter";
 const makeVectors = (): ReadonlyArray<Float32Array> => [
   new Float32Array([1, 0, 0, 0]),
   new Float32Array([0, 1, 0, 0]),
-  new Float32Array([0.5, 0.5, 0, 0])
+  new Float32Array([0.5, 0.5, 0, 0]),
 ];
 
 describe("VectorBlobStore", () => {
@@ -38,7 +38,7 @@ describe("VectorBlobStore", () => {
       // The frozen core kNN consumes the decoded vectors directly.
       const entries = (loaded ?? []).map((vector, index) => ({ id: index + 1, vector }));
       expect(topK(new Float32Array([0, 1, 0, 0]), entries, 1)[0]?.id).toBe(2);
-    }).pipe(Effect.provide(InMemoryVectorBlobStore.layer))
+    }).pipe(Effect.provide(InMemoryVectorBlobStore.layer)),
   );
 
   it.effect("returns null for missing blobs and deletes idempotently", () =>
@@ -53,7 +53,7 @@ describe("VectorBlobStore", () => {
       yield* store.deleteVectors(LOGIN);
       expect(yield* store.getVectors(LOGIN)).toBeNull();
       yield* store.deleteVectors(LOGIN);
-    }).pipe(Effect.provide(InMemoryVectorBlobStore.layer))
+    }).pipe(Effect.provide(InMemoryVectorBlobStore.layer)),
   );
 
   it.effect("persists exactly the bytes produced by encodeVectors", () =>
@@ -73,7 +73,7 @@ describe("VectorBlobStore", () => {
       const bytes = new Uint8Array(yield* Effect.promise(() => object.arrayBuffer()));
       expect(bytes).toEqual(encodeVectors(vectors));
       expect(decodeVectors(bytes).length).toBe(vectors.length);
-    })
+    }),
   );
 
   it.effect("decodes blobs written by the core codec", () =>
@@ -84,11 +84,13 @@ describe("VectorBlobStore", () => {
 
       const store = new R2VectorBlobStore(bucket);
       const loaded = yield* store.getVectors(LOGIN);
-      expect(loaded?.map((vector) => Array.from(vector))).toEqual(vectors.map((vector) => Array.from(vector)));
+      expect(loaded?.map((vector) => Array.from(vector))).toEqual(
+        vectors.map((vector) => Array.from(vector)),
+      );
 
       yield* store.deleteVectors(LOGIN);
       expect(bucket.size).toBe(0);
-    })
+    }),
   );
 
   it.effect("reports bucket failures as VectorStoreError", () =>
@@ -96,7 +98,7 @@ describe("VectorBlobStore", () => {
       const failing = {
         get: () => Promise.reject(new Error("nope")),
         put: () => Promise.reject(new Error("nope")),
-        delete: () => Promise.reject(new Error("nope"))
+        delete: () => Promise.reject(new Error("nope")),
       };
 
       const store = new R2VectorBlobStore(failing);
@@ -105,6 +107,6 @@ describe("VectorBlobStore", () => {
       expect(error._tag).toBe("VectorStoreError");
       expect(error.operation).toBe("get");
       expect(error.key).toBe("vectors/coldter.bin");
-    })
+    }),
   );
 });

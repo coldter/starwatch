@@ -12,7 +12,11 @@ import * as Etag from "effect/unstable/http/Etag";
 import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
-import { layerVectorBlobFiles, toVectorBlobBucket, type RawR2Bucket } from "./adapters/vector-bucket.ts";
+import {
+  layerVectorBlobFiles,
+  toVectorBlobBucket,
+  type RawR2Bucket,
+} from "./adapters/vector-bucket.ts";
 import { StarwatchApi } from "./api.ts";
 import { SERVICE_VERSION } from "./constants.ts";
 import { syncDepsFrom, SyncDeps } from "./deps.ts";
@@ -33,12 +37,10 @@ const HttpPlatformStub = Layer.succeed(HttpPlatform.HttpPlatform, {
   platform: "web",
   compression: {
     algorithms: new Set<HttpPlatform.CompressionAlgorithm>(["gzip"]),
-    compressResponse: (response) => Effect.succeed(response)
+    compressResponse: (response) => Effect.succeed(response),
   },
-  fileResponse: () =>
-    Effect.die("HttpPlatform.fileResponse is not supported on Workers"),
-  fileWebResponse: () =>
-    Effect.die("HttpPlatform.fileWebResponse is not supported on Workers")
+  fileResponse: () => Effect.die("HttpPlatform.fileResponse is not supported on Workers"),
+  fileWebResponse: () => Effect.die("HttpPlatform.fileWebResponse is not supported on Workers"),
 });
 
 /**
@@ -79,24 +81,24 @@ const init = Effect.gen(function* () {
     },
     delete: async (keys) => {
       await r2Bucket.delete(keys);
-    }
+    },
   };
 
   // Zero-permission fine-grained PAT (docs/09 §4.1); empty in local dev.
   const githubToken = yield* Config.redacted("GITHUB_TOKEN").pipe(
-    Config.withDefault(Redacted.make(""))
+    Config.withDefault(Redacted.make("")),
   );
 
   // Per-IP burst filters (docs/14 §3.2); the global budgets remain a DO
   // follow-up, so these bindings are the first line of defence.
   const searchRate = yield* Cloudflare.RateLimit("SEARCH_RATE", {
     namespaceId: 1001,
-    simple: { limit: 60, period: 60 }
+    simple: { limit: 60, period: 60 },
   });
 
   const syncRate = yield* Cloudflare.RateLimit("SYNC_RATE", {
     namespaceId: 1002,
-    simple: { limit: 5, period: 60 }
+    simple: { limit: 5, period: 60 },
   });
 
   const vectorBucket = toVectorBlobBucket(rawBucket);
@@ -106,14 +108,14 @@ const init = Effect.gen(function* () {
     rawBucket,
     rawAi,
     githubToken: Redacted.value(githubToken),
-    userAgent: `starwatch/${SERVICE_VERSION} (+https://starwatch.workers.dev)`
+    userAgent: `starwatch/${SERVICE_VERSION} (+https://starwatch.workers.dev)`,
   });
 
   const searchLayer = Layer.mergeAll(
     sync.storage,
     Layer.succeed(Embedder, sync.embedder),
     Layer.succeed(VectorBlobStore, new R2VectorBlobStore(vectorBucket)),
-    layerVectorBlobFiles(rawBucket)
+    layerVectorBlobFiles(rawBucket),
   );
 
   // Yielding the workflow class runs its init once per isolate and returns
@@ -126,18 +128,18 @@ const init = Effect.gen(function* () {
     searchLayer,
     searchRate,
     syncRate,
-    listing
+    listing,
   };
 
   return {
     fetch: yield* HttpRouter.toHttpEffect(
       HttpApiBuilder.layer(StarwatchApi).pipe(
         Layer.provide(
-          Layer.mergeAll(systemGroup(deps), usersGroup(deps), searchGroup(deps), reposGroup(deps))
+          Layer.mergeAll(systemGroup(deps), usersGroup(deps), searchGroup(deps), reposGroup(deps)),
         ),
-        Layer.provide([Etag.layer, HttpPlatformStub, Path.layer])
-      )
-    )
+        Layer.provide([Etag.layer, HttpPlatformStub, Path.layer]),
+      ),
+    ),
   };
 }).pipe(
   Effect.provide(
@@ -145,9 +147,9 @@ const init = Effect.gen(function* () {
       Cloudflare.D1.QueryDatabaseBinding,
       Cloudflare.R2.ReadWriteBucketBinding,
       Cloudflare.Workers.AIBinding,
-      Cloudflare.Workers.RateLimitBinding
-    )
-  )
+      Cloudflare.Workers.RateLimitBinding,
+    ),
+  ),
 );
 
 /**
@@ -164,8 +166,8 @@ export default Effect.gen(function* () {
     main: import.meta.url,
     compatibility: {
       date: "2026-09-01",
-      flags: ["nodejs_compat"]
-    }
+      flags: ["nodejs_compat"],
+    },
   };
 
   if (!isDev) {
@@ -174,7 +176,7 @@ export default Effect.gen(function* () {
       // API traffic always reaches the Worker; every other path falls
       // through to the SPA assets with an index.html fallback.
       runWorkerFirst: ["/api/*"],
-      notFoundHandling: "single-page-application"
+      notFoundHandling: "single-page-application",
     };
   }
 

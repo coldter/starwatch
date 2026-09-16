@@ -19,7 +19,7 @@ import {
   getSyncState,
   getUserPage,
   searchStars,
-  startSync
+  startSync,
 } from "./api.ts";
 import {
   DEFAULT_LIMIT,
@@ -29,7 +29,7 @@ import {
   resolveApiUrl,
   resolveUser,
   splitCommaValues,
-  validateLimit
+  validateLimit,
 } from "./config.ts";
 import {
   renderEmptyHint,
@@ -46,7 +46,7 @@ import {
   renderSyncStart,
   renderSyncState,
   resolveWidth,
-  shouldUseColor
+  shouldUseColor,
 } from "./render.ts";
 import type { UserIndexState } from "@starwatch/domain";
 
@@ -73,17 +73,17 @@ const SYNC_POLL_TIMEOUT_MS = 10 * 60 * 1_000;
 const userFlag = Flag.string("user").pipe(
   Flag.withAlias("u"),
   Flag.withDescription("GitHub login whose stars to search (env: STARWATCH_USER)"),
-  Flag.withDefault("")
+  Flag.withDefault(""),
 );
 
 const apiFlag = Flag.string("api").pipe(
   Flag.withDescription("API base URL (env: STARWATCH_API_URL)"),
-  Flag.withDefault("")
+  Flag.withDefault(""),
 );
 
 const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDescription("Print the raw JSON response"),
-  Flag.withDefault(false)
+  Flag.withDefault(false),
 );
 
 const apiUrlOf = (flag: string): string => resolveApiUrl(flag, process.env["STARWATCH_API_URL"]);
@@ -100,8 +100,8 @@ const requireUser = (flagValue: string): Effect.Effect<string, CliInputError> =>
     ? Effect.fail(
         new CliInputError({
           message: "Missing --user.",
-          hint: "Specify whose stars to search, e.g. --user alice (or set STARWATCH_USER)."
-        })
+          hint: "Specify whose stars to search, e.g. --user alice (or set STARWATCH_USER).",
+        }),
       )
     : Effect.succeed(login);
 };
@@ -113,8 +113,8 @@ const requireLogin = (candidate: string): Effect.Effect<string, CliInputError> =
     ? Effect.fail(
         new CliInputError({
           message: "Missing GitHub login.",
-          hint: "Pass the login, e.g. starwatch status alice."
-        })
+          hint: "Pass the login, e.g. starwatch status alice.",
+        }),
       )
     : Effect.succeed(login);
 };
@@ -128,63 +128,63 @@ const search = Command.make(
   {
     query: Argument.string("query").pipe(
       Argument.withDescription("Search query; multiple words are joined with spaces"),
-      Argument.variadic({ min: 1 })
+      Argument.variadic({ min: 1 }),
     ),
     user: userFlag,
     mode: Flag.choice("mode", ["auto", "keyword", "hybrid", "semantic"] as const).pipe(
       Flag.withDescription("Retrieval mode (auto routes server-side)"),
-      Flag.withDefault("auto")
+      Flag.withDefault("auto"),
     ),
     lang: Flag.string("lang").pipe(
       Flag.withDescription("GitHub language filter, case-insensitive"),
-      Flag.withDefault("")
+      Flag.withDefault(""),
     ),
     topic: Flag.string("topic").pipe(
       Flag.atLeast(0),
-      Flag.withDescription("Topic filter; repeatable, commas within one value are OR")
+      Flag.withDescription("Topic filter; repeatable, commas within one value are OR"),
     ),
     group: Flag.string("group").pipe(
       Flag.atLeast(0),
-      Flag.withDescription("GitHub List filter; repeatable")
+      Flag.withDescription("GitHub List filter; repeatable"),
     ),
     minStars: Flag.integer("min-stars").pipe(
       Flag.withDescription("Minimum stars (inclusive)"),
-      Flag.optional
+      Flag.optional,
     ),
     maxStars: Flag.integer("max-stars").pipe(
       Flag.withDescription("Maximum stars (inclusive)"),
-      Flag.optional
+      Flag.optional,
     ),
     archived: Flag.boolean("archived").pipe(
       Flag.withDescription("Only archived repos (--no-archived excludes them)"),
-      Flag.optional
+      Flag.optional,
     ),
     license: Flag.string("license").pipe(
       Flag.withDescription("SPDX license id, case-insensitive"),
-      Flag.withDefault("")
+      Flag.withDefault(""),
     ),
     starredAfter: Flag.string("starred-after").pipe(
       Flag.withDescription("Starred on/after this date (YYYY-MM-DD or ISO-8601)"),
-      Flag.withDefault("")
+      Flag.withDefault(""),
     ),
     starredBefore: Flag.string("starred-before").pipe(
       Flag.withDescription("Starred before this date (YYYY-MM-DD or ISO-8601)"),
-      Flag.withDefault("")
+      Flag.withDefault(""),
     ),
     limit: Flag.integer("limit").pipe(
       Flag.withDescription(`Maximum hits, 1-${MAX_LIMIT}`),
-      Flag.withDefault(DEFAULT_LIMIT)
+      Flag.withDefault(DEFAULT_LIMIT),
     ),
     explain: Flag.boolean("explain").pipe(
       Flag.withDescription("Show retrieval legs and fused score per hit"),
-      Flag.withDefault(false)
+      Flag.withDefault(false),
     ),
     plain: Flag.boolean("plain").pipe(
       Flag.withDescription("Print owner/name per line"),
-      Flag.withDefault(false)
+      Flag.withDefault(false),
     ),
     json: jsonFlag,
-    api: apiFlag
+    api: apiFlag,
   },
   ({
     query,
@@ -203,7 +203,7 @@ const search = Command.make(
     explain,
     plain,
     json,
-    api
+    api,
   }) =>
     Effect.gen(function* () {
       const login = yield* requireUser(user);
@@ -219,8 +219,8 @@ const search = Command.make(
         return yield* Effect.fail(
           new CliInputError({
             message: "The query must not be empty.",
-            hint: `Example: starwatch search "durable jobs" --user ${login}`
-          })
+            hint: `Example: starwatch search "durable jobs" --user ${login}`,
+          }),
         );
       }
 
@@ -236,7 +236,7 @@ const search = Command.make(
         license,
         starredAfter,
         starredBefore,
-        limit
+        limit,
       });
 
       if (json) {
@@ -249,7 +249,7 @@ const search = Command.make(
         const output = renderSearch(response, {
           color: outputColor(json, plain),
           width: outputWidth(),
-          explain
+          explain,
         });
 
         if (output !== "") yield* Console.log(output);
@@ -262,7 +262,7 @@ const search = Command.make(
 
         return yield* Effect.fail(new NoResultsError({ query: text }));
       }
-    })
+    }),
 );
 
 // ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ const show = Command.make(
   {
     repo: Argument.string("repo").pipe(Argument.withDescription("Repository as owner/name")),
     json: jsonFlag,
-    api: apiFlag
+    api: apiFlag,
   },
   ({ repo, json, api }) =>
     Effect.gen(function* () {
@@ -284,16 +284,16 @@ const show = Command.make(
         return yield* Effect.fail(
           new CliInputError({
             message: `Expected owner/repo, got "${repo}".`,
-            hint: "Example: starwatch show BurntSushi/ripgrep"
-          })
+            hint: "Example: starwatch show BurntSushi/ripgrep",
+          }),
         );
       }
 
       const page = yield* getRepoPage(apiUrlOf(api), parsed.owner, parsed.name);
       yield* Console.log(
-        json ? renderJson(page) : renderRepoPage(page, { color: outputColor(json, false) })
+        json ? renderJson(page) : renderRepoPage(page, { color: outputColor(json, false) }),
       );
-    })
+    }),
 );
 
 // ---------------------------------------------------------------------------
@@ -302,7 +302,7 @@ const show = Command.make(
 
 const pollSync = (
   apiUrl: string,
-  login: string
+  login: string,
 ): Effect.Effect<UserIndexState, ApiError, HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const startedAt = Date.now();
@@ -315,8 +315,8 @@ const pollSync = (
           new ApiError({
             code: "TIMEOUT",
             message: `Timed out after 10 minutes waiting for @${login} (phase ${state.phase}).`,
-            hint: `Check progress later with: starwatch status ${login}`
-          })
+            hint: `Check progress later with: starwatch status ${login}`,
+          }),
         );
       }
 
@@ -339,14 +339,14 @@ const sync = Command.make(
     login: Argument.string("login").pipe(Argument.withDescription("GitHub login to index")),
     full: Flag.boolean("full").pipe(
       Flag.withDescription("Re-fetch and re-embed everything, ignoring ETags"),
-      Flag.withDefault(false)
+      Flag.withDefault(false),
     ),
     wait: Flag.boolean("wait").pipe(
       Flag.withDescription("Poll every 2 s until ready/failed (10 min cap)"),
-      Flag.withDefault(false)
+      Flag.withDefault(false),
     ),
     json: jsonFlag,
-    api: apiFlag
+    api: apiFlag,
   },
   ({ login, full, wait, json, api }) =>
     Effect.gen(function* () {
@@ -375,11 +375,11 @@ const sync = Command.make(
           new ApiError({
             code: "SYNC_FAILED",
             message: `Indexing @${target} failed.`,
-            hint: finalState.lastError ?? `Re-run: starwatch sync ${target}`
-          })
+            hint: finalState.lastError ?? `Re-run: starwatch sync ${target}`,
+          }),
         );
       }
-    })
+    }),
 );
 
 // ---------------------------------------------------------------------------
@@ -391,51 +391,50 @@ const status = Command.make(
   {
     login: Argument.string("login").pipe(Argument.withDescription("GitHub login to inspect")),
     json: jsonFlag,
-    api: apiFlag
+    api: apiFlag,
   },
   ({ login, json, api }) =>
     Effect.gen(function* () {
       const target = yield* requireLogin(login);
       const page = yield* getUserPage(apiUrlOf(api), target);
       yield* Console.log(
-        json ? renderJson(page) : renderStatusPage(page, { color: outputColor(json, false) })
+        json ? renderJson(page) : renderStatusPage(page, { color: outputColor(json, false) }),
       );
-    })
+    }),
 );
 
 const groups = Command.make(
   "groups",
   {
-    login: Argument.string("login").pipe(Argument.withDescription("GitHub login whose GitHub Lists to list")),
+    login: Argument.string("login").pipe(
+      Argument.withDescription("GitHub login whose GitHub Lists to list"),
+    ),
     json: jsonFlag,
-    api: apiFlag
+    api: apiFlag,
   },
   ({ login, json, api }) =>
     Effect.gen(function* () {
       const target = yield* requireLogin(login);
       const page = yield* getUserPage(apiUrlOf(api), target);
       yield* Console.log(json ? renderJson(page.groups) : renderGroups(page.groups));
-    })
+    }),
 );
 
-const health = Command.make(
-  "health",
-  { json: jsonFlag, api: apiFlag },
-  ({ json, api }) =>
-    Effect.gen(function* () {
-      const apiUrl = apiUrlOf(api);
-      const result = yield* getHealth(apiUrl);
-      yield* Console.log(json ? renderJson(result) : renderHealth(result, apiUrl));
+const health = Command.make("health", { json: jsonFlag, api: apiFlag }, ({ json, api }) =>
+  Effect.gen(function* () {
+    const apiUrl = apiUrlOf(api);
+    const result = yield* getHealth(apiUrl);
+    yield* Console.log(json ? renderJson(result) : renderHealth(result, apiUrl));
 
-      if (!result.ok) {
-        return yield* Effect.fail(
-          new ApiError({
-            code: "UNHEALTHY",
-            message: "The starwatch API reported that it is not healthy."
-          })
-        );
-      }
-    })
+    if (!result.ok) {
+      return yield* Effect.fail(
+        new ApiError({
+          code: "UNHEALTHY",
+          message: "The starwatch API reported that it is not healthy.",
+        }),
+      );
+    }
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -453,12 +452,12 @@ const HELP = [
   "  groups <login>     GitHub Lists imported for a user",
   "  health             API reachability",
   "",
-  "Run `starwatch <command> --help` for flags."
+  "Run `starwatch <command> --help` for flags.",
 ].join("\n");
 
 const cli = Command.make("starwatch", {}, () => Console.log(HELP)).pipe(
   Command.withDescription("Search anyone's public GitHub stars"),
-  Command.withSubcommands([search, show, sync, status, groups, health])
+  Command.withSubcommands([search, show, sync, status, groups, health]),
 );
 
 const reportError = <E extends ApiError | CliInputError>(error: E): Effect.Effect<never, E> =>
@@ -471,10 +470,10 @@ const reportError = <E extends ApiError | CliInputError>(error: E): Effect.Effec
 export const main = Command.run(cli, { version: CLI_VERSION }).pipe(
   Effect.catchTags({
     ApiError: reportError,
-    CliInputError: reportError
+    CliInputError: reportError,
   }),
   Effect.provide(NodeServices.layer),
-  Effect.provide(FetchHttpClient.layer)
+  Effect.provide(FetchHttpClient.layer),
 );
 
 NodeRuntime.runMain(main);

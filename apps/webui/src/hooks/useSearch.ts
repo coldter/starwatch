@@ -71,7 +71,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
       groups: groupKey ? groupKey.split(",") : [],
       archived,
       minStars,
-      limit: SEARCH_LIMIT
+      limit: SEARCH_LIMIT,
     };
 
     fetchSearch(login, params, controller.signal)
