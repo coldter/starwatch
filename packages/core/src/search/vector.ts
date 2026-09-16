@@ -14,8 +14,11 @@
  */
 
 export const BLOB_HEADER_BYTES = 12;
+
 const MAGIC_0 = 0x53;
+
 const MAGIC_1 = 0x57;
+
 const VERSION = 1;
 
 export class VectorCodecError extends Error {
@@ -29,6 +32,7 @@ export class VectorCodecError extends Error {
 export const encodeVectors = (vectors: ReadonlyArray<Float32Array>): Uint8Array => {
   const count = vectors.length;
   const dims = count === 0 ? 0 : (vectors[0]?.length ?? 0);
+
   for (const v of vectors) {
     if (v.length !== dims) {
       throw new VectorCodecError(`all vectors must share dims=${dims}, got ${v.length}`);
@@ -46,10 +50,12 @@ export const encodeVectors = (vectors: ReadonlyArray<Float32Array>): Uint8Array 
 
   const data = new Float32Array(bytes.buffer, BLOB_HEADER_BYTES, count * dims);
   let offset = 0;
+
   for (const v of vectors) {
     data.set(v, offset);
     offset += v.length;
   }
+
   return bytes;
 };
 
@@ -58,28 +64,36 @@ export const decodeVectors = (bytes: Uint8Array): ReadonlyArray<Float32Array> =>
   if (bytes.length < BLOB_HEADER_BYTES) {
     throw new VectorCodecError(`blob too small: ${bytes.length} bytes`);
   }
+
   if (bytes[0] !== MAGIC_0 || bytes[1] !== MAGIC_1) {
     throw new VectorCodecError("bad magic bytes");
   }
+
   if (bytes[2] !== VERSION) {
     throw new VectorCodecError(`unsupported version: ${bytes[2]}`);
   }
+
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const count = view.getUint32(4, true);
   const dims = view.getUint32(8, true);
   const expected = BLOB_HEADER_BYTES + count * dims * 4;
+
   if (bytes.length !== expected) {
     throw new VectorCodecError(`length mismatch: expected ${expected}, got ${bytes.length}`);
   }
 
-  const out: Float32Array[] = new Array(count);
+  const out: Float32Array[] = [];
+
   for (let i = 0; i < count; i++) {
     const vec = new Float32Array(dims);
+
     for (let j = 0; j < dims; j++) {
       vec[j] = view.getFloat32(BLOB_HEADER_BYTES + (i * dims + j) * 4, true);
     }
+
     out[i] = vec;
   }
+
   return out;
 };
 
@@ -88,9 +102,11 @@ export const cosineSimilarity = (a: Float32Array, b: Float32Array): number => {
   if (a.length !== b.length) {
     throw new VectorCodecError(`dims mismatch: ${a.length} vs ${b.length}`);
   }
+
   let dot = 0;
   let normA = 0;
   let normB = 0;
+
   for (let i = 0; i < a.length; i++) {
     const x = a[i] ?? 0;
     const y = b[i] ?? 0;
@@ -98,7 +114,9 @@ export const cosineSimilarity = (a: Float32Array, b: Float32Array): number => {
     normA += x * x;
     normB += y * y;
   }
+
   if (normA === 0 || normB === 0) return 0;
+
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 };
 
@@ -128,6 +146,8 @@ export const topK = (
     id: entry.id,
     score: cosineSimilarity(query, entry.vector)
   }));
+
   scored.sort((x, y) => y.score - x.score || x.id - y.id);
+
   return scored.slice(0, k);
 };

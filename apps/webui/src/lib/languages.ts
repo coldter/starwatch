@@ -38,7 +38,7 @@ export const LANGUAGES: ReadonlyArray<string> = [
   "Nix"
 ];
 
-const COLORS: Record<string, string> = {
+const COLORS = {
   TypeScript: "#3178c6",
   JavaScript: "#f1e05a",
   Python: "#3572A5",
@@ -70,9 +70,13 @@ const COLORS: Record<string, string> = {
   Clojure: "#db5855",
   OCaml: "#ef7a08",
   Nix: "#7e7eff"
-};
+} satisfies Record<string, string>;
+
+/** Arbitrary language strings resolve through the map, falling back to the faint colour. */
+const COLOR_BY_LANGUAGE: ReadonlyMap<string, string> = new Map(Object.entries(COLORS));
 
 export function colorForLanguage(language: string | null | undefined): string {
   if (!language) return "var(--fg-faint)";
-  return COLORS[language] ?? "var(--fg-faint)";
+
+  return COLOR_BY_LANGUAGE.get(language) ?? "var(--fg-faint)";
 }

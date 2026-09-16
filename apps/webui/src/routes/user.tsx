@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoute } from "@tanstack/react-router";
+import * as Option from "effect/Option";
 import { MAX_STARS, type DegradedReason, type Group, type SearchHit, type SearchMode, type SyncPhase } from "@starwatch/domain";
 import { Avatar } from "../components/Avatar";
 import { FilterBar } from "../components/FilterBar";
@@ -17,6 +18,7 @@ import { useUserIndex } from "../hooks/useUserIndex";
 import type { UserPayload } from "../api";
 import { coveragePercent, formatNumber } from "../lib/format";
 import {
+  decodeRawSearchBag,
   PAGE_SIZE,
   normalizeUserSearch,
   parseUserSearch,
@@ -37,11 +39,16 @@ import { rootRoute } from "./__root";
 export const userRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/u/$login",
-  validateSearch: (search: Record<string, unknown>) => parseUserSearch(search),
+  // The router hands `validateSearch` an untyped search bag; decode it into raw
+  // search values here (an unreadable bag means no search state) so
+  // `parseUserSearch` only ever sees decoded input.
+  validateSearch: (search) =>
+    parseUserSearch(Option.getOrElse(decodeRawSearchBag(search), () => ({}))),
   component: UserSearchPage
 });
 
 const EMPTY_GROUPS: Group[] = [];
+
 const EMPTY_HITS: SearchHit[] = [];
 
 const DEGRADED_COPY: Record<DegradedReason, string> = {
@@ -71,6 +78,7 @@ function UserSearchPage() {
     archived: search.archived,
     minStars: search.minStars
   };
+
   const { response, status, error: searchError, retry } = useSearch(login, query);
 
   // Stable navigation callbacks: keep memoized repo cards from re-rendering.
@@ -83,6 +91,7 @@ function UserSearchPage() {
     const next = { ...searchRef.current, ...patch };
     void navigateRef.current({ search: toUrlSearch(next) });
   }, []);
+
   const applyFilters = useCallback(
     (patch: Partial<SearchState>) => applyPatch({ ...patch, page: 1 }),
     [applyPatch]
@@ -91,21 +100,27 @@ function UserSearchPage() {
   const onSubmitQuery = useCallback((q: string) => applyPatch({ q, page: 1 }), [applyPatch]);
   const onMode = useCallback((mode: SearchMode) => applyFilters({ mode }), [applyFilters]);
   const onLang = useCallback((lang: string | undefined) => applyFilters({ lang }), [applyFilters]);
+
   const onToggleGroup = useCallback(
     (slug: string) => applyFilters({ group: toggleGroup(searchRef.current, slug) }),
     [applyFilters]
   );
+
   const onMinStars = useCallback((minStars: number | undefined) => applyFilters({ minStars }), [applyFilters]);
   const onArchived = useCallback((archived: boolean) => applyFilters({ archived }), [applyFilters]);
+
   const onClear = useCallback(
     () => applyFilters({ lang: undefined, group: [], archived: false, minStars: undefined }),
     [applyFilters]
   );
+
   const onPage = useCallback((page: number) => applyPatch({ page }), [applyPatch]);
+
   const openRepo = useCallback(
     (hit: SearchHit) => applyPatch({ repo: `${hit.repo.owner}/${hit.repo.name}` }),
     [applyPatch]
   );
+
   const closeRepo = useCallback(() => applyPatch({ repo: undefined }), [applyPatch]);
 
   const handleStartSync = useCallback(
@@ -146,10 +161,12 @@ function UserSearchPage() {
     if (!data || autoStartedRef.current || !search.q.trim()) return;
     const indexState = data.state;
     const neverIndexed = !hasIndex(indexState);
+
     const semanticMissing =
       !neverIndexed &&
       indexState.semanticDocs === 0 &&
       (indexState.phase === "idle" || indexState.phase === "ready");
+
     if (!neverIndexed && !semanticMissing) return;
     autoStartedRef.current = true;
     void startSync({ full: false }).then((outcome) => {
@@ -165,6 +182,7 @@ function UserSearchPage() {
     const phase = data?.state.phase ?? null;
     const previous = lastPhaseRef.current;
     lastPhaseRef.current = phase;
+
     if (
       previous !== null &&
       phase === "ready" &&
@@ -178,7 +196,9 @@ function UserSearchPage() {
 
   const groupNames = useMemo(() => {
     const map: Record<string, string> = {};
+
     for (const group of groups) map[group.slug] = group.name;
+
     return map;
   }, [groups]);
 
@@ -195,6 +215,7 @@ function UserSearchPage() {
 
   const semanticDocs = state?.semanticDocs ?? 0;
   const indexPreparing = state !== null && (!hasIndex(state) || isActivePhase(state.phase));
+
   const semanticHint =
     response !== null && semanticDocs > 0 && coveragePercent(response.semanticCoverage) < 100;
 
@@ -406,6 +427,7 @@ function ProfileHero({
   const active = isActivePhase(state.phase);
   const stale = !neverIndexed && isStale(state);
   const stars = state.starsTotal || state.reposMetadata;
+
   const label = busy
     ? "Starting…"
     : active
@@ -415,6 +437,7 @@ function ProfileHero({
         : stale
           ? "Refresh now"
           : "Refresh index";
+
   const prominent = neverIndexed || stale;
 
   return (
@@ -464,6 +487,7 @@ function BrowseState({
   onPickGroup: (slug: string) => void;
 }) {
   const selectedNames = groups.filter((group) => selected.includes(group.slug)).map((group) => group.name);
+
   return (
     <section className="state-card">
       <h2 className="state-card__title">
@@ -482,6 +506,7 @@ function BrowseState({
           <div className="chip-row">
             {groups.slice(0, 12).map((group) => {
               const isSelected = selected.includes(group.slug);
+
               return (
                 <button
                   key={group.slug}

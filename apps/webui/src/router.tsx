@@ -1,4 +1,4 @@
-import { createRouter } from "@tanstack/react-router";
+import { createRouter, type SearchParser, type SearchSerializer } from "@tanstack/react-router";
 import { rootRoute } from "./routes/__root";
 import { landingRoute } from "./routes/landing";
 import { userRoute } from "./routes/user";
@@ -7,31 +7,46 @@ import { userRoute } from "./routes/user";
  * URL-only search serialization: repeated keys for arrays
  * (`?group=work&group=reading`) and no JSON-encoded blobs, so every search
  * URL stays human-readable and shareable (docs/08 §3.1).
+ *
+ * Both functions carry the router's own `SearchParser`/`SearchSerializer`
+ * contracts, so the values crossing this boundary stay described by the
+ * library that calls them.
  */
-function parseSearch(searchStr: string): Record<string, unknown> {
+const parseSearch: SearchParser = (searchStr) => {
   const params = new URLSearchParams(searchStr);
-  const result: Record<string, unknown> = {};
+  const result: Record<string, string | string[]> = {};
+
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
-    if (values.length > 1) result[key] = values;
-    else if (values.length === 1) result[key] = values[0];
-  }
-  return result;
-}
+    const [first] = values;
 
-function stringifySearch(search: Record<string, unknown>): string {
+    if (first === undefined) continue;
+
+    if (values.length > 1) result[key] = values;
+    else result[key] = first;
+  }
+
+  return result;
+};
+
+const stringifySearch: SearchSerializer = (search) => {
   const params = new URLSearchParams();
+
   for (const [key, value] of Object.entries(search)) {
     if (value === undefined || value === null) continue;
     const values = Array.isArray(value) ? value : [value];
+
     for (const entry of values) {
       if (entry === undefined || entry === null || entry === "") continue;
+
       params.append(key, String(entry));
     }
   }
+
   const query = params.toString();
+
   return query ? `?${query}` : "";
-}
+};
 
 const routeTree = rootRoute.addChildren([landingRoute, userRoute]);
 

@@ -26,7 +26,9 @@ export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];
 /** `flag > env > default` for the API base URL; trailing slashes are dropped. */
 export const normalizeBaseUrl = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
+
   if (!trimmed) return undefined;
+
   return trimmed.replace(/\/+$/, "");
 };
 
@@ -39,6 +41,7 @@ export const resolveApiUrl = (flag: string | undefined, env: string | undefined)
  */
 export const normalizeLogin = (value: string | undefined): string => {
   if (!value) return "";
+
   return value
     .trim()
     .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, "")
@@ -50,8 +53,10 @@ export const normalizeLogin = (value: string | undefined): string => {
 /** `flag > env`; `undefined` means the user-scoped command cannot run. */
 export const resolveUser = (flag: string | undefined, env: string | undefined): string | undefined => {
   const fromFlag = normalizeLogin(flag);
+
   if (fromFlag !== "") return fromFlag;
   const fromEnv = normalizeLogin(env);
+
   return fromEnv === "" ? undefined : fromEnv;
 };
 
@@ -73,10 +78,14 @@ export const parseRepoShorthand = (input: string): RepoShorthand | undefined => 
     .replace(/^github\.com\//i, "")
     .replace(/[?#].*$/, "")
     .replace(/\/+$/, "");
+
   const parts = cleaned.split("/").filter((part) => part !== "");
+
   if (parts.length !== 2) return undefined;
   const [owner, name] = parts;
+
   if (owner === undefined || name === undefined || owner === "" || name === "") return undefined;
+
   return { owner, name };
 };
 
@@ -104,26 +113,28 @@ export const exitCodeForSearch = (hitCount: number): ExitCode =>
 
 export type QueryValue = string | number | boolean | ReadonlyArray<string> | undefined;
 
-const isStringArray = (value: QueryValue): value is ReadonlyArray<string> =>
-  typeof value !== "string" && Array.isArray(value);
-
 /**
  * Serializes query params deterministically: skips `undefined`/empty values and
  * repeats the key once per array entry (`topic=a&topic=b`).
  */
 export const encodeQuery = (params: Readonly<Record<string, QueryValue>>): string => {
   const parts: Array<string> = [];
+
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === "") continue;
-    if (isStringArray(value)) {
+
+    if (Array.isArray(value)) {
       for (const item of value) {
         if (item === "") continue;
         parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(item)}`);
       }
+
       continue;
     }
+
     parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
   }
+
   return parts.join("&");
 };
 

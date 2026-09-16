@@ -16,10 +16,14 @@ export const MAX_QUERY_CHARS = 512;
 /** Token cap applied at the Snippet/ranking boundaries (docs/07 §7.6). */
 export const MAX_QUERY_TOKENS = 64;
 
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
+const CONTROL_CHARS = /\p{Cc}/gu;
+
 const WHITESPACE_RUN = /\s+/g;
+
 const CAMEL_LOWER_UPPER = /([\p{Ll}\p{N}])(\p{Lu})/gu;
+
 const CAMEL_ACRONYM = /(\p{Lu}+)(\p{Lu}\p{Ll})/gu;
+
 const WORD_RUN = /[\p{L}\p{N}]+/gu;
 
 /**
@@ -74,14 +78,18 @@ export const buildMatchExpression = (
 ): string => {
   const seen = new Set<string>();
   const terms: string[] = [];
+
   for (const token of tokens) {
     const trimmed = token.trim();
+
     if (trimmed.length === 0) continue;
     const key = trimmed.toLowerCase();
+
     if (seen.has(key)) continue;
     seen.add(key);
     terms.push(escapeFtsTerm(trimmed));
   }
+
   return terms.join(mode === "and" ? " AND " : " OR ");
 };
 
@@ -96,11 +104,14 @@ export const phrasesFromQuery = (raw: string, size = 2): ReadonlyArray<string> =
   const tokens = tokenize(raw);
   const out: string[] = [];
   const seen = new Set<string>();
+
   for (let i = 0; i + size <= tokens.length; i++) {
     const phrase = tokens.slice(i, i + size).join(" ");
+
     if (seen.has(phrase)) continue;
     seen.add(phrase);
     out.push(phrase);
   }
+
   return out;
 };

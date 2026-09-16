@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { Repo } from "@starwatch/domain";
 import { EmbedFailed } from "@starwatch/core/sync";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import {
   EMBEDDING_MODEL,
   batchTexts,
@@ -38,25 +39,31 @@ const fakeBinding = (options: FakeBindingOptions = {}) => {
   const calls: Array<{ model: string; texts: ReadonlyArray<string> }> = [];
   let active = 0;
   let maxActive = 0;
+
   const binding = {
     run: async (model: string, input: { readonly text: ReadonlyArray<string> }) => {
       calls.push({ model, texts: input.text });
       active += 1;
       maxActive = Math.max(maxActive, active);
+
       try {
         if (options.delayMs !== undefined) {
           await new Promise<void>((resolve) => setTimeout(resolve, options.delayMs));
         }
+
         if (options.fail === true) throw new Error("workers ai unavailable");
+
         const data =
           options.data?.(input.text) ??
           input.text.map((text, index) => [Number(text), index * 0.5]);
+
         return { data };
       } finally {
         active -= 1;
       }
     }
   };
+
   return { binding, calls, peakConcurrency: () => maxActive };
 };
 
@@ -87,6 +94,7 @@ describe("repoEmbeddingText", () => {
       }),
       "  # Effect\n\nA   library for effectful programs.  "
     );
+
     expect(text).toBe(
       "Effect-TS/effect — An ecosystem of tools\n" +
         "Topics: typescript, functional-programming\n" +
@@ -140,8 +148,9 @@ describe("makeWorkersAiEmbedder", () => {
     const fake = fakeBinding({ fail: true });
     const embedder = makeWorkersAiEmbedder(fake.binding, { batchSize: 4 });
     const result = await Effect.runPromise(Effect.result(embedder.embed(["a"])));
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
       expect(result.failure).toBeInstanceOf(EmbedFailed);
       expect(result.failure.message).toContain("Workers AI embedding batch");
     }
@@ -151,8 +160,9 @@ describe("makeWorkersAiEmbedder", () => {
     const fake = fakeBinding({ data: () => [[1, 2, 3]] });
     const embedder = makeWorkersAiEmbedder(fake.binding, { batchSize: 4 });
     const result = await Effect.runPromise(Effect.result(embedder.embed(["a", "b"])));
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
       expect(result.failure).toBeInstanceOf(EmbedFailed);
       expect(result.failure.message).toContain("1 embeddings for 2 texts");
     }

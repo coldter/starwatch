@@ -20,8 +20,10 @@ export function useRepo(owner: string | null, name: string | null): RepoResult {
       setData(null);
       setLoading(false);
       setError(null);
+
       return;
     }
+
     const controller = new AbortController();
     setLoading(true);
     setError(null);

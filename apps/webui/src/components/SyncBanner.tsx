@@ -10,7 +10,12 @@ export interface SyncBannerProps {
   onStart: (options?: { full?: boolean }) => void;
 }
 
-function activeCounts(state: UserIndexState): { done: number; total: number } {
+interface ActiveCounts {
+  done: number;
+  total: number;
+}
+
+function activeCounts(state: UserIndexState): ActiveCounts {
   switch (state.phase) {
     case "listing":
       return { done: state.reposMetadata, total: state.starsTotal };
@@ -33,6 +38,7 @@ export function SyncBanner({ state, transport, busy, onStart }: SyncBannerProps)
   const active = isActivePhase(state.phase);
   const metadataOnly = isMetadataOnly(state);
   const show = active || state.phase === "paused" || state.phase === "failed" || metadataOnly;
+
   if (!show) return null;
 
   const { done, total } = activeCounts(state);

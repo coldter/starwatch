@@ -66,6 +66,7 @@ describe("planReadmeWork", () => {
       [3, state(3, "old", "ok")],
       [4, state(4, "d", "error")]
     ]);
+
     const batches = planReadmeWork(repos, stateMap, { batchSize: 2, semanticWindow: 100 });
     expect(batches).toEqual([
       [4, 3],
@@ -80,6 +81,7 @@ describe("planReadmeWork", () => {
       [3, state(3, "new", "unavailable")],
       [4, state(4, "d", "ok")]
     ]);
+
     expect(planReadmeWork(repos, stateMap, { batchSize: 25, semanticWindow: 100 })).toEqual([]);
   });
 
@@ -88,10 +90,12 @@ describe("planReadmeWork", () => {
       repo(1, { pushedAt: "a", starredAt: at(1) }),
       repo(2, { pushedAt: "b", starredAt: at(2) })
     ];
+
     const stateMap = new Map<number, ReadmeFetchState>([
       [1, state(1, "old", "missing")],
       [2, state(2, "old", "unavailable")]
     ]);
+
     expect(planReadmeWork(twoRepos, stateMap, { batchSize: 25, semanticWindow: 100 })).toEqual([
       [2, 1]
     ]);
@@ -108,6 +112,7 @@ describe("planReadmeWork", () => {
       repo(11, { starredAt: at(5) }),
       repo(12, { starredAt: at(5) })
     ];
+
     expect(planReadmeWork(unordered, new Map(), { batchSize: 10, semanticWindow: 10 })).toEqual([
       [11, 12, 10]
     ]);
@@ -137,11 +142,13 @@ describe("planEmbedWork", () => {
       [3, ""],
       [4, "fresh"]
     ]);
+
     const existing = new Map<number, string>([
       [1, hashReadme("unchanged")],
       [2, hashReadme("old content")],
       [3, hashReadme("")]
     ]);
+
     expect(planEmbedWork(repos, readmes, existing)).toEqual([4, 2]);
   });
 
@@ -157,6 +164,7 @@ describe("planEmbedWork", () => {
     const many = Array.from({ length: 1_501 }, (_, index) =>
       repo(index + 1, { starredAt: at(1 + (index % 28)) })
     );
+
     const dirty = planEmbedWork(many, new Map(), new Map());
     expect(dirty).toHaveLength(1_500);
     expect(dirty[0]).toBe(28);
@@ -174,6 +182,7 @@ describe("canSync", () => {
       cooldowns,
       { force: true }
     );
+
     expect(result).toEqual({ allowed: false, reason: "in-progress", retryAfterSeconds: 0 });
   });
 
@@ -189,6 +198,7 @@ describe("canSync", () => {
       nowMs,
       cooldowns
     );
+
     expect(result).toEqual({
       allowed: false,
       reason: "cooldown-relist",
@@ -206,6 +216,7 @@ describe("canSync", () => {
       nowMs,
       cooldowns
     );
+
     expect(result.allowed).toBe(false);
     expect(result.reason).toBe("cooldown-full");
     expect(result.retryAfterSeconds).toBe(23 * 60 * 60);
@@ -222,6 +233,7 @@ describe("canSync", () => {
       cooldowns,
       { force: true }
     );
+
     expect(result).toEqual({ allowed: true, reason: "ok", retryAfterSeconds: 0 });
   });
 
@@ -235,6 +247,7 @@ describe("canSync", () => {
       nowMs,
       cooldowns
     );
+
     expect(result.allowed).toBe(true);
   });
 });

@@ -107,6 +107,7 @@ describe("RepoStore", () => {
       const repos = Array.from({ length: 120 }, (_, index) =>
         makeRepo(index + 1, `owner/repo-${index + 1}`, { starredAt: "2026-01-01T00:00:00Z" })
       );
+
       yield* store.upsertRepos(LOGIN, repos);
 
       expect((yield* store.listRepoIds(LOGIN)).length).toBe(120);
@@ -309,6 +310,7 @@ describe("RepoStore", () => {
           starredAt: "2026-01-01T00:00:00Z"
         })
       );
+
       yield* store.upsertRepoBatch(LOGIN, repos.slice(0, 100), 1);
       yield* store.upsertRepoBatch(LOGIN, repos.slice(100), 2);
 
@@ -387,6 +389,7 @@ describe("RepoStore", () => {
         starredAfter: "2025-06-01T00:00:00Z",
         starredBefore: "2026-12-31T00:00:00Z"
       };
+
       expect(ids(yield* store.listReposForSearch(LOGIN, filters))).toEqual([1]);
     }).pipe(Effect.provide(testLive()))
   );

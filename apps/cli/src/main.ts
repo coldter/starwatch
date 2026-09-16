@@ -63,6 +63,7 @@ declare const process: {
 
 /** Poll cadence / cap for `sync --wait` (task contract: 2 s, 10 min). */
 const SYNC_POLL_INTERVAL = "2 seconds";
+
 const SYNC_POLL_TIMEOUT_MS = 10 * 60 * 1_000;
 
 // ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ const outputWidth = (): number => resolveWidth(process.stdout.columns, process.e
 
 const requireUser = (flagValue: string): Effect.Effect<string, CliInputError> => {
   const login = resolveUser(flagValue, process.env["STARWATCH_USER"]);
+
   return login === undefined
     ? Effect.fail(
         new CliInputError({
@@ -106,6 +108,7 @@ const requireUser = (flagValue: string): Effect.Effect<string, CliInputError> =>
 
 const requireLogin = (candidate: string): Effect.Effect<string, CliInputError> => {
   const login = normalizeLogin(candidate);
+
   return login === ""
     ? Effect.fail(
         new CliInputError({
@@ -205,10 +208,13 @@ const search = Command.make(
     Effect.gen(function* () {
       const login = yield* requireUser(user);
       const limitError = validateLimit(limit);
+
       if (limitError !== undefined) {
         return yield* Effect.fail(new CliInputError({ message: limitError }));
       }
+
       const text = query.join(" ").trim();
+
       if (text === "") {
         return yield* Effect.fail(
           new CliInputError({
@@ -237,6 +243,7 @@ const search = Command.make(
         yield* Console.log(renderJson(response));
       } else if (plain) {
         const lines = renderSearchPlain(response);
+
         if (lines !== "") yield* Console.log(lines);
       } else {
         const output = renderSearch(response, {
@@ -244,12 +251,15 @@ const search = Command.make(
           width: outputWidth(),
           explain
         });
+
         if (output !== "") yield* Console.log(output);
+
         if (response.hits.length > 0) yield* Console.error(renderSearchSummary(response));
       }
 
       if (response.hits.length === 0) {
         yield* Console.error(renderEmptyHint(text, response.mode));
+
         return yield* Effect.fail(new NoResultsError({ query: text }));
       }
     })
@@ -269,6 +279,7 @@ const show = Command.make(
   ({ repo, json, api }) =>
     Effect.gen(function* () {
       const parsed = parseRepoShorthand(repo);
+
       if (parsed === undefined) {
         return yield* Effect.fail(
           new CliInputError({
@@ -277,6 +288,7 @@ const show = Command.make(
           })
         );
       }
+
       const page = yield* getRepoPage(apiUrlOf(api), parsed.owner, parsed.name);
       yield* Console.log(
         json ? renderJson(page) : renderRepoPage(page, { color: outputColor(json, false) })
@@ -296,6 +308,7 @@ const pollSync = (
     const startedAt = Date.now();
     let state = yield* getSyncState(apiUrl, login);
     let lastLine = "";
+
     while (state.phase !== "ready" && state.phase !== "failed") {
       if (Date.now() - startedAt >= SYNC_POLL_TIMEOUT_MS) {
         return yield* Effect.fail(
@@ -306,14 +319,17 @@ const pollSync = (
           })
         );
       }
+
       yield* Effect.sleep(SYNC_POLL_INTERVAL);
       state = yield* getSyncState(apiUrl, login);
       const line = renderSyncProgress(state);
+
       if (line !== lastLine) {
         lastLine = line;
         yield* Console.error(line);
       }
     }
+
     return state;
   });
 
@@ -337,19 +353,23 @@ const sync = Command.make(
       const target = yield* requireLogin(login);
       const apiUrl = apiUrlOf(api);
       const start = yield* startSync(apiUrl, target, full);
+
       if (json) {
         if (!wait) yield* Console.log(renderJson(start));
       } else {
         yield* Console.error(renderSyncStart(start));
       }
+
       if (!wait) return;
 
       const finalState = yield* pollSync(apiUrl, target);
+
       if (json) {
         yield* Console.log(renderJson(finalState));
       } else {
         yield* Console.log(renderSyncState(finalState));
       }
+
       if (finalState.phase === "failed") {
         return yield* Effect.fail(
           new ApiError({
@@ -406,6 +426,7 @@ const health = Command.make(
       const apiUrl = apiUrlOf(api);
       const result = yield* getHealth(apiUrl);
       yield* Console.log(json ? renderJson(result) : renderHealth(result, apiUrl));
+
       if (!result.ok) {
         return yield* Effect.fail(
           new ApiError({
@@ -443,6 +464,7 @@ const cli = Command.make("starwatch", {}, () => Console.log(HELP)).pipe(
 const reportError = <E extends ApiError | CliInputError>(error: E): Effect.Effect<never, E> =>
   Effect.gen(function* () {
     yield* Console.error(renderError(error));
+
     return yield* Effect.fail(error);
   });
 

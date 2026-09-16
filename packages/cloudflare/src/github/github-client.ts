@@ -20,7 +20,7 @@ import {
 } from "@starwatch/domain";
 import {
   GithubClient,
-  type GithubClientShape,
+  type GithubClientService,
   type GithubReadme,
   type ListStarPageOptions,
   type StarPage,
@@ -57,6 +57,7 @@ export interface GithubClientOptions {
 
 /** docs/09 §1.4: stop paginating once `Link rel="next"` exceeds this cap. */
 const MAX_LIST_PAGES = 100;
+
 /** Runaway guard for item continuation (lists cap at 32, items rarely >100). */
 const MAX_ITEM_PAGES = 1_000;
 
@@ -89,17 +90,33 @@ const LIST_ITEMS_QUERY = `query StarwatchListItems($id: ID!, $itemAfter: String)
   }
 }`;
 
+/** Variables of the `StarwatchLists` query: login plus its two page cursors. */
+interface ListGroupsVariables {
+  readonly login: string;
+  readonly listAfter: string | null;
+  readonly itemAfter: string | null;
+}
+
+/** Variables of the `StarwatchListItems` query: list node id plus item cursor. */
+interface ListItemsVariables {
+  readonly id: string;
+  readonly itemAfter: string;
+}
+
 const headerValue = (headers: Headers.Headers, name: string): string | undefined =>
   Option.getOrUndefined(Headers.get(headers, name));
 
 const headerNumber = (headers: Headers.Headers, name: string): number | undefined => {
   const raw = headerValue(headers, name);
+
   if (raw === undefined) return undefined;
   const value = Number(raw);
+
   return Number.isFinite(value) ? value : undefined;
 };
 
 const isSuccess = (status: number): boolean => status >= 200 && status < 300;
+
 const isRateLimitedStatus = (status: number): boolean => status === 403 || status === 429;
 
 const repoPath = (fullName: string): string =>
@@ -113,19 +130,17 @@ export const makeGithubClient = (
     Effect.gen(function*() {
       const http = yield* HttpClient.HttpClient;
 
-      const apiHeaders = (
-        extra?: Readonly<Record<string, string>>
-      ): Record<string, string> => {
-        const headers: Record<string, string> = {
+      const apiHeaders = (extra?: Readonly<Record<string, string>>) => {
+        const headers = {
           accept: "application/vnd.github+json",
           "user-agent": options.userAgent,
           "x-github-api-version": "2026-03-10",
           ...extra
         };
-        if (options.token.length > 0) {
-          headers.authorization = `Bearer ${options.token}`;
-        }
-        return headers;
+
+        if (options.token.length === 0) return headers;
+
+        return { ...headers, authorization: `Bearer ${options.token}` };
       };
 
       const execute = (
@@ -152,6 +167,7 @@ export const makeGithubClient = (
                 new GithubUpstream({ message: error.message, status: response.status })
             )
           );
+
           return yield* Schema.decodeUnknownEffect(schema)(json).pipe(
             Effect.mapError(
               (issue) =>
@@ -163,11 +179,10 @@ export const makeGithubClient = (
           );
         });
 
-      const rateLimit = (
-        headers: Headers.Headers
-      ): { readonly remaining: number | undefined; readonly resetAt: string | undefined } => {
+      const rateLimit = (headers: Headers.Headers) => {
         const remaining = headerNumber(headers, "x-ratelimit-remaining");
         const reset = headerNumber(headers, "x-ratelimit-reset");
+
         return {
           remaining,
           resetAt:
@@ -198,12 +213,16 @@ export const makeGithubClient = (
             headers: apiHeaders()
           })
         );
+
         if (response.status === 404) return yield* new UserNotFound({ login });
         const rate = rateLimit(response.headers);
+
         if (isRateLimitedStatus(response.status)) {
           return yield* rateLimited(response.status, rate.resetAt);
         }
+
         if (!isSuccess(response.status)) return yield* upstream(response.status);
+
         return yield* decodeBody(UserWire, response);
       });
 
@@ -212,14 +231,19 @@ export const makeGithubClient = (
         pageOptions: ListStarPageOptions
       ) {
         const perPage = pageOptions.perPage ?? 100;
-        const headers = apiHeaders({ accept: "application/vnd.github.star+json" });
-        if (pageOptions.etag !== undefined) {
-          headers["if-none-match"] = pageOptions.etag;
-        }
+        const baseHeaders = apiHeaders({ accept: "application/vnd.github.star+json" });
+
+        const headers =
+          pageOptions.etag === undefined
+            ? baseHeaders
+            : { ...baseHeaders, "if-none-match": pageOptions.etag };
+
         const response = yield* execute(
           HttpClientRequest.get(starPageUrl(login, pageOptions.page, perPage), { headers })
         );
+
         const rate = rateLimit(response.headers);
+
         if (response.status === 304) {
           return {
             repos: [],
@@ -231,19 +255,24 @@ export const makeGithubClient = (
             rateLimitResetAt: rate.resetAt
           } satisfies StarPage;
         }
+
         if (response.status === 404) return yield* new UserNotFound({ login });
+
         if (isRateLimitedStatus(response.status)) {
           return yield* rateLimited(response.status, rate.resetAt);
         }
+
         if (!isSuccess(response.status)) return yield* upstream(response.status);
 
         const items = yield* decodeBody(Schema.Array(StarItemWire), response);
         const starredAt = new Map<number, string>();
         const repos: Repo[] = [];
+
         for (const item of items) {
           starredAt.set(item.repo.id, item.starredAt);
           repos.push({ ...item.repo, starredAt: item.starredAt });
         }
+
         return {
           repos,
           starredAt,
@@ -259,9 +288,11 @@ export const makeGithubClient = (
         fullName: string,
         defaultBranch: string
       ) {
-        const probeHeaders: Record<string, string> = { "user-agent": options.userAgent };
+        const probeHeaders = { "user-agent": options.userAgent };
+
         for (const url of readmeProbeUrls(fullName, defaultBranch)) {
           const response = yield* execute(HttpClientRequest.get(url, { headers: probeHeaders }));
+
           if (isSuccess(response.status)) {
             const text = yield* response.text.pipe(
               Effect.mapError(
@@ -269,8 +300,10 @@ export const makeGithubClient = (
                   new GithubUpstream({ message: error.message, status: response.status })
               )
             );
+
             return { text, source: "raw" } satisfies GithubReadme;
           }
+
           if (isRateLimitedStatus(response.status)) {
             return yield* rateLimited(response.status, undefined);
           }
@@ -282,24 +315,30 @@ export const makeGithubClient = (
             headers: apiHeaders({ accept: "application/vnd.github.raw" })
           })
         );
+
         const rate = rateLimit(fallback.headers);
+
         if (fallback.status === 404) return null;
+
         if (isRateLimitedStatus(fallback.status)) {
           return yield* rateLimited(fallback.status, rate.resetAt);
         }
+
         if (!isSuccess(fallback.status)) return yield* upstream(fallback.status);
+
         const text = yield* fallback.text.pipe(
           Effect.mapError(
             (error: HttpClientError.HttpClientError) =>
               new GithubUpstream({ message: error.message, status: fallback.status })
           )
         );
+
         return { text, source: "rest" } satisfies GithubReadme;
       });
 
       const graphql = <S extends Schema.Constraint & { readonly DecodingServices: never }>(
         query: string,
-        variables: Readonly<Record<string, unknown>>,
+        variables: ListGroupsVariables | ListItemsVariables,
         dataSchema: S,
         login: string
       ): Effect.Effect<S["Type"], GithubUpstream | GithubRateLimited | UserNotFound> =>
@@ -310,21 +349,28 @@ export const makeGithubClient = (
             }),
             { query, variables }
           );
+
           const response = yield* execute(request);
           const rate = rateLimit(response.headers);
+
           if (isRateLimitedStatus(response.status)) {
             return yield* rateLimited(response.status, rate.resetAt);
           }
+
           if (!isSuccess(response.status)) return yield* upstream(response.status);
           const envelope = yield* decodeBody(GraphqlEnvelopeWire, response);
           const errors = envelope.errors;
+
           if (errors !== undefined && errors.length > 0) {
             const message = errors.map((error) => error.message).join("; ");
+
             if (/could not resolve to a user/i.test(message)) {
               return yield* new UserNotFound({ login });
             }
+
             return yield* new GithubUpstream({ message, status: response.status });
           }
+
           return yield* Schema.decodeUnknownEffect(dataSchema)(envelope.data).pipe(
             Effect.mapError(
               () =>
@@ -347,52 +393,64 @@ export const makeGithubClient = (
               status: 200
             });
           }
+
           const data: (typeof UserListsWire)["Type"] = yield* graphql(
             LISTS_QUERY,
             { login, listAfter: listAfter ?? null, itemAfter: null },
             UserListsWire,
             login
           );
+
           if (data.user === null) return yield* new UserNotFound({ login });
 
           for (const node of data.user.lists.nodes) {
             if (node.isPrivate) continue;
             const extraRepoIds: number[] = [];
             let pageInfo = node.items.pageInfo;
+
             for (let itemPage = 1; pageInfo.hasNextPage; itemPage++) {
               const cursor = pageInfo.endCursor;
+
               if (cursor === null) break;
+
               if (itemPage > MAX_ITEM_PAGES) {
                 return yield* new GithubUpstream({
                   message: `GitHub returned more than ${MAX_ITEM_PAGES} item pages for list ${node.id}`,
                   status: 200
                 });
               }
+
               const itemsData: (typeof ListItemsPageWire)["Type"] = yield* graphql(
                 LIST_ITEMS_QUERY,
                 { id: node.id, itemAfter: cursor },
                 ListItemsPageWire,
                 login
               );
+
               if (itemsData.node === null) {
                 return yield* new GithubUpstream({
                   message: `GitHub list ${node.id} disappeared during pagination`,
                   status: 200
                 });
               }
+
               for (const item of itemsData.node.items.nodes) {
                 if (item !== null) extraRepoIds.push(item.databaseId);
               }
+
               pageInfo = itemsData.node.items.pageInfo;
             }
+
             groups.push(groupFromUserList(node, groups.length, extraRepoIds));
           }
 
           if (!data.user.lists.pageInfo.hasNextPage) break;
           const nextCursor: string | null = data.user.lists.pageInfo.endCursor;
+
           if (nextCursor === null) break;
           listAfter = nextCursor;
         }
+
         return groups;
       });
 
@@ -401,6 +459,6 @@ export const makeGithubClient = (
         listStarPage,
         listGroups,
         getReadme
-      } satisfies GithubClientShape;
+      } satisfies GithubClientService;
     })
   );

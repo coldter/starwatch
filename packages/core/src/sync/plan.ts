@@ -29,12 +29,15 @@ export const diffStars = (
   const next = new Set(nextIds);
   const added: number[] = [];
   const removed: number[] = [];
+
   for (const id of nextIds) {
     if (!prev.has(id)) added.push(id);
   }
+
   for (const id of prevIds) {
     if (!next.has(id)) removed.push(id);
   }
+
   return { added, removed };
 };
 
@@ -67,21 +70,28 @@ const newestFirst = (repos: ReadonlyArray<Repo>): ReadonlyArray<Repo> => {
   indexed.sort((a, b) => {
     const aTime = a.repo.starredAt;
     const bTime = b.repo.starredAt;
+
     if (aTime !== bTime) {
       if (aTime === null) return 1;
+
       if (bTime === null) return -1;
+
       return aTime > bTime ? -1 : 1;
     }
+
     return a.index - b.index;
   });
+
   return indexed.map((entry) => entry.repo);
 };
 
 const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<ReadonlyArray<A>> => {
   const batches: A[][] = [];
+
   for (let i = 0; i < items.length; i += size) {
     batches.push(items.slice(i, i + size));
   }
+
   return batches;
 };
 
@@ -100,24 +110,30 @@ export const planReadmeWork = (
 ): ReadonlyArray<ReadonlyArray<number>> => {
   const batchSize = options.batchSize ?? 25;
   const semanticWindow = options.semanticWindow ?? SEMANTIC_WINDOW;
+
   if (batchSize < 1) throw new RangeError(`batchSize must be >= 1, got ${batchSize}`);
 
   const window = newestFirst(repos).slice(0, Math.max(0, semanticWindow));
   const ids: number[] = [];
+
   for (const repo of window) {
     const existing = state.get(repo.id);
+
     if (existing === undefined) {
       ids.push(repo.id);
       continue;
     }
+
     if (existing.status === "error") {
       ids.push(repo.id);
       continue;
     }
+
     if (existing.pushedAt !== repo.pushedAt) {
       ids.push(repo.id);
     }
   }
+
   return chunk(ids, batchSize);
 };
 
@@ -128,10 +144,12 @@ export const planReadmeWork = (
  */
 export const hashReadme = (text: string): string => {
   let hash = 0x811c9dc5;
+
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
+
   return (hash >>> 0).toString(16).padStart(8, "0");
 };
 
@@ -150,12 +168,15 @@ export const planEmbedWork = (
 ): ReadonlyArray<number> => {
   const window = newestFirst(repos).slice(0, SEMANTIC_WINDOW);
   const dirty: number[] = [];
+
   for (const repo of window) {
     const hash = hashReadme(readmesByRepoId.get(repo.id) ?? "");
+
     if (existingReadmeHashes.get(repo.id) !== hash) {
       dirty.push(repo.id);
     }
   }
+
   return dirty;
 };
 
@@ -183,6 +204,7 @@ export interface CanSyncOptions {
 
 const remainingMs = (lastMs: number | null, nowMs: number, windowSeconds: number): number => {
   if (lastMs === null) return 0;
+
   return Math.max(0, lastMs + windowSeconds * 1000 - nowMs);
 };
 
@@ -201,12 +223,14 @@ export const canSync = (
   if (state.inProgress) {
     return { allowed: false, reason: "in-progress", retryAfterSeconds: 0 };
   }
+
   if (options.force !== true) {
     const fullRemaining = remainingMs(
       state.lastFullRefreshAtMs,
       nowMs,
       cooldowns.fullRefreshSeconds
     );
+
     if (fullRemaining > 0) {
       return {
         allowed: false,
@@ -214,7 +238,9 @@ export const canSync = (
         retryAfterSeconds: Math.ceil(fullRemaining / 1000)
       };
     }
+
     const relistRemaining = remainingMs(state.lastRelistAtMs, nowMs, cooldowns.relistSeconds);
+
     if (relistRemaining > 0) {
       return {
         allowed: false,
@@ -223,5 +249,6 @@ export const canSync = (
       };
     }
   }
+
   return { allowed: true, reason: "ok", retryAfterSeconds: 0 };
 };

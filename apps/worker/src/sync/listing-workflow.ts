@@ -4,8 +4,8 @@ import { RepoStore, UserFts } from "@starwatch/cloudflare/storage";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import { SyncDeps, type SyncDepsShape } from "../deps.ts";
-import { StarRefreshWorkflow, type StarRefreshInput } from "./refresh-workflow.ts";
+import { SyncDeps, type SyncDepsService } from "../deps.ts";
+import { StarRefreshWorkflow, type StarRefreshInput, type StarRefreshResult } from "./refresh-workflow.ts";
 import { describeGithubError, nowIso, patchState } from "./state.ts";
 
 /**
@@ -33,6 +33,7 @@ export interface StarListingInput {
 }
 
 const PER_PAGE = 100;
+
 const MAX_PAGES = Math.ceil(MAX_STARS / PER_PAGE);
 
 /** Removed ids per cleanup task: 3,600 ÷ 90 rows/statement = 40 D1 queries. */
@@ -40,7 +41,9 @@ const UNSTAR_CHUNK = 3_600;
 
 const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<ReadonlyArray<A>> => {
   const out: Array<ReadonlyArray<A>> = [];
+
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+
   return out;
 };
 
@@ -49,7 +52,10 @@ type PageOutcome =
   | { readonly kind: "not-modified" }
   | { readonly kind: "error"; readonly message: string };
 
-const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle<StarRefreshInput, unknown>) =>
+const makeListingBody = (
+  deps: SyncDepsService,
+  refresh: Cloudflare.WorkflowHandle<StarRefreshInput, StarRefreshResult>
+) =>
   Effect.fn("StarListingWorkflow.body")(function* (input: StarListingInput) {
     const login = input.login;
     const repos = yield* RepoStore;
@@ -66,19 +72,24 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
             onFailure: (error) => Effect.succeed({ ok: false as const, message: describeGithubError(error) })
           })
         );
+
         if (!fetched.ok) {
           yield* patchState(login, { phase: "failed", lastError: fetched.message });
+
           return { ok: false as const, starsHint: 0 };
         }
+
         // Key the profile by the lowercased route login so `users.login`
         // matches every other table (docs/09 §7 case handling).
         yield* repos.upsertUser({ ...fetched.value, login }).pipe(Effect.orDie);
         const previous = yield* repos.getIndexState(login).pipe(Effect.orDie);
         yield* patchState(login, { phase: "listing", lastError: null });
+
         return { ok: true as const, starsHint: previous?.starsTotal ?? 0 };
       }),
       { retries: { limit: 3, delay: "5 seconds" } }
     );
+
     if (!profile.ok) {
       return { ok: false, reason: "profile" };
     }
@@ -93,6 +104,7 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
             onFailure: () => Effect.succeed([] as const)
           })
         );
+
         yield* repos.replaceGroups(login, groups).pipe(Effect.ignore);
       }),
       { retries: { limit: 1, delay: "5 seconds" } }
@@ -107,10 +119,12 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
     while (page <= MAX_PAGES) {
       const pageNumber = page;
       const listedBefore = listedCount;
+
       const outcome: PageOutcome = yield* Cloudflare.Workflows.task(
         `star-page-${pageNumber}`,
         Effect.gen(function* () {
           const etag = yield* repos.starEtag(login, pageNumber).pipe(Effect.orDie);
+
           const fetched = yield* github
             .listStarPage(login, {
               page: pageNumber,
@@ -123,10 +137,13 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
                 onFailure: (error) => Effect.succeed({ ok: false as const, message: describeGithubError(error) })
               })
             );
+
           if (!fetched.ok) {
             return { kind: "error", message: fetched.message } satisfies PageOutcome;
           }
+
           const starPage = fetched.value;
+
           if (starPage.notModified) {
             // 304: the page is unchanged, so its stored repo ids remain the
             // authoritative listing for this page (migration 0002).
@@ -152,6 +169,7 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
               )
               .pipe(Effect.orDie);
           }
+
           if (starPage.etag !== undefined) {
             yield* repos.putStarEtag(login, pageNumber, starPage.etag).pipe(Effect.orDie);
           }
@@ -167,6 +185,7 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
           });
 
           const stop = starPage.repos.length < PER_PAGE || starPage.nextPage === undefined;
+
           return {
             kind: "fresh",
             ids: starPage.repos.map((repo) => repo.id),
@@ -178,8 +197,10 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
 
       if (outcome.kind === "error") {
         yield* patchState(login, { phase: "paused", lastError: outcome.message });
+
         return { ok: false, reason: "github" };
       }
+
       if (outcome.kind === "not-modified") {
         notModifiedPages.add(pageNumber);
         page += 1;
@@ -188,6 +209,7 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
 
       freshPages.set(pageNumber, outcome.ids);
       listedCount += outcome.ids.length;
+
       if (outcome.stop || listedCount >= MAX_STARS) break;
       page += 1;
     }
@@ -199,19 +221,23 @@ const makeListingBody = (deps: SyncDepsShape, refresh: Cloudflare.WorkflowHandle
         const rows = yield* repos.getStarPageRows(login).pipe(Effect.orDie);
         const dbIds = yield* repos.listRepoIds(login).pipe(Effect.orDie);
         const listed = new Set<number>();
+
         for (const row of rows) {
           // Unattributed rows (pre-migration / non-paged writers) are kept.
           if (row.starPage === null || notModifiedPages.has(row.starPage)) listed.add(row.repoId);
         }
+
         for (const ids of freshPages.values()) {
           for (const id of ids) listed.add(id);
         }
+
         return diffStars(dbIds, [...listed]).removed;
       }),
       { retries: { limit: 2, delay: "5 seconds" } }
     );
 
     const removedChunks = chunk(removed, UNSTAR_CHUNK);
+
     for (let index = 0; index < removedChunks.length; index++) {
       yield* Cloudflare.Workflows.task(
         `unstar-${index}`,
@@ -262,15 +288,17 @@ export class StarListingWorkflow extends Cloudflare.Workflow<StarListingWorkflow
     // Capture the refresh handle once per isolate; the body only calls
     // `create`, so the workflow engine never re-registers the export.
     const refresh = yield* StarRefreshWorkflow;
-    const body = makeListingBody(deps, refresh as Cloudflare.WorkflowHandle<StarRefreshInput, unknown>);
+    const body = makeListingBody(deps, refresh);
 
     return Effect.fn(function* (input: StarListingInput) {
       const exit = yield* Effect.exit(body(input).pipe(Effect.provide(deps.runLayers)));
+
       if (Exit.isSuccess(exit)) return exit.value;
       yield* patchState(input.login, { phase: "failed", lastError: "listing failed" }).pipe(
         Effect.provide(deps.runLayers),
         Effect.ignore
       );
+
       return { ok: false, reason: "internal" };
     });
   })

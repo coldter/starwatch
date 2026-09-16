@@ -54,11 +54,13 @@ export function useUserIndex(login: string): UserIndexResult {
       fetchRef.current?.abort();
       const controller = new AbortController();
       fetchRef.current = controller;
+
       if (background) setRefreshing(true);
       else {
         setLoading(true);
         setError(null);
       }
+
       try {
         const payload = await fetchUser(login, controller.signal);
         rememberUser(payload.profile.login, payload.profile.name);
@@ -84,6 +86,7 @@ export function useUserIndex(login: string): UserIndexResult {
     setTransport("off");
     setForceWatch(false);
     void load(false);
+
     return () => {
       fetchRef.current?.abort();
       fetchRef.current = null;
@@ -97,6 +100,7 @@ export function useUserIndex(login: string): UserIndexResult {
   const startSync = useCallback(
     async (options: { full?: boolean } = {}): Promise<StartSyncOutcome> => {
       setSyncPending(true);
+
       try {
         const result = await startUserSync(login, options);
         setData((prev) =>
@@ -107,13 +111,16 @@ export function useUserIndex(login: string): UserIndexResult {
                 state: { ...prev.state, phase: result.phase, updatedAt: new Date().toISOString() }
               }
         );
+
         if (result.started || isActivePhase(result.phase)) setForceWatch(true);
         setError(null);
+
         return { ok: true, started: result.started, phase: result.phase };
       } catch (cause) {
         if (isAbortError(cause)) {
           return { ok: false, error: new ApiError("network", "The sync request was cancelled.") };
         }
+
         return { ok: false, error: asApiError(cause) };
       } finally {
         setSyncPending(false);
@@ -130,8 +137,10 @@ export function useUserIndex(login: string): UserIndexResult {
   useEffect(() => {
     if (!shouldWatch) {
       setTransport("off");
+
       return;
     }
+
     let closed = false;
     let errors = 0;
     const source = new EventSource(userSyncEventsUrl(login));
@@ -143,12 +152,15 @@ export function useUserIndex(login: string): UserIndexResult {
 
     source.onmessage = (event: MessageEvent<string>) => {
       let next: UserIndexState;
+
       try {
         next = Schema.decodeUnknownSync(UserIndexState)(JSON.parse(event.data));
       } catch {
         return; // Malformed frame — ignore without breaking the stream.
       }
+
       setData((prev) => (prev === null ? prev : { ...prev, state: next }));
+
       if (isTerminalPhase(next.phase)) {
         closed = true;
         source.close();
@@ -160,6 +172,7 @@ export function useUserIndex(login: string): UserIndexResult {
     source.onerror = () => {
       if (closed) return;
       errors += 1;
+
       if (errors >= 2) {
         closed = true;
         source.close();
@@ -183,10 +196,13 @@ export function useUserIndex(login: string): UserIndexResult {
     const poll = async () => {
       controller?.abort();
       controller = new AbortController();
+
       try {
         const next = await fetchSyncState(login, controller.signal);
+
         if (stopped) return;
         setData((prev) => (prev === null ? prev : { ...prev, state: next }));
+
         if (isTerminalPhase(next.phase)) {
           setTransport("off");
           setForceWatch(false);
@@ -199,9 +215,11 @@ export function useUserIndex(login: string): UserIndexResult {
     };
 
     void poll();
+
     const timer = window.setInterval(() => {
       void poll();
     }, 5000);
+
     return () => {
       stopped = true;
       controller?.abort();

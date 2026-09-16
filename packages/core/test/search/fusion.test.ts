@@ -75,6 +75,7 @@ describe("name statistics and specificity gating", () => {
       makeRepo({ id: 3, name: "auth-auth", owner: "c" }),
       makeRepo({ id: 4, name: "lazygit", owner: "d" })
     ]);
+
     expect(stats.get("auth")).toBe(3);
     expect(stats.get("better")).toBe(1);
     expect(stats.get("lazygit")).toBe(1);
@@ -86,6 +87,7 @@ describe("name statistics and specificity gating", () => {
       ["auth", 117],
       ["lazygit", 1]
     ]);
+
     expect(termSpecificity("lazygit", stats)).toBeGreaterThan(termSpecificity("auth", stats));
     expect(termSpecificity("unseen", stats)).toBe(1);
   });
@@ -94,6 +96,7 @@ describe("name statistics and specificity gating", () => {
     const vectors = Array.from({ length: 12 }, (_, i) =>
       makeRepo({ id: i + 1, name: `vector-${i + 1}`, owner: "vector-owner" })
     );
+
     const exactVector = makeRepo({ id: 13, name: "vector", owner: "vector-io" });
     const lazygit = makeRepo({ id: 100, name: "lazygit", owner: "jesseduffield" });
     const stats = computeNameStats([...vectors, exactVector, lazygit]);
@@ -160,6 +163,7 @@ describe("fuse", () => {
 
   it("keeps the best rank when the same repo appears twice in one leg", () => {
     const repo = makeRepo({ id: 1, name: "solo", owner: "someone" });
+
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 5 },
@@ -167,17 +171,20 @@ describe("fuse", () => {
       ]),
       repos: repoMap(repo)
     });
+
     expect(hits[0]?.score).toBeCloseTo(1 / (RRF_K + 2), 12);
   });
 
   it("weights keyword 1.0 over expanded 0.6 at equal rank", () => {
     const keywordHit = makeRepo({ id: 1, name: "alpha", owner: "oa" });
     const expandedHit = makeRepo({ id: 2, name: "beta", owner: "ob" });
+
     const hits = fuse({
       keyword: toRanked([{ repoId: 1, rank: 1 }]),
       expanded: toRanked([{ repoId: 2, rank: 1 }]),
       repos: repoMap(keywordHit, expandedHit)
     });
+
     expect(hits).toHaveLength(2);
     expect(hits[0]?.repo.id).toBe(1);
     expect(hits[0]!.score / hits[1]!.score).toBeCloseTo(1 / DEFAULT_LEG_WEIGHTS.expanded, 6);
@@ -186,6 +193,7 @@ describe("fuse", () => {
   it("honors eval weight overrides", () => {
     const keywordHit = makeRepo({ id: 1, name: "alpha", owner: "oa" });
     const expandedHit = makeRepo({ id: 2, name: "beta", owner: "ob" });
+
     const hits = fuse(
       {
         keyword: toRanked([{ repoId: 1, rank: 1 }]),
@@ -194,6 +202,7 @@ describe("fuse", () => {
       },
       { weights: { expanded: 2 } }
     );
+
     expect(hits[0]?.repo.id).toBe(2);
   });
 
@@ -206,6 +215,7 @@ describe("fuse", () => {
       description: "The most comprehensive authentication framework for TypeScript",
       topics: ["authentication", "oauth"]
     });
+
     const logto = makeRepo({
       id: 2,
       owner: "logto-io",
@@ -214,6 +224,7 @@ describe("fuse", () => {
       description: "Identity infrastructure for modern apps",
       topics: ["authentication"]
     });
+
     const nuxflareAuth = makeRepo({
       id: 3,
       owner: "nuxflare",
@@ -222,6 +233,7 @@ describe("fuse", () => {
       description: "Auth server in a box",
       topics: ["authentication"]
     });
+
     const openauth = makeRepo({
       id: 4,
       owner: "anomalyco",
@@ -230,6 +242,7 @@ describe("fuse", () => {
       description: "Open source auth infrastructure",
       topics: ["oauth"]
     });
+
     // Present in the corpus but excluded by the hard `language=TypeScript` filter.
     const casbin = makeRepo({
       id: 5,
@@ -286,6 +299,7 @@ describe("fuse", () => {
 
   it("applies the archived penalty without excluding the repo", () => {
     const active = makeRepo({ id: 1, name: "active", owner: "oa", stars: 100 });
+
     const archived = makeRepo({
       id: 2,
       name: "archived",
@@ -293,6 +307,7 @@ describe("fuse", () => {
       stars: 100,
       archived: true
     });
+
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
@@ -300,6 +315,7 @@ describe("fuse", () => {
       ]),
       repos: repoMap(active, archived)
     });
+
     const prior = starPrior(100);
     expect(hits[0]?.score).toBeCloseTo(prior / (RRF_K + 1), 10);
     expect(hits[1]?.score).toBeCloseTo((prior / (RRF_K + 2)) * ARCHIVED_PENALTY, 10);
@@ -308,6 +324,7 @@ describe("fuse", () => {
   it("penalizes additional hits from the same owner by x0.85 each", () => {
     const first = makeRepo({ id: 1, name: "alpha", owner: "acme" });
     const second = makeRepo({ id: 2, name: "beta", owner: "acme" });
+
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
@@ -315,6 +332,7 @@ describe("fuse", () => {
       ]),
       repos: repoMap(first, second)
     });
+
     expect(hits[0]?.score).toBeCloseTo(1 / (RRF_K + 1), 10);
     expect(hits[1]?.score).toBeCloseTo((1 / (RRF_K + 2)) * OWNER_DUPLICATE_PENALTY, 10);
   });
@@ -322,6 +340,7 @@ describe("fuse", () => {
   it("penalizes same normalized names by x0.70", () => {
     const first = makeRepo({ id: 1, name: "foo-bar", owner: "one" });
     const second = makeRepo({ id: 2, name: "foo_bar", owner: "two" });
+
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
@@ -329,12 +348,14 @@ describe("fuse", () => {
       ]),
       repos: repoMap(first, second)
     });
+
     expect(hits[1]?.score).toBeCloseTo((1 / (RRF_K + 2)) * NAME_DUPLICATE_PENALTY, 10);
   });
 
   it("can disable duplicate penalties for eval ablation", () => {
     const first = makeRepo({ id: 1, name: "alpha", owner: "acme" });
     const second = makeRepo({ id: 2, name: "beta", owner: "acme" });
+
     const hits = fuse(
       {
         keyword: toRanked([
@@ -345,17 +366,20 @@ describe("fuse", () => {
       },
       { duplicatePenalties: false }
     );
+
     expect(hits[1]?.score).toBeCloseTo(1 / (RRF_K + 2), 10);
   });
 
   it("breaks equal scores by stars desc, then repo id asc", () => {
     const highId = makeRepo({ id: 20, name: "alpha", owner: "oa", stars: 100 });
     const lowId = makeRepo({ id: 10, name: "beta", owner: "ob", stars: 100 });
+
     const hits = fuse({
       keyword: toRanked([{ repoId: 20, rank: 1 }]),
       semantic: toRanked([{ repoId: 10, rank: 1 }]),
       repos: repoMap(highId, lowId)
     });
+
     expect(hits.map((hit) => hit.repo.id)).toEqual([10, 20]);
   });
 
@@ -368,6 +392,7 @@ describe("fuse", () => {
       description: "A simple terminal UI for git commands",
       stars: 60_000
     });
+
     const hits = fuse(
       {
         keyword: toRanked([{ repoId: 1, rank: 1 }]),
@@ -377,6 +402,7 @@ describe("fuse", () => {
       },
       { queryTokens: ["lazygit"] }
     );
+
     expect(hits[0]?.matchedBy).toEqual(["keyword", "semantic", "name"]);
     expect(hits[0]?.legRanks).toEqual({ keyword: 1, semantic: 2 });
     expect(hits[0]?.groups).toEqual(["tui", "v2"]);
@@ -384,6 +410,7 @@ describe("fuse", () => {
 
   it("does not emit name when the boost is damped to a no-op", () => {
     const repo = makeRepo({ id: 1, name: "unrelated", owner: "oa" });
+
     const hits = fuse(
       {
         keyword: toRanked([{ repoId: 1, rank: 1 }]),
@@ -391,11 +418,13 @@ describe("fuse", () => {
       },
       { queryTokens: ["auth"] }
     );
+
     expect(hits[0]?.matchedBy).toEqual(["keyword"]);
   });
 
   it("drops ranked repos that are excluded by filters", () => {
     const repo = makeRepo({ id: 1, name: "alpha", owner: "oa" });
+
     const hits = fuse({
       keyword: toRanked([
         { repoId: 1, rank: 1 },
@@ -403,6 +432,7 @@ describe("fuse", () => {
       ]),
       repos: repoMap(repo)
     });
+
     expect(hits.map((hit) => hit.repo.id)).toEqual([1]);
   });
 });
@@ -416,6 +446,7 @@ describe("overlap bonus", () => {
       topics: ["http-client", "retry"],
       description: "A tiny http client with retry support"
     });
+
     const terms = ["http", "client", "retry"];
     expect(overlapBonus(repo, terms)).toBeCloseTo(
       3 * TOPIC_OVERLAP_PER_TERM + 3 * DESCRIPTION_OVERLAP_PER_TERM,
@@ -431,6 +462,7 @@ describe("overlap bonus", () => {
       topics: ["a", "b", "c", "d", "e"],
       description: "a b c d e"
     });
+
     expect(overlapBonus(repo, ["a", "b", "c", "d", "e"])).toBeCloseTo(
       3 * TOPIC_OVERLAP_PER_TERM + 3 * DESCRIPTION_OVERLAP_PER_TERM,
       12
@@ -445,12 +477,15 @@ describe("overlap bonus", () => {
       topics: ["http-client"],
       description: "An http client"
     });
+
     const hits = fuse(
       { keyword: toRanked([{ repoId: 1, rank: 1 }]), repos: repoMap(repo) },
       { queryTokens: ["http", "client"] }
     );
+
     const expectedBonus =
       2 * TOPIC_OVERLAP_PER_TERM + 2 * DESCRIPTION_OVERLAP_PER_TERM;
+
     expect(hits[0]?.score).toBeCloseTo(1 / (RRF_K + 1) + expectedBonus, 10);
   });
 });

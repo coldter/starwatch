@@ -8,6 +8,7 @@ export const SERVICE_VERSION = "0.0.0";
 
 /** Result page size when `limit` is absent / malformed (docs/07 §4.2). */
 export const DEFAULT_SEARCH_LIMIT = 20;
+
 /** Hard server-side cap; also the FTS/vector leg ceiling (docs/07 §4.2). */
 export const MAX_SEARCH_LIMIT = 50;
 

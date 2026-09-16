@@ -201,9 +201,11 @@ describe("UserFts", () => {
     Effect.gen(function* () {
       yield* applyMigration;
       const fts = yield* UserFts;
+
       const docs = Array.from({ length: 45 }, (_, index) =>
         makeFtsDoc(index + 1, `bulk/repo-${index + 1}`, { readme: `token${index + 1} shared` })
       );
+
       yield* fts.upsertUserDocs(LOGIN, docs);
 
       expect(hitIds(yield* fts.searchKeyword(LOGIN, '"token45"'))).toEqual([45]);

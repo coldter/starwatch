@@ -10,6 +10,7 @@ import {
 function median(xs: number[]): number {
   if (xs.length === 0) return 0;
   const s = [...xs].sort((a, b) => a - b);
+
   return s[Math.floor(s.length / 2)];
 }
 
@@ -19,18 +20,26 @@ async function main(): Promise<void> {
   const stars = readStars();
   const readmes = new Map<string, string | null>();
   const missing: string[] = [];
+
   for (const s of stars) {
     const r = readReadme(s.full_name);
     readmes.set(s.full_name, r);
+
     if (r === null) missing.push(s.full_name);
   }
 
-  const readmeLens = [...readmes.values()].filter((r): r is string => r !== null).map((r) => r.length);
+  const readmeLens: number[] = [];
+
+  for (const readme of readmes.values()) {
+    if (readme !== null) readmeLens.push(readme.length);
+  }
+
   console.log(`index: ${stars.length} repos, readmes found=${readmeLens.length} missing=${missing.length} median=${median(readmeLens)} bytes max=${Math.max(...readmeLens, 0)}`);
 
   if (existsSync(DB_PATH)) {
     for (const suf of ['', '-wal', '-shm']) if (existsSync(DB_PATH + suf)) unlinkSync(DB_PATH + suf);
   }
+
   const db = new DatabaseSync(DB_PATH);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA synchronous = NORMAL');
@@ -57,6 +66,7 @@ async function main(): Promise<void> {
   const insRepo = db.prepare(`INSERT INTO repos
     (id, full_name, description, language, topics_json, stars, url, pushed_at, archived, fork, starred_at, readme_len)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+
   const insFts = db.prepare('INSERT INTO repos_fts(rowid, name, description, topics, readme) VALUES (?,?,?,?,?)');
   const insTri = db.prepare('INSERT INTO repos_tri(rowid, name, description, topics, readme) VALUES (?,?,?,?,?)');
 
@@ -79,6 +89,7 @@ async function main(): Promise<void> {
   console.log(`index: repos+FTS inserted in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   const tEmbed = Date.now();
+
   if (!noEmbed) {
     const ids = [...docs.keys()];
     // Batch similar lengths together: ONNX pads to the longest sequence, and a few long
@@ -88,6 +99,7 @@ async function main(): Promise<void> {
     const insEmb = db.prepare('INSERT INTO embeddings(repo_id, dims, vector, doc) VALUES (?,?,?,?)');
     const BATCH = 256; // embedding calls are 32-wide; commit every 256 to bound WAL growth
     let embedded = 0;
+
     for (let i = 0; i < texts.length; i += BATCH) {
       const sliceIds = ids.slice(i, i + BATCH);
       const sliceTexts = texts.slice(i, i + BATCH);
@@ -98,15 +110,18 @@ async function main(): Promise<void> {
       });
       db.exec('COMMIT');
       embedded += vectors.length;
+
       if (embedded % 512 === 0 || embedded === texts.length) {
         const rate = embedded / ((Date.now() - tEmbed) / 1000);
         console.log(`  embedded ${embedded}/${texts.length} (${rate.toFixed(0)} docs/s)`);
       }
     }
   }
+
   const embedMs = Date.now() - tEmbed;
 
   const dbBytes = statSync(DB_PATH).size;
+
   const stats = {
     built_at: new Date().toISOString(),
     model: noEmbed ? null : MODEL_ID,
@@ -124,6 +139,7 @@ async function main(): Promise<void> {
     db_bytes: dbBytes,
     build_ms: Date.now() - t0,
   };
+
   writeFileSync(path.join(DATA_DIR, 'index-stats.json'), JSON.stringify(stats, null, 2) + '\n');
   console.log(`index: done in ${((Date.now() - t0) / 1000).toFixed(1)}s; db=${(dbBytes / 1024 / 1024).toFixed(1)} MB; embeddings in ${(embedMs / 1000).toFixed(1)}s`);
   console.log(`index: stats → data/index-stats.json`);

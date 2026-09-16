@@ -26,6 +26,7 @@ export const migrationFiles = (): ReadonlyArray<string> =>
 export const migrationStatements = (): ReadonlyArray<string> =>
   migrationFiles().flatMap((name) => {
     const text: string = readFileSync(new URL(name, MIGRATIONS_DIR_URL).pathname, "utf8");
+
     return text
       .replace(/^\s*--.*$/gm, "")
       .split(";")
@@ -40,6 +41,7 @@ export const makeSqliteLayer = (): Layer.Layer<SqlClient.SqlClient> =>
 /** Apply `0001_init.sql` to the provided client. */
 export const applyMigration: Effect.Effect<void, SqlError, SqlClient.SqlClient> = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+
   for (const statement of migrationStatements()) {
     yield* sql.unsafe(statement);
   }
@@ -47,6 +49,7 @@ export const applyMigration: Effect.Effect<void, SqlError, SqlClient.SqlClient> 
 
 export const makeRepo = (id: number, fullName: string, overrides: Partial<Repo> = {}): Repo => {
   const [owner = "owner", name = `repo-${id}`] = fullName.split("/");
+
   return {
     id,
     fullName,

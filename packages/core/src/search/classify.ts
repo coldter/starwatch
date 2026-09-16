@@ -14,17 +14,18 @@
 
 import { normalizeQuery, tokenize } from "./text.ts";
 
-export type QueryShape = "identifier" | "keyword" | "descriptive";
+export type QueryKind = "identifier" | "keyword" | "descriptive";
+
 export type MatchStrategy = "and" | "or";
 
 /** Characters that make a single word look like an identifier. */
 export const IDENTIFIER_SIGNAL = /[0-9\-_.@/:]/;
 
 /** `drizzle-orm`, `gql.tada`, `wttr.in`, `bge-m3`, `better_auth`. */
-export const REPO_NAME_SHAPE = /^[a-z0-9]+(?:[-_.][a-z0-9]+)+$/;
+export const REPO_NAME_PATTERN = /^[a-z0-9]+(?:[-_.][a-z0-9]+)+$/;
 
 /** `useEffect`, `useDeferredValue` (acronym boundaries are handled by tokenize). */
-export const CAMEL_CASE_SHAPE = /^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+$/;
+export const CAMEL_CASE_PATTERN = /^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+$/;
 
 /**
  * A normalized query is identifier-like when it is a single word containing
@@ -33,10 +34,14 @@ export const CAMEL_CASE_SHAPE = /^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+$/;
  */
 export const isIdentifierLike = (text: string): boolean => {
   const compact = normalizeQuery(text);
+
   if (compact.length === 0 || compact.includes(" ")) return false;
+
   if (IDENTIFIER_SIGNAL.test(compact)) return true;
-  if (CAMEL_CASE_SHAPE.test(compact)) return true;
-  return REPO_NAME_SHAPE.test(compact.toLowerCase());
+
+  if (CAMEL_CASE_PATTERN.test(compact)) return true;
+
+  return REPO_NAME_PATTERN.test(compact.toLowerCase());
 };
 
 /**
@@ -46,10 +51,13 @@ export const isIdentifierLike = (text: string): boolean => {
  * Empty/whitespace input is treated as `keyword` (the caller decides
  * browse-vs-search before ranking).
  */
-export const classifyQuery = (raw: string): QueryShape => {
+export const classifyQuery = (raw: string): QueryKind => {
   const text = normalizeQuery(raw);
+
   if (text.length === 0) return "keyword";
+
   if (isIdentifierLike(text)) return "identifier";
+
   return tokenize(text).length <= 2 ? "keyword" : "descriptive";
 };
 

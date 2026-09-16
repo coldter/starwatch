@@ -29,21 +29,25 @@ export const usersGroup = (deps: WorkerDeps) =>
           const login = normalizeLogin(params.login);
           const repos = yield* RepoStore;
           const profile = yield* repos.getUser(login).pipe(Effect.orDie);
+
           if (profile === null) return yield* new UserNotFound({ login });
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
           const groups = yield* repos.listGroups(login).pipe(Effect.orDie);
+
           return { profile, state: stored ?? idleState(login), groups };
         }).pipe(Effect.provide(deps.sync.storage))
       )
       .handle("startSync", ({ params, payload, request }) =>
         Effect.gen(function* () {
           const ip = clientIp(request);
+
           const allowed = yield* deps.syncRate.limit({ key: `sync:${ip}` }).pipe(
             Effect.matchEffect({
               onSuccess: (result) => Effect.succeed(result.success),
               onFailure: () => Effect.succeed(true)
             })
           );
+
           if (!allowed) {
             return yield* new BudgetExceeded({
               scope: "sync",
@@ -56,6 +60,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           // First-time indexing: fetch + persist the profile here so a brand
           // new username can be synced without a prior lookup (docs/08 §1).
           let profile = yield* repos.getUser(login).pipe(Effect.orDie);
+
           if (profile === null) {
             const github = yield* GithubClient;
             profile = yield* github.getUserProfile(login).pipe(
@@ -69,12 +74,14 @@ export const usersGroup = (deps: WorkerDeps) =>
 
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
           const phase = stored?.phase ?? "idle";
+
           if (phase === "listing" || phase === "fetching-readmes" || phase === "embedding") {
             return yield* new SyncInProgress({ login });
           }
 
           const full = payload.full === true;
           const lastSyncedMs = parseTime(stored?.lastSyncedAt);
+
           const admission = canSync(
             {
               inProgress: false,
@@ -86,6 +93,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             Date.now(),
             DEFAULT_SYNC_COOLDOWNS
           );
+
           if (!admission.allowed) {
             return yield* new SyncCooldown({
               login,
@@ -96,10 +104,13 @@ export const usersGroup = (deps: WorkerDeps) =>
           // Dedupe by instance id: attach to a live job, otherwise start one.
           const id = `listing-${login}`;
           const existing = yield* Effect.exit(deps.listing.get(id));
+
           if (Exit.isSuccess(existing)) {
             const status = yield* Effect.exit(existing.value.status());
+
             if (Exit.isSuccess(status)) {
               const state = status.value.status;
+
               if (
                 state === "queued" ||
                 state === "running" ||
@@ -113,9 +124,11 @@ export const usersGroup = (deps: WorkerDeps) =>
           }
 
           const requestId = crypto.randomUUID();
+
           let created = yield* Effect.exit(
             deps.listing.create({ id, params: { login, full, requestId } })
           );
+
           if (Exit.isFailure(created)) {
             // Terminal instances linger for retention; fall back to a unique
             // id rather than refusing a legitimate cooldown-expired refresh.
@@ -123,12 +136,14 @@ export const usersGroup = (deps: WorkerDeps) =>
               deps.listing.create({ id: `${id}-${Date.now()}`, params: { login, full, requestId } })
             );
           }
+
           if (Exit.isFailure(created)) {
             return yield* new BudgetExceeded({
               scope: "sync",
               message: "The indexing queue could not accept this job; try again shortly."
             });
           }
+
           return { started: true, phase: "listing" as const };
         }).pipe(Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github)))
       )
@@ -137,8 +152,10 @@ export const usersGroup = (deps: WorkerDeps) =>
           const login = normalizeLogin(params.login);
           const repos = yield* RepoStore;
           const profile = yield* repos.getUser(login).pipe(Effect.orDie);
+
           if (profile === null) return yield* new UserNotFound({ login });
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
+
           return stored ?? idleState(login);
         }).pipe(Effect.provide(deps.sync.storage))
       )
@@ -147,9 +164,11 @@ export const usersGroup = (deps: WorkerDeps) =>
           const login = normalizeLogin(params.login);
           const repos = yield* RepoStore;
           const profile = yield* repos.getUser(login).pipe(Effect.orDie);
+
           if (profile === null) return yield* new UserNotFound({ login });
 
           const initial = (yield* repos.getIndexState(login).pipe(Effect.orDie)) ?? idleState(login);
+
           const updates = Stream.tick("1 seconds").pipe(
             // Each tick builds (and closes) its own short-lived layer, so the
             // SSE stream never depends on the request scope being open while
@@ -158,6 +177,7 @@ export const usersGroup = (deps: WorkerDeps) =>
               Effect.gen(function* () {
                 const store = yield* RepoStore;
                 const state = yield* store.getIndexState(login).pipe(Effect.orDie);
+
                 return state ?? initial;
               }).pipe(Effect.provide(deps.sync.storage))
             ),
@@ -165,6 +185,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             // clients reconnect with a fresh `GET /sync` (docs/08 §2.5).
             Stream.take(119)
           );
+
           return Stream.concat(Stream.succeed(initial), updates);
         }).pipe(Effect.provide(deps.sync.storage))
       )
@@ -173,7 +194,9 @@ export const usersGroup = (deps: WorkerDeps) =>
           const login = normalizeLogin(params.login);
           const repos = yield* RepoStore;
           const profile = yield* repos.getUser(login).pipe(Effect.orDie);
+
           if (profile === null) return yield* new UserNotFound({ login });
+
           return yield* repos.listGroups(login).pipe(Effect.orDie);
         }).pipe(Effect.provide(deps.sync.storage))
       )

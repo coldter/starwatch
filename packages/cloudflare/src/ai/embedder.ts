@@ -10,11 +10,24 @@
  */
 
 import type { Repo } from "@starwatch/domain";
-import { EmbedFailed, type EmbedderShape } from "@starwatch/core/sync";
+import { EmbedFailed, type EmbedderService } from "@starwatch/core/sync";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 export const EMBEDDING_MODEL = "@cf/baai/bge-small-en-v1.5";
+
 export const EMBEDDING_DIMS = 384;
+
+/**
+ * Raw envelope returned by the Workers AI text-embedding model (`Ai.run`).
+ * apps/worker decodes the raw binding result with this schema so the binding
+ * adapter never has to assert the payload shape.
+ */
+export const WorkersAiTextEmbedding = Schema.Struct({
+  data: Schema.Array(Schema.Array(Schema.Number))
+});
+
+export type WorkersAiTextEmbedding = typeof WorkersAiTextEmbedding.Type;
 
 /** Minimal Workers AI surface we depend on (structurally `Ai.run`). */
 export interface WorkersAiBinding {
@@ -32,7 +45,9 @@ export interface WorkersAiEmbedderOptions {
 }
 
 const DEFAULT_BATCH_SIZE = 32;
+
 const DEFAULT_CONCURRENCY = 2;
+
 const MAX_README_CHARS = 1_500;
 
 const WHITESPACE = /\s+/g;
@@ -45,10 +60,13 @@ export const batchTexts = (
   if (!Number.isInteger(size) || size < 1) {
     throw new RangeError(`batch size must be a positive integer, got ${size}`);
   }
+
   const batches: string[][] = [];
+
   for (let i = 0; i < texts.length; i += size) {
     batches.push(texts.slice(i, i + size));
   }
+
   return batches;
 };
 
@@ -77,18 +95,24 @@ export const repoEmbeddingText = (
 ): string => {
   const maxChars = options.maxChars ?? MAX_README_CHARS;
   const description = repo.description?.replace(WHITESPACE, " ").trim() ?? "";
+
   const lines: string[] =
     description.length > 0 ? [`${repo.fullName} — ${description}`] : [repo.fullName];
+
   if (repo.topics.length > 0) {
     lines.push(`Topics: ${repo.topics.join(", ")}`);
   }
+
   if (repo.language !== null && repo.language.length > 0) {
     lines.push(`Language: ${repo.language}`);
   }
+
   const excerpt = readme?.replace(WHITESPACE, " ").trim() ?? "";
+
   if (excerpt.length > 0) {
     lines.push(excerpt.slice(0, Math.max(0, maxChars)));
   }
+
   return lines.filter((line) => line.length > 0).join("\n");
 };
 
@@ -96,11 +120,12 @@ const validateDimension = (value: number, where: string): number => {
   if (value < 1) {
     throw new RangeError(`${where} must be >= 1, got ${value}`);
   }
+
   return value;
 };
 
 /**
- * Build an {@link EmbedderShape} over a Workers AI binding.
+ * Build an {@link EmbedderService} over a Workers AI binding.
  *
  * Batching + bounded concurrency keep one user's embedding pass inside the
  * Workers free CPU/subrequest envelope (docs/15 §2.5); failures are wrapped in
@@ -109,7 +134,7 @@ const validateDimension = (value: number, where: string): number => {
 export const makeWorkersAiEmbedder = (
   binding: WorkersAiBinding,
   options: WorkersAiEmbedderOptions = {}
-): EmbedderShape => {
+): EmbedderService => {
   const batchSize = validateDimension(options.batchSize ?? DEFAULT_BATCH_SIZE, "batchSize");
   const concurrency = validateDimension(options.concurrency ?? DEFAULT_CONCURRENCY, "concurrency");
 
@@ -126,6 +151,7 @@ export const makeWorkersAiEmbedder = (
     }).pipe(
       Effect.flatMap((result) => {
         const rows = result.data;
+
         if (!Array.isArray(rows) || rows.length !== batch.length) {
           return Effect.fail(
             new EmbedFailed({
@@ -135,6 +161,7 @@ export const makeWorkersAiEmbedder = (
             })
           );
         }
+
         return Effect.succeed(rows.map((row) => Float32Array.from(row)));
       })
     );

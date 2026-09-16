@@ -14,6 +14,7 @@ export interface ToastViewportProps {
 
 export function ToastViewport({ items, onDismiss }: ToastViewportProps) {
   if (items.length === 0) return null;
+
   return (
     <div className="toasts">
       {items.map((item) => (

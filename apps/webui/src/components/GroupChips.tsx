@@ -8,6 +8,7 @@ export function GroupChips({ names, max = 3 }: GroupChipsProps) {
   if (names.length === 0) return null;
   const shown = names.slice(0, max);
   const extra = names.length - shown.length;
+
   return (
     <span className="chip-row">
       {shown.map((name) => (

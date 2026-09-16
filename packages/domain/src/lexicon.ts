@@ -13,6 +13,7 @@ export const Concept = Schema.Struct({
   triggers: Schema.Array(Schema.String),
   expand: Schema.Array(Schema.String)
 });
+
 export type Concept = typeof Concept.Type;
 
 export const LEXICON: ReadonlyArray<Concept> = [

@@ -4,6 +4,9 @@ import { GithubClient } from "@starwatch/core/sync";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Headers from "effect/unstable/http/Headers";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
@@ -20,8 +23,8 @@ type StubHandler = (
   request: HttpClientRequest.HttpClientRequest
 ) => StubResponse;
 
-const jsonResponse = (
-  value: unknown,
+const jsonResponse = <A>(
+  value: A,
   status = 200,
   headers: Record<string, string> = {}
 ): StubResponse => ({
@@ -43,9 +46,11 @@ const webResponse = (stub: StubResponse): Response => {
     status: stub.status === 304 || stub.status < 200 ? 200 : stub.status,
     headers: stub.headers
   });
+
   if (response.status !== stub.status) {
     Object.defineProperty(response, "status", { value: stub.status, enumerable: true });
   }
+
   return response;
 };
 
@@ -55,12 +60,15 @@ const runClient = <A, E>(
 ): Promise<A> => {
   const http = HttpClient.make((request) => {
     const response = handler(request);
+
     return Effect.succeed(HttpClientResponse.fromWeb(request, webResponse(response)));
   });
+
   const layer = Layer.provide(
     makeGithubClient({ token: "test-token", userAgent: "starwatch-test/0.0.0" }),
     Layer.succeed(HttpClient.HttpClient, http)
   );
+
   return Effect.runPromise(program.pipe(Effect.provide(layer)));
 };
 
@@ -69,10 +77,23 @@ const requestHeader = (
   name: string
 ): string | undefined => Option.getOrUndefined(Headers.get(request.headers, name));
 
-const requestJsonBody = (request: HttpClientRequest.HttpClientRequest): unknown => {
+/** GraphQL request body the client encodes through `bodyJsonUnsafe`. */
+const GraphqlRequestBody = Schema.Struct({
+  query: Schema.optional(Schema.String)
+});
+
+type GraphqlRequestBody = typeof GraphqlRequestBody.Type;
+
+const requestJsonBody = (
+  request: HttpClientRequest.HttpClientRequest
+): GraphqlRequestBody | undefined => {
   const body = request.body;
-  if (body._tag !== "Uint8Array") return undefined;
-  return JSON.parse(new TextDecoder().decode(body.body)) as unknown;
+
+  if (!Predicate.isTagged(body, "Uint8Array")) return undefined;
+
+  return Option.getOrUndefined(
+    Schema.decodeUnknownOption(GraphqlRequestBody)(JSON.parse(new TextDecoder().decode(body.body)))
+  );
 };
 
 const repoJson = (id: number, name: string) => ({
@@ -108,9 +129,11 @@ const profileJson = {
 describe("GithubClient.getUserProfile", () => {
   it("decodes a profile and sends the required headers", async () => {
     let seen: HttpClientRequest.HttpClientRequest | undefined;
+
     const profile = await runClient(
       (request) => {
         seen = request;
+
         return jsonResponse(profileJson);
       },
       GithubClient.use((client) => client.getUserProfile("coldter"))
@@ -130,8 +153,10 @@ describe("GithubClient.getUserProfile", () => {
       () => textResponse("not found", 404),
       GithubClient.use((client) => client.getUserProfile("nobody")).pipe(Effect.result)
     );
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
       expect(result.failure).toBeInstanceOf(UserNotFound);
     }
   });
@@ -145,11 +170,17 @@ describe("GithubClient.getUserProfile", () => {
         }),
       GithubClient.use((client) => client.getUserProfile("coldter")).pipe(Effect.result)
     );
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toBeInstanceOf(GithubRateLimited);
-      const failure = result.failure as GithubRateLimited;
-      expect(failure.resetAt).toBe(new Date(1_900_000_000 * 1000).toISOString());
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
+      const failure = result.failure;
+
+      expect(failure).toBeInstanceOf(GithubRateLimited);
+
+      if (Schema.is(GithubRateLimited)(failure)) {
+        expect(failure.resetAt).toBe(new Date(1_900_000_000 * 1000).toISOString());
+      }
     }
   });
 
@@ -158,10 +189,17 @@ describe("GithubClient.getUserProfile", () => {
       () => textResponse("boom", 500),
       GithubClient.use((client) => client.getUserProfile("coldter")).pipe(Effect.result)
     );
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toBeInstanceOf(GithubUpstream);
-      expect((result.failure as GithubUpstream).status).toBe(500);
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
+      const failure = result.failure;
+
+      expect(failure).toBeInstanceOf(GithubUpstream);
+
+      if (Schema.is(GithubUpstream)(failure)) {
+        expect(failure.status).toBe(500);
+      }
     }
   });
 });
@@ -169,9 +207,11 @@ describe("GithubClient.getUserProfile", () => {
 describe("GithubClient.listStarPage", () => {
   it("decodes star+json items, the etag map and Link pagination", async () => {
     let seen: HttpClientRequest.HttpClientRequest | undefined;
+
     const page = await runClient(
       (request) => {
         seen = request;
+
         return jsonResponse(
           [
             { starred_at: "2026-07-09T00:00:00Z", repo: repoJson(1, "one") },
@@ -210,15 +250,18 @@ describe("GithubClient.listStarPage", () => {
 
   it("returns notModified for a free 304 and preserves the etag", async () => {
     let seen: HttpClientRequest.HttpClientRequest | undefined;
+
     const page = await runClient(
       (request) => {
         seen = request;
+
         return textResponse("", 304, { etag: '"old-etag"', "x-ratelimit-remaining": "4999" });
       },
       GithubClient.use((client) =>
         client.listStarPage("coldter", { page: 3, etag: '"old-etag"' })
       )
     );
+
     expect(page.notModified).toBe(true);
     expect(page.repos).toEqual([]);
     expect(page.starredAt.size).toBe(0);
@@ -233,8 +276,10 @@ describe("GithubClient.listStarPage", () => {
       () => textResponse("not found", 404),
       GithubClient.use((client) => client.listStarPage("gone", { page: 1 })).pipe(Effect.result)
     );
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
       expect(result.failure).toBeInstanceOf(UserNotFound);
     }
   });
@@ -243,30 +288,38 @@ describe("GithubClient.listStarPage", () => {
 describe("GithubClient.getReadme", () => {
   it("returns the first successful raw probe", async () => {
     const requests: string[] = [];
+
     const readme = await runClient(
       (request) => {
         requests.push(request.url);
+
         if (request.url.endsWith("/README.md")) return textResponse("# Hello");
+
         return textResponse("missing", 404);
       },
       GithubClient.use((client) => client.getReadme("owner/repo", "main"))
     );
+
     expect(readme).toEqual({ text: "# Hello", source: "raw" });
     expect(requests).toHaveLength(1);
   });
 
   it("falls back to the REST readme endpoint after all raw misses", async () => {
     const requests: HttpClientRequest.HttpClientRequest[] = [];
+
     const readme = await runClient(
       (request) => {
         requests.push(request);
+
         if (request.url.startsWith("https://raw.githubusercontent.com/")) {
           return textResponse("missing", 404);
         }
+
         return textResponse("# Fallback", 200, { "content-type": "text/plain" });
       },
       GithubClient.use((client) => client.getReadme("owner/repo", "main"))
     );
+
     expect(readme).toEqual({ text: "# Fallback", source: "rest" });
     expect(requests).toHaveLength(6);
     const fallback = requests[5];
@@ -282,6 +335,7 @@ describe("GithubClient.getReadme", () => {
           : textResponse("not found", 404),
       GithubClient.use((client) => client.getReadme("owner/repo", "main"))
     );
+
     expect(readme).toBeNull();
   });
 });
@@ -289,9 +343,11 @@ describe("GithubClient.getReadme", () => {
 describe("GithubClient.listGroups", () => {
   it("decodes public lists, skips private ones and slugs names", async () => {
     const requests: HttpClientRequest.HttpClientRequest[] = [];
+
     const groups = await runClient(
       (request) => {
         requests.push(request);
+
         return jsonResponse({
           data: {
             user: {
@@ -330,16 +386,17 @@ describe("GithubClient.listGroups", () => {
     ]);
     expect(requests[0]?.method).toBe("POST");
     expect(requests[0]?.url).toBe("https://api.github.com/graphql");
-    const body = requestJsonBody(requests[0]!) as { query?: string };
-    expect(body.query).toContain("lists(first: 100");
-    expect(body.query).toContain("items(first: 100");
+    const body = requestJsonBody(requests[0]!);
+    expect(body?.query).toContain("lists(first: 100");
+    expect(body?.query).toContain("items(first: 100");
   });
 
   it("paginates list items through the node query", async () => {
     const groups = await runClient(
       (request) => {
-        const body = requestJsonBody(request) as { query: string } | undefined;
-        if (body?.query.includes("StarwatchListItems")) {
+        const body = requestJsonBody(request);
+
+        if (body?.query?.includes("StarwatchListItems")) {
           return jsonResponse({
             data: {
               node: {
@@ -351,6 +408,7 @@ describe("GithubClient.listGroups", () => {
             }
           });
         }
+
         return jsonResponse({
           data: {
             user: {
@@ -374,6 +432,7 @@ describe("GithubClient.listGroups", () => {
       },
       GithubClient.use((client) => client.listGroups("coldter"))
     );
+
     expect(groups).toEqual([
       { id: "UL_big", name: "Big", slug: "big", position: 0, repoIds: [1, 2] }
     ]);
@@ -384,10 +443,17 @@ describe("GithubClient.listGroups", () => {
       () => jsonResponse({ errors: [{ message: "Something exploded" }] }),
       GithubClient.use((client) => client.listGroups("coldter")).pipe(Effect.result)
     );
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toBeInstanceOf(GithubUpstream);
-      expect((result.failure as GithubUpstream).message).toBe("Something exploded");
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
+      const failure = result.failure;
+
+      expect(failure).toBeInstanceOf(GithubUpstream);
+
+      if (Schema.is(GithubUpstream)(failure)) {
+        expect(failure.message).toBe("Something exploded");
+      }
     }
   });
 
@@ -399,8 +465,10 @@ describe("GithubClient.listGroups", () => {
         }),
       GithubClient.use((client) => client.listGroups("nobody")).pipe(Effect.result)
     );
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
       expect(result.failure).toBeInstanceOf(UserNotFound);
     }
   });

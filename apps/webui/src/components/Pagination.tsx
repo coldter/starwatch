@@ -12,6 +12,7 @@ export interface PaginationProps {
 /** Client-side pagination over the returned hit list (limit 50, 20/page). */
 export function Pagination({ page, pageCount, total, shownStart, shownEnd, onPage }: PaginationProps) {
   if (total === 0) return null;
+
   return (
     <nav className="pagination" aria-label="Search results pages">
       <span className="pagination__summary">

@@ -9,6 +9,7 @@ export const SyncPhase = Schema.Literals([
   "failed",
   "paused"
 ]);
+
 export type SyncPhase = typeof SyncPhase.Type;
 
 /** Public-facing index state for an indexed user. */
@@ -23,6 +24,7 @@ export const UserIndexState = Schema.Struct({
   lastError: Schema.NullOr(Schema.String),
   updatedAt: Schema.String
 });
+
 export type UserIndexState = typeof UserIndexState.Type;
 
 /** Cooldown policy (see docs/08, docs/14). */
@@ -30,6 +32,7 @@ export const SyncCooldowns = Schema.Struct({
   relistSeconds: Schema.Number,
   fullRefreshSeconds: Schema.Number
 });
+
 export type SyncCooldowns = typeof SyncCooldowns.Type;
 
 export const DEFAULT_SYNC_COOLDOWNS: SyncCooldowns = {

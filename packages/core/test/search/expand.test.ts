@@ -68,6 +68,7 @@ describe("expandQuery — terms", () => {
       { id: "alpha", label: "Alpha", triggers: ["alpha"], expand: ["shared", "one"] },
       { id: "beta", label: "Beta", triggers: ["beta"], expand: ["shared", "two"] }
     ];
+
     const result = expandQuery("alpha beta", lexicon);
     expect(result.conceptIds).toEqual(["alpha", "beta"]);
     expect(result.terms).toEqual(["shared", "one", "two"]);
@@ -83,6 +84,7 @@ describe("expandQuery — terms", () => {
         expand: ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"]
       }
     ];
+
     const result = expandQuery("foo bar extra words here", lexicon);
     expect(result.activated).toBe(true);
     expect(result.terms).toHaveLength(MAX_EXPANSION_TERMS);
@@ -93,6 +95,7 @@ describe("expandQuery — terms", () => {
     const lexicon: ReadonlyArray<Concept> = [
       { id: "zap", label: "Zap", triggers: ["zap"], expand: [] }
     ];
+
     const result = expandQuery("zap", lexicon);
     expect(result.activated).toBe(true);
     expect(result.conceptIds).toEqual(["zap"]);

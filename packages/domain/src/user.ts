@@ -13,4 +13,5 @@ export const UserProfile = Schema.Struct({
   publicRepos: Schema.Number,
   createdAt: Schema.String
 });
+
 export type UserProfile = typeof UserProfile.Type;

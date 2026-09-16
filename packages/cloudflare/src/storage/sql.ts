@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { SyncPhase } from "@starwatch/domain";
 
 /**
@@ -24,10 +24,13 @@ export const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<R
   if (size <= 0) {
     throw new Error(`chunk size must be positive, got ${size}`);
   }
+
   const out: Array<ReadonlyArray<A>> = [];
+
   for (let i = 0; i < items.length; i += size) {
     out.push(items.slice(i, i + size));
   }
+
   return out;
 };
 
@@ -42,11 +45,13 @@ const JsonStringArray = Schema.fromJsonString(Schema.Array(Schema.String));
 /** Parse a `topics_json` column; malformed data degrades to "no topics". */
 export const parseTopicsJson = (topicsJson: string): ReadonlyArray<string> => {
   const result = Schema.decodeUnknownResult(JsonStringArray)(topicsJson);
-  return result._tag === "Success" ? result.success : [];
+
+  return Result.isSuccess(result) ? result.success : [];
 };
 
 /** README lifecycle states written by the sync pipeline (docs/03). */
 export const ReadmeState = Schema.Literals(["unknown", "present", "missing", "too_big", "error"]);
+
 export type ReadmeState = typeof ReadmeState.Type;
 
 /** Fields of the D1 README budget: 64 KB per repo (docs/14 §3.6). */
@@ -71,6 +76,7 @@ export const UserRow = Schema.Struct({
   createdAtGh: Schema.NullOr(Schema.String),
   fetchedAt: Schema.String
 });
+
 export type UserRow = typeof UserRow.Type;
 
 export const RepoRow = Schema.Struct({
@@ -96,6 +102,7 @@ export const RepoRow = Schema.Struct({
   updatedAt: Schema.String,
   starredAt: Schema.NullOr(Schema.String)
 });
+
 export type RepoRow = typeof RepoRow.Type;
 
 export const IndexStateRow = Schema.Struct({
@@ -109,11 +116,13 @@ export const IndexStateRow = Schema.Struct({
   lastError: Schema.NullOr(Schema.String),
   updatedAt: Schema.String
 });
+
 export type IndexStateRow = typeof IndexStateRow.Type;
 
 export const StarEtagRow = Schema.Struct({
   etag: Schema.String
 });
+
 export type StarEtagRow = typeof StarEtagRow.Type;
 
 export const GroupRow = Schema.Struct({
@@ -124,12 +133,14 @@ export const GroupRow = Schema.Struct({
   position: Schema.Number,
   updatedAt: Schema.String
 });
+
 export type GroupRow = typeof GroupRow.Type;
 
 export const GroupRepoRow = Schema.Struct({
   groupId: Schema.String,
   repoId: Schema.Number
 });
+
 export type GroupRepoRow = typeof GroupRepoRow.Type;
 
 export const VectorBlobRow = Schema.Struct({
@@ -138,12 +149,14 @@ export const VectorBlobRow = Schema.Struct({
   bytesLen: Schema.Number,
   updatedAt: Schema.String
 });
+
 export type VectorBlobRow = typeof VectorBlobRow.Type;
 
 export const GroupSlugRow = Schema.Struct({
   repoId: Schema.Number,
   slug: Schema.String
 });
+
 export type GroupSlugRow = typeof GroupSlugRow.Type;
 
 /** `readme_text` for a set of repos (snippet hydration on the search path). */
@@ -151,6 +164,7 @@ export const ReadmeTextRow = Schema.Struct({
   repoId: Schema.Number,
   readmeText: Schema.NullOr(Schema.String)
 });
+
 export type ReadmeTextRow = typeof ReadmeTextRow.Type;
 
 /** README bookkeeping for a user's repos (`planReadmeWork` input). */
@@ -159,6 +173,7 @@ export const ReadmeStateRow = Schema.Struct({
   pushedAt: Schema.NullOr(Schema.String),
   readmeState: Schema.String
 });
+
 export type ReadmeStateRow = typeof ReadmeStateRow.Type;
 
 /** One `user_stars` row's listing page (`NULL` when unattributed). */
@@ -166,16 +181,19 @@ export const StarPageRow = Schema.Struct({
   starPage: Schema.NullOr(Schema.Number),
   repoId: Schema.Number
 });
+
 export type StarPageRow = typeof StarPageRow.Type;
 
 export const RepoIdRow = Schema.Struct({
   repoId: Schema.Number
 });
+
 export type RepoIdRow = typeof RepoIdRow.Type;
 
 export const GroupIdRow = Schema.Struct({
   id: Schema.String
 });
+
 export type GroupIdRow = typeof GroupIdRow.Type;
 
 export const RepoStatsRow = Schema.Struct({
@@ -183,10 +201,12 @@ export const RepoStatsRow = Schema.Struct({
   reposMetadata: Schema.Number,
   readmesFetched: Schema.Number
 });
+
 export type RepoStatsRow = typeof RepoStatsRow.Type;
 
 export const FtsHitRow = Schema.Struct({
   repoId: Schema.Number,
   score: Schema.Number
 });
+
 export type FtsHitRow = typeof FtsHitRow.Type;

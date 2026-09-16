@@ -7,11 +7,13 @@ import { Context, Effect, Layer, Schema } from "effect";
  * (`RepoStore.putVectorBlob`). The layout is owned by `@starwatch/core/search`
  * (`encodeVectors` / `decodeVectors`), so this module stays a thin transport.
  *
- * The bucket is typed with the minimal promise shape R2 already satisfies, so
- * production passes `env.BUCKET` and tests pass `InMemoryVectorBlobBucket`.
+ * The bucket is typed with the minimal promise shape the worker's R2 adapter
+ * satisfies, so production passes that adapter (built at the composition root
+ * from `env.BUCKET`) and tests pass `InMemoryVectorBlobBucket`.
  */
 
 export const VectorBlobStoreError = Schema.Literals(["get", "put", "delete", "encode", "decode"]);
+
 export type VectorBlobStoreError = typeof VectorBlobStoreError.Type;
 
 export class VectorStoreError extends Schema.TaggedError<VectorStoreError>()("VectorStoreError", {
@@ -25,11 +27,11 @@ export interface VectorBlobObject {
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
-/** Minimal structural view of an R2 bucket binding. */
+/** Minimal structural view of the promise-shaped R2 bucket adapter. */
 export interface VectorBlobBucket {
   get(key: string): Promise<VectorBlobObject | null>;
-  put(key: string, value: Uint8Array): Promise<unknown>;
-  delete(key: string): Promise<unknown>;
+  put(key: string, value: Uint8Array): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 /** R2 key for a user's packed vector blob. */
@@ -43,7 +45,7 @@ export interface VectorBlobWrite {
   readonly bytesLen: number;
 }
 
-export interface VectorBlobStoreShape {
+export interface VectorBlobStoreService {
   readonly putVectors: (
     login: string,
     vectors: ReadonlyArray<Float32Array>
@@ -53,7 +55,7 @@ export interface VectorBlobStoreShape {
   readonly deleteVectors: (login: string) => Effect.Effect<void, VectorStoreError>;
 }
 
-export class VectorBlobStore extends Context.Service<VectorBlobStore, VectorBlobStoreShape>()("VectorBlobStore") {}
+export class VectorBlobStore extends Context.Service<VectorBlobStore, VectorBlobStoreService>()("VectorBlobStore") {}
 
 const tryPromise = <A>(
   operation: VectorBlobStoreError,
@@ -75,8 +77,8 @@ const trySync = <A>(
     catch: (cause) => new VectorStoreError({ operation, key, cause })
   });
 
-/** Effect wrapper over a promise-based bucket (`env.BUCKET` in production). */
-export class R2VectorBlobStore implements VectorBlobStoreShape {
+/** Effect wrapper over the promise-based bucket adapter used in production. */
+export class R2VectorBlobStore implements VectorBlobStoreService {
   // Plain field + assignment instead of a parameter property: Node's
   // strip-only TypeScript loader (used by `apps/worker` local dev) cannot
   // parse parameter properties.
@@ -89,9 +91,11 @@ export class R2VectorBlobStore implements VectorBlobStoreShape {
   readonly putVectors = (login: string, vectors: ReadonlyArray<Float32Array>) => {
     const key = vectorBlobKey(login);
     const bucket = this.bucket;
+
     return Effect.gen(function* () {
       const bytes = yield* trySync("encode", key, () => encodeVectors(vectors));
       yield* tryPromise("put", key, () => bucket.put(key, bytes));
+
       return {
         key,
         count: vectors.length,
@@ -104,12 +108,16 @@ export class R2VectorBlobStore implements VectorBlobStoreShape {
   readonly getVectors = (login: string) => {
     const key = vectorBlobKey(login);
     const bucket = this.bucket;
+
     return Effect.gen(function* () {
       const object = yield* tryPromise("get", key, () => bucket.get(key));
+
       if (object === null) {
         return null;
       }
+
       const buffer = yield* tryPromise("get", key, () => object.arrayBuffer());
+
       return yield* trySync("decode", key, () => decodeVectors(new Uint8Array(buffer)));
     });
   };
@@ -117,13 +125,14 @@ export class R2VectorBlobStore implements VectorBlobStoreShape {
   readonly deleteVectors = (login: string) => {
     const key = vectorBlobKey(login);
     const bucket = this.bucket;
+
     return Effect.gen(function* () {
       yield* tryPromise("delete", key, () => bucket.delete(key));
     });
   };
 }
 
-/** Layer over a promise-based bucket (production passes the R2 binding). */
+/** Layer over a promise-based bucket (production passes the R2 adapter). */
 export const r2VectorBlobStoreLayer = (bucket: VectorBlobBucket): Layer.Layer<VectorBlobStore> =>
   Layer.succeed(VectorBlobStore, new R2VectorBlobStore(bucket));
 
@@ -137,19 +146,22 @@ export class InMemoryVectorBlobBucket implements VectorBlobBucket {
 
   async get(key: string): Promise<VectorBlobObject | null> {
     const value = this.objects.get(key);
+
     if (value === undefined) {
       return null;
     }
+
     const copy = value.slice();
+
     return { arrayBuffer: async () => copy.buffer };
   }
 
-  async put(key: string, value: Uint8Array): Promise<unknown> {
-    return this.objects.set(key, value.slice());
+  async put(key: string, value: Uint8Array): Promise<void> {
+    this.objects.set(key, value.slice());
   }
 
-  async delete(key: string): Promise<unknown> {
-    return this.objects.delete(key);
+  async delete(key: string): Promise<void> {
+    this.objects.delete(key);
   }
 }
 

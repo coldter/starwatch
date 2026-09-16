@@ -1,6 +1,9 @@
 // search — CLI over the local eval index.
 // usage: node src/search.ts "auth" --mode hybrid --lang ts --limit 10 [--json] [--no-boost]
+import { Schema } from 'effect';
 import { runSearch, LabIndex, type Mode } from './engine.ts';
+
+const ModeSchema = Schema.Literals(['keyword', 'semantic', 'hybrid', 'hybrid+expand']);
 
 interface Args {
   query: string;
@@ -17,11 +20,14 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const a: Args = { query: '', mode: 'hybrid', topics: [], limit: 10, json: false, boost: true };
   const words: string[] = [];
+  let mode: string = a.mode; // raw --mode value, validated against ModeSchema below
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+
     switch (arg) {
       case '--': break; // pnpm run passes the separator through
-      case '--mode': a.mode = argv[++i] as Mode; break;
+      case '--mode': mode = argv[++i]; break;
       case '--lang': a.lang = argv[++i]; break;
       case '--topic': a.topics.push(argv[++i]); break;
       case '--min-stars': a.minStars = Number(argv[++i]); break;
@@ -34,9 +40,14 @@ function parseArgs(argv: string[]): Args {
         words.push(arg);
     }
   }
+
   a.query = words.join(' ');
+
   if (!a.query) throw new Error('usage: search "query" [--mode ...] [--lang ...] [--limit N] [--json]');
-  if (!['keyword', 'semantic', 'hybrid', 'hybrid+expand'].includes(a.mode)) throw new Error(`bad mode ${a.mode}`);
+
+  if (!Schema.is(ModeSchema)(mode)) throw new Error(`bad mode ${mode}`);
+  a.mode = mode;
+
   return a;
 }
 
@@ -47,6 +58,7 @@ function fmt(n: number, w = 6): string {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const index = LabIndex.open();
+
   const out = await runSearch(index, {
     query: args.query,
     mode: args.mode,
@@ -57,25 +69,32 @@ async function main(): Promise<void> {
 
   if (args.json) {
     console.log(JSON.stringify(out, null, 2));
+
     return;
   }
 
   const f = out.filters;
+
   const filterStr = [
     f.language ? `lang=${f.language}` : '',
     f.topics?.length ? `topics=${f.topics.join('+')}` : '',
     f.minStars !== undefined ? `minStars=${f.minStars}` : '',
   ].filter(Boolean).join(' ');
+
   console.log(`query: "${out.query}"  mode=${out.mode}${filterStr ? '  ' + filterStr : ''}${args.boost ? '' : '  [no boosts]'}`);
+
   if (out.expansion.length) console.log(`expansion: ${out.expansion.join(', ')}`);
+
   if (out.keyword_fallback) console.log(`keyword fallback: ${out.keyword_fallback}`);
   console.log(`legs: keyword=${out.legs.keyword} semantic=${out.legs.semantic}${out.legs.filtered_universe !== null ? ` filtered_universe=${out.legs.filtered_universe}` : ''}  ·  total=${out.timing_ms.total.toFixed(1)} ms (kw ${out.timing_ms.keyword?.toFixed(1) ?? '-'} / embed ${out.timing_ms.embed?.toFixed(1) ?? '-'} / sem ${out.timing_ms.semantic?.toFixed(1) ?? '-'})`);
   console.log('');
+
   for (const h of out.hits) {
     const ranks = `lex:${h.lex_rank ?? '-'} sem:${h.sem_rank ?? '-'}`;
     const reason = h.reasons.length ? `  ${h.reasons.join(' ')}` : '';
     console.log(`#${String(h.rank).padStart(2)}  ${h.full_name.padEnd(42)} ${String(h.language ?? '-').padEnd(11)} ★${String(h.stars).padStart(6)}  ${fmt(h.score)}  ${ranks}${reason}`);
   }
+
   console.log('');
 }
 

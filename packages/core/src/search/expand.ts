@@ -39,8 +39,11 @@ const triggerMatches = (
   phrases: ReadonlyArray<string>
 ): boolean => {
   const normalized = normalizeTrigger(trigger);
+
   if (normalized.length === 0) return false;
+
   if (normalized.includes(" ")) return phrases.includes(normalized);
+
   return tokens.includes(normalized);
 };
 
@@ -57,6 +60,7 @@ export const expandQuery = (
   lexicon: ReadonlyArray<Concept> = LEXICON
 ): QueryExpansion => {
   const text = normalizeQuery(raw);
+
   if (text.length === 0) return EMPTY_EXPANSION;
 
   const tokens = tokenize(text);
@@ -68,11 +72,14 @@ export const expandQuery = (
 
   for (const concept of lexicon) {
     const triggered = concept.triggers.some((trigger) => triggerMatches(trigger, tokens, phrases));
+
     if (!triggered) continue;
     conceptIds.push(concept.id);
+
     for (const term of concept.expand) {
       if (terms.length >= MAX_EXPANSION_TERMS) break;
       const normalized = normalizeQuery(term).toLowerCase();
+
       if (normalized.length === 0 || termKeys.has(normalized)) continue;
       termKeys.add(normalized);
       terms.push(term);

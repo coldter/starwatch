@@ -3,33 +3,46 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { Schema } from 'effect';
+import type { FeatureExtractionPipelineOptions } from '@huggingface/transformers';
 
 export const LAB_DIR = path.resolve(import.meta.dirname, '..');
+
 export const DATA_DIR = path.join(LAB_DIR, 'data');
+
 export const README_DIR = path.join(DATA_DIR, 'readmes');
+
 export const DB_PATH = path.join(DATA_DIR, 'starwatch-eval.db');
 
 export const MODEL_ID = 'Xenova/bge-small-en-v1.5';
+
 export const EMBED_DIMS = 384;
+
 // bge-en-v1.5 model card: retrieval queries get this instruction prefix; documents get none.
 export const QUERY_PREFIX = 'Represent this sentence for searching relevant passages: ';
+
 export const README_EMBED_CHARS = 1500;
 
-export interface Star {
-  full_name: string;
-  description: string | null;
-  language: string | null;
-  topics: string[];
-  stargazers_count: number;
-  url: string;
-  pushed_at: string;
-  archived: boolean;
-  fork: boolean;
-  starred_at: string;
-}
+/** `data/stars.json` entry (the GitHub starred-repo projection); decoded at the file boundary. */
+export const StarSchema = Schema.Struct({
+  full_name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  language: Schema.NullOr(Schema.String),
+  topics: Schema.mutable(Schema.Array(Schema.String)),
+  stargazers_count: Schema.Number,
+  url: Schema.String,
+  pushed_at: Schema.String,
+  archived: Schema.Boolean,
+  fork: Schema.Boolean,
+  starred_at: Schema.String,
+});
+
+export type Star = typeof StarSchema.Type;
+
+const StarsFile = Schema.fromJsonString(Schema.mutable(Schema.Array(StarSchema)));
 
 export function readStars(): Star[] {
-  return JSON.parse(readFileSync(path.join(DATA_DIR, 'stars.json'), 'utf8')) as Star[];
+  return Schema.decodeUnknownSync(StarsFile)(readFileSync(path.join(DATA_DIR, 'stars.json'), 'utf8'));
 }
 
 export function readmeFile(fullName: string): string {
@@ -38,6 +51,7 @@ export function readmeFile(fullName: string): string {
 
 export function readReadme(fullName: string): string | null {
   const f = readmeFile(fullName);
+
   return existsSync(f) ? readFileSync(f, 'utf8') : null;
 }
 
@@ -54,6 +68,7 @@ export function stripMarkdown(md: string): string {
   t = t.replace(/\r/g, '');
   t = t.replace(/[ \t]+/g, ' ');
   t = t.replace(/\n{3,}/g, '\n\n');
+
   return t.trim();
 }
 
@@ -64,13 +79,16 @@ export function buildDoc(star: Star, readme: string | null): string {
     star.topics.length ? `topics: ${star.topics.join(', ')}` : '',
     `lang: ${star.language ?? 'unknown'}`,
   ].filter(Boolean).join(' — ');
+
   const body = readme ? stripMarkdown(readme).slice(0, README_EMBED_CHARS) : '';
+
   return body ? `${meta}\n${body}` : meta;
 }
 
 // ---------------------------------------------------------------- embedding
 
-type Extractor = (texts: string[], opts: Record<string, unknown>) => Promise<{ dims: number[]; data: Float32Array }>;
+type Extractor = (texts: string[], opts: FeatureExtractionPipelineOptions) => Promise<{ dims: number[]; data: Float32Array }>;
+
 let extractor: Extractor | null = null;
 
 async function getExtractor(): Promise<Extractor> {
@@ -79,8 +97,13 @@ async function getExtractor(): Promise<Extractor> {
     env.cacheDir = path.join(DATA_DIR, 'models');
     env.allowRemoteModels = true;
     const pipe = await pipeline('feature-extraction', MODEL_ID, { dtype: 'fp32' });
-    extractor = pipe as unknown as Extractor;
+
+    // SAFETY: the transformers pipeline overload resolves to a union too complex to assign
+    // directly (TS2590) and its Tensor.data is a broad DataArray; every call site here requests
+    // fp32 pooling+normalize, so the callable returns dims plus a Float32Array of features.
+    extractor = pipe as Extractor;
   }
+
   return extractor;
 }
 
@@ -88,21 +111,25 @@ async function getExtractor(): Promise<Extractor> {
 export async function embedTexts(texts: string[]): Promise<Float32Array[]> {
   const pipe = await getExtractor();
   const out: Float32Array[] = [];
+
   for (let i = 0; i < texts.length; i += 32) {
     const batch = texts.slice(i, i + 32);
     const res = await pipe(batch, { pooling: 'cls', normalize: true });
     const [n, d] = res.dims;
+
     for (let j = 0; j < n; j++) {
       const vec = new Float32Array(d);
       vec.set(res.data.subarray(j * d, (j + 1) * d));
       out.push(vec);
     }
   }
+
   return out;
 }
 
 export async function embedQuery(query: string, extra = ''): Promise<Float32Array> {
   const [v] = await embedTexts([QUERY_PREFIX + query + (extra ? ' ' + extra : '')]);
+
   return v;
 }
 
@@ -171,25 +198,29 @@ export const EXPANSIONS: { id: string; triggers: string[]; terms: string[] }[] =
 export function expansionTerms(query: string): string[] {
   const toks = new Set(tokenize(query));
   const out = new Set<string>();
+
   for (const cluster of EXPANSIONS) {
     if (cluster.triggers.some((t) => toks.has(t))) {
       for (const term of cluster.terms) out.add(term);
     }
   }
+
   return [...out];
 }
 
 // ---------------------------------------------------------------- filters
 
-export interface Filters {
-  language?: string;
-  topics?: string[];
-  minStars?: number;
-  maxStars?: number;
-  includeArchived?: boolean; // default true (archived gets a rank penalty, not exclusion)
-}
+export const FiltersSchema = Schema.Struct({
+  language: Schema.optional(Schema.String),
+  topics: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  minStars: Schema.optional(Schema.Number),
+  maxStars: Schema.optional(Schema.Number),
+  includeArchived: Schema.optional(Schema.Boolean), // default true (archived gets a rank penalty, not exclusion)
+});
 
-export const LANG_ALIASES: Record<string, string> = {
+export type Filters = typeof FiltersSchema.Type;
+
+export const LANG_ALIASES = {
   ts: 'TypeScript', typescript: 'TypeScript',
   js: 'JavaScript', javascript: 'JavaScript',
   py: 'Python', python: 'Python',
@@ -198,27 +229,56 @@ export const LANG_ALIASES: Record<string, string> = {
   java: 'Java', kt: 'Kotlin', kotlin: 'Kotlin',
   cpp: 'C++', c: 'C', sh: 'Shell', shell: 'Shell',
   rb: 'Ruby', ruby: 'Ruby', php: 'PHP', cs: 'C#', csharp: 'C#',
-};
+} satisfies Record<string, string>;
+
+const LANG_ALIAS_MAP = new Map<string, string>(Object.entries(LANG_ALIASES));
 
 export function canonicalLanguage(lang: string): string {
-  return LANG_ALIASES[lang.toLowerCase()] ?? lang;
+  return LANG_ALIAS_MAP.get(lang.toLowerCase()) ?? lang;
+}
+
+/** Gold-set entry from `gold/queries.json`, shared by candidates/diag/eval. */
+export const GoldQuerySchema = Schema.Struct({
+  id: Schema.String,
+  class: Schema.String,
+  query: Schema.String,
+  filters: FiltersSchema,
+  notes: Schema.optional(Schema.String),
+  relevance: Schema.Record(Schema.String, Schema.Number),
+});
+
+export type GoldQuery = typeof GoldQuerySchema.Type;
+
+export const GoldQueriesFile = Schema.fromJsonString(
+  Schema.Struct({ queries: Schema.mutable(Schema.Array(GoldQuerySchema)) }),
+);
+
+export interface FilterSql {
+  where: string;
+  params: (string | number)[];
 }
 
 /** SQL WHERE fragment + params that select repo ids matching the filters. */
-export function filterSql(f: Filters): { where: string; params: (string | number)[] } {
+export function filterSql(f: Filters): FilterSql {
   const clauses: string[] = [];
   const params: (string | number)[] = [];
+
   if (f.language) {
     if (f.language.toLowerCase() === 'unknown') clauses.push('language IS NULL');
     else { clauses.push('LOWER(language) = LOWER(?)'); params.push(canonicalLanguage(f.language)); }
   }
+
   if (f.minStars !== undefined) { clauses.push('stars >= ?'); params.push(f.minStars); }
+
   if (f.maxStars !== undefined) { clauses.push('stars <= ?'); params.push(f.maxStars); }
+
   if (f.includeArchived === false) clauses.push('archived = 0');
+
   for (const topic of f.topics ?? []) {
     clauses.push('EXISTS (SELECT 1 FROM json_each(repos.topics_json) WHERE value = ?)');
     params.push(topic);
   }
+
   return { where: clauses.length ? ' AND ' + clauses.join(' AND ') : '', params };
 }
 
@@ -250,11 +310,14 @@ export function computeBoosts(star: Star, query: string, nowMs = Date.now()): Bo
   if (star.archived) { factor *= 0.4; reasons.push('archived ×0.40'); }
 
   const starredMs = Date.parse(star.starred_at);
+
   if (!Number.isNaN(starredMs)) {
     const days = (nowMs - starredMs) / 86_400_000;
+
     if (days <= 90) { factor *= 1.1; reasons.push('starred<90d ×1.10'); }
     else if (days <= 365) { factor *= 1.05; reasons.push('starred<1y ×1.05'); }
   }
+
   return { factor, reasons };
 }
 
@@ -273,32 +336,38 @@ export function rrf(legs: (Ranked[] | null)[], k = 60): Map<number, { rrf: numbe
       out.set(item.id, cur);
     }
   });
+
   return out;
 }
 
 // ---------------------------------------------------------------- db access
 
-export interface RepoRow {
-  id: number;
-  full_name: string;
-  description: string | null;
-  language: string | null;
-  topics_json: string;
-  stars: number;
-  url: string;
-  pushed_at: string;
-  archived: number;
-  fork: number;
-  starred_at: string;
-  readme_len: number;
-}
+/** A `repos` table row (`SELECT *`), decoded at the sqlite boundary. */
+export const RepoRowSchema = Schema.Struct({
+  id: Schema.Number,
+  full_name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  language: Schema.NullOr(Schema.String),
+  topics_json: Schema.String,
+  stars: Schema.Number,
+  url: Schema.String,
+  pushed_at: Schema.String,
+  archived: Schema.Number,
+  fork: Schema.Number,
+  starred_at: Schema.String,
+  readme_len: Schema.Number,
+});
+
+export type RepoRow = typeof RepoRowSchema.Type;
 
 export function openDb(readonly = true): DatabaseSync {
   return new DatabaseSync(DB_PATH, { readOnly: readonly });
 }
 
 export function repoById(db: DatabaseSync, id: number): RepoRow | undefined {
-  return db.prepare('SELECT * FROM repos WHERE id = ?').get(id) as RepoRow | undefined;
+  const row = db.prepare('SELECT * FROM repos WHERE id = ?').get(id);
+
+  return row === undefined ? undefined : Schema.decodeUnknownSync(RepoRowSchema)(row);
 }
 
 export function languageName(row: RepoRow): string {

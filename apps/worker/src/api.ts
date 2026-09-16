@@ -41,6 +41,7 @@ export const Health = Schema.Struct({
 });
 
 const LoginParams = Schema.Struct({ login: Schema.String });
+
 const RepoParams = Schema.Struct({ owner: Schema.String, name: Schema.String });
 
 export const SyncRequest = Schema.Struct({
@@ -83,13 +84,18 @@ export const SearchQuery = Schema.Struct({
   starredBefore: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.String)
 });
+
 export type SearchQuery = typeof SearchQuery.Type;
 
 /** HTTP-status annotations (the handler still fails with the domain class). */
 export const ApiUserNotFound = UserNotFound.pipe(HttpApiSchema.status(404));
+
 export const ApiRepoNotFound = RepoNotFound.pipe(HttpApiSchema.status(404));
+
 export const ApiSyncCooldown = SyncCooldown.pipe(HttpApiSchema.status(429));
+
 export const ApiSyncInProgress = SyncInProgress.pipe(HttpApiSchema.status(409));
+
 export const ApiBudgetExceeded = BudgetExceeded.pipe(HttpApiSchema.status(429));
 
 const systemGroup = HttpApiGroup.make("system").add(

@@ -11,4 +11,5 @@ export const Group = Schema.Struct({
   position: Schema.Number,
   repoIds: Schema.Array(Schema.Number)
 });
+
 export type Group = typeof Group.Type;

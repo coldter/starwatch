@@ -46,6 +46,7 @@ const repo: Repo = {
 };
 
 const inbox: Group = { id: "g1", name: "inbox", slug: "inbox", position: 0, repoIds: [1, 2] };
+
 const rustTools: Group = { id: "g2", name: "rust-tools", slug: "rust-tools", position: 1, repoIds: [3] };
 
 const hit: SearchHit = {
@@ -172,6 +173,7 @@ describe("search output", () => {
     const longHit: SearchHit = { ...hit, snippet: "x".repeat(500) };
     const longResponse: SearchResponse = { ...response, hits: [longHit] };
     const output = renderSearch(longResponse, { color: false, width: 120 });
+
     for (const line of output.split("\n")) {
       expect(line.length).toBeLessThanOrEqual(120);
     }
@@ -220,6 +222,7 @@ describe("repo, status and groups output", () => {
         "Last synced 2026-09-13 UTC"
       ].join("\n")
     );
+
     const failed = renderStatusPage(
       {
         profile,
@@ -228,6 +231,7 @@ describe("repo, status and groups output", () => {
       },
       { color: false }
     );
+
     expect(failed).toContain("⚠ failed");
     expect(failed).toContain("Never synced");
     expect(failed).toContain("Last error: github 502");

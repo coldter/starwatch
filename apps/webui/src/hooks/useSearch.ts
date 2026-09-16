@@ -54,6 +54,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
       abortRef.current = null;
       setPending(false);
       setError(null);
+
       return;
     }
 

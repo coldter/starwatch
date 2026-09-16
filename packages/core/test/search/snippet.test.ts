@@ -78,6 +78,7 @@ describe("makeSnippet", () => {
       owner: "o",
       description: "An http client with retry support"
     });
+
     const snippet = makeSnippet(repo, ["http"], "unrelated readme text");
     expect(snippet).toContain("http client");
   });
@@ -89,6 +90,7 @@ describe("makeSnippet", () => {
       owner: "o",
       description: "d".repeat(400)
     });
+
     const snippet = makeSnippet(repo, ["auth"], "unrelated readme text");
     expect(snippet.length).toBeLessThanOrEqual(SNIPPET_MAX_CHARS);
     expect(snippet.endsWith(SNIPPET_ELLIPSIS)).toBe(true);

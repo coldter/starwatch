@@ -1,31 +1,44 @@
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+
 /**
  * Recent users, localStorage-only (docs/08 §3.2): login + freshness hints,
- * nothing personal ever leaves the browser.
+ * nothing personal ever leaves the browser. Stored entries are decoded with
+ * `RecentUser` before they reach the UI, so one corrupted entry never drops
+ * the rest of the list.
  */
 
 const STORAGE_KEY = "starwatch.recentUsers.v1";
+
 const MAX_RECENTS = 8;
 
-export interface RecentUser {
-  login: string;
+const RecentUser = Schema.Struct({
+  login: Schema.String,
   /** ISO timestamp of the last successful lookup. */
-  at: string;
-  name?: string;
-}
+  at: Schema.String,
+  name: Schema.optional(Schema.String)
+});
 
-function isRecentUser(value: unknown): value is RecentUser {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate.login === "string" && typeof candidate.at === "string";
-}
+export type RecentUser = typeof RecentUser.Type;
+
+/** The stored envelope: a JSON array whose entries are decoded one by one. */
+const StoredRecents = Schema.fromJsonString(Schema.Array(Schema.Unknown));
 
 export function getRecentUsers(): RecentUser[] {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
+
     if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isRecentUser).slice(0, MAX_RECENTS);
+    const stored = Option.getOrElse(Schema.decodeUnknownOption(StoredRecents)(raw), () => []);
+    const users: RecentUser[] = [];
+
+    for (const entry of stored) {
+      const decoded = Schema.decodeUnknownOption(RecentUser)(entry);
+
+      if (Option.isSome(decoded) && users.length < MAX_RECENTS) users.push(decoded.value);
+    }
+
+    return users;
   } catch {
     return [];
   }
@@ -33,17 +46,20 @@ export function getRecentUsers(): RecentUser[] {
 
 /** Promote `login` to the top of the recents list; returns the new list. */
 export function rememberUser(login: string, name?: string | null): RecentUser[] {
-  const entry: RecentUser = { login, at: new Date().toISOString() };
-  if (name) entry.name = name;
+  const at = new Date().toISOString();
+  const entry: RecentUser = name ? { login, at, name } : { login, at };
+
   const next = [entry, ...getRecentUsers().filter((user) => user.login.toLowerCase() !== login.toLowerCase())].slice(
     0,
     MAX_RECENTS
   );
+
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch {
     // Storage disabled (private mode) — recents simply don't persist.
   }
+
   return next;
 }
 
@@ -53,5 +69,6 @@ export function clearRecentUsers(): RecentUser[] {
   } catch {
     // ignore
   }
+
   return [];
 }

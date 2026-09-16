@@ -1,3 +1,4 @@
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   Group,
@@ -89,56 +90,92 @@ export class ApiError extends Error {
   }
 }
 
-export function isAbortError(error: unknown): boolean {
-  return (
-    (error instanceof DOMException && error.name === "AbortError") ||
-    (typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError")
-  );
+/** Error-like values (`DOMException`, thrown records) tag themselves with `name`. */
+const NamedError = Schema.Struct({
+  name: Schema.optional(Schema.String)
+});
+
+export function isAbortError(cause: unknown): boolean {
+  if (cause instanceof DOMException && cause.name === "AbortError") return true;
+
+  const named = Schema.decodeUnknownOption(NamedError)(cause);
+
+  return Option.isSome(named) && named.value.name === "AbortError";
 }
 
-export function asApiError(error: unknown): ApiError {
-  if (error instanceof ApiError) return error;
+export function asApiError(cause: unknown): ApiError {
+  if (cause instanceof ApiError) return cause;
+
   return new ApiError("network", "Couldn't reach starwatch. Check your connection and try again.", {
-    cause: error
+    cause
   });
 }
 
-function decode<S extends Schema.ConstraintDecoder<unknown>>(schema: S, value: unknown, what: string): S["Type"] {
+const ErrorBody = Schema.Struct({
+  _tag: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String)
+});
+
+/**
+ * Decode a JSON response body with the schema that owns it. Every network
+ * payload is parsed here, at the HTTP boundary.
+ */
+async function decodeResponse<S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  response: Response,
+  what: string
+): Promise<S["Type"]> {
   try {
-    return Schema.decodeUnknownSync(schema)(value);
+    const body: unknown = await response.json();
+
+    return Schema.decodeUnknownSync(schema)(body);
   } catch (cause) {
-    throw new ApiError("decode", `starwatch couldn't read the ${what} response.`, { cause });
+    throw new ApiError("decode", `starwatch couldn't read the ${what} response.`, {
+      status: response.status,
+      cause
+    });
   }
 }
 
 function parseRetryAfter(header: string | null): number | null {
   if (!header) return null;
   const seconds = Number.parseInt(header, 10);
+
   if (Number.isFinite(seconds) && seconds >= 0) return seconds;
   const date = Date.parse(header);
+
   if (Number.isNaN(date)) return null;
+
   return Math.max(0, Math.round((date - Date.now()) / 1000));
 }
 
 function humanizeRetry(seconds: number | null): string {
   if (seconds === null) return "";
+
   if (seconds < 60) return ` Try again in ~${seconds}s.`;
+
   return ` Try again in ~${Math.round(seconds / 60)} min.`;
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
   let detail: string | null = null;
   let tag: string | null = null;
+
   try {
     const body: unknown = await response.clone().json();
-    if (typeof body === "object" && body !== null) {
-      const record = body as Record<string, unknown>;
-      if (typeof record.message === "string" && record.message.trim()) detail = record.message;
-      if (typeof record._tag === "string") tag = record._tag;
+    const decoded = Schema.decodeUnknownOption(ErrorBody)(body);
+
+    if (Option.isSome(decoded)) {
+      const { _tag, message } = decoded.value;
+
+      if (message !== undefined && message.trim()) detail = message;
+
+      if (_tag !== undefined) tag = _tag;
     }
   } catch {
     // Non-JSON error body — fall back to the status text below.
   }
+
   const retryAfterSeconds = parseRetryAfter(response.headers.get("retry-after"));
 
   if (response.status === 404) {
@@ -147,6 +184,7 @@ async function toApiError(response: Response): Promise<ApiError> {
       detail
     });
   }
+
   if (response.status === 429 || tag === "SyncCooldown" || tag === "GithubRateLimited") {
     return new ApiError(
       "rate-limited",
@@ -154,64 +192,65 @@ async function toApiError(response: Response): Promise<ApiError> {
       { status: response.status, retryAfterSeconds, detail }
     );
   }
+
   if (response.status === 409 || tag === "SyncInProgress") {
     return new ApiError("busy", detail ?? "Indexing is already running for this user.", {
       status: response.status,
       detail
     });
   }
+
   if (response.status === 403 || tag === "BudgetExceeded") {
     return new ApiError("budget", detail ?? "This is temporarily limited to protect the free budget.", {
       status: response.status,
       detail
     });
   }
+
   if (response.status >= 500) {
     return new ApiError("http", detail ?? "starwatch hit a server error. Retry in a moment.", {
       status: response.status,
       detail
     });
   }
+
   return new ApiError("http", detail ?? `Request failed (${response.status}).`, {
     status: response.status,
     detail
   });
 }
 
-async function request(path: string, init: RequestInit = {}): Promise<unknown> {
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
+
   if (init.body !== undefined && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
 
   let response: Response;
+
   try {
     response = await fetch(path, { ...init, headers });
   } catch (cause) {
     if (isAbortError(cause)) throw cause;
-    throw new ApiError("network", "Couldn't reach starwatch. Check your connection and try again.", { cause });
+    throw asApiError(cause);
   }
 
   if (!response.ok) throw await toApiError(response);
-  if (response.status === 204) return null;
-  try {
-    return await response.json();
-  } catch (cause) {
-    throw new ApiError("decode", "starwatch couldn't read the server response.", {
-      status: response.status,
-      cause
-    });
-  }
+
+  return response;
 }
 
 const userPath = (login: string): string => `/api/users/${encodeURIComponent(login)}`;
+
 const repoPath = (owner: string, name: string): string =>
   `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 
 export async function fetchUser(login: string, signal?: AbortSignal): Promise<UserPayload> {
-  const body = await request(userPath(login), { signal });
-  return decode(UserPayloadSchema, body, "user");
+  const response = await request(userPath(login), { signal });
+
+  return decodeResponse(UserPayloadSchema, response, "user");
 }
 
 export interface SearchQuery {
@@ -229,13 +268,20 @@ export interface SearchQuery {
 export function searchUrl(login: string, query: SearchQuery): string {
   const params = new URLSearchParams();
   params.set("q", query.q);
+
   if (query.mode && query.mode !== "auto") params.set("mode", query.mode);
+
   if (query.lang) params.set("lang", query.lang);
+
   for (const group of query.groups ?? []) params.append("group", group);
+
   if (query.archived) params.set("archived", "true");
+
   if (query.minStars !== undefined) params.set("minStars", String(query.minStars));
+
   if (query.maxStars !== undefined) params.set("maxStars", String(query.maxStars));
   params.set("limit", String(query.limit ?? 50));
+
   return `${userPath(login)}/search?${params.toString()}`;
 }
 
@@ -244,8 +290,9 @@ export async function fetchSearch(
   query: SearchQuery,
   signal?: AbortSignal
 ): Promise<SearchResponse> {
-  const body = await request(searchUrl(login, query), { signal });
-  return decode(SearchResponse, body, "search");
+  const response = await request(searchUrl(login, query), { signal });
+
+  return decodeResponse(SearchResponse, response, "search");
 }
 
 export async function startUserSync(
@@ -253,17 +300,19 @@ export async function startUserSync(
   options: { full?: boolean } = {},
   signal?: AbortSignal
 ): Promise<SyncStartResponse> {
-  const body = await request(`${userPath(login)}/sync`, {
+  const response = await request(`${userPath(login)}/sync`, {
     method: "POST",
     body: JSON.stringify({ full: options.full === true }),
     signal
   });
-  return decode(SyncStartSchema, body, "sync");
+
+  return decodeResponse(SyncStartSchema, response, "sync");
 }
 
 export async function fetchSyncState(login: string, signal?: AbortSignal): Promise<UserIndexState> {
-  const body = await request(`${userPath(login)}/sync`, { signal });
-  return decode(UserIndexState, body, "sync state");
+  const response = await request(`${userPath(login)}/sync`, { signal });
+
+  return decodeResponse(UserIndexState, response, "sync state");
 }
 
 export function userSyncEventsUrl(login: string): string {
@@ -271,6 +320,7 @@ export function userSyncEventsUrl(login: string): string {
 }
 
 export async function fetchRepo(owner: string, name: string, signal?: AbortSignal): Promise<RepoPayload> {
-  const body = await request(repoPath(owner, name), { signal });
-  return decode(RepoPayloadSchema, body, "repository");
+  const response = await request(repoPath(owner, name), { signal });
+
+  return decodeResponse(RepoPayloadSchema, response, "repository");
 }

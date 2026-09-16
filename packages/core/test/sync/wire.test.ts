@@ -4,8 +4,6 @@ import * as Schema from "effect/Schema";
 import {
   GraphqlEnvelopeWire,
   RepoWire,
-  StarItemWire,
-  UserListsWire,
   UserWire,
   decodeGraphqlEnvelope,
   decodeRepo,
@@ -67,6 +65,7 @@ describe("RepoWire", () => {
         topics: []
       })
     );
+
     expect(repo.description).toBeNull();
     expect(repo.license).toBeNull();
     expect(repo.homepage).toBeNull();
@@ -77,7 +76,7 @@ describe("RepoWire", () => {
 
   it("encodes back to GitHub snake_case keys", () => {
     const repo = Effect.runSync(decodeRepo(repoJson));
-    const encoded = Schema.encodeSync(RepoWire)(repo) as Record<string, unknown>;
+    const encoded = Schema.encodeSync(RepoWire)(repo);
     expect(encoded.full_name).toBe("Effect-TS/effect");
     expect(encoded.stargazers_count).toBe(8_100);
     expect(encoded.forks_count).toBe(912);
@@ -102,6 +101,7 @@ describe("StarItemWire", () => {
         { starred_at: "2026-07-10T00:00:00Z", repo: { ...repoJson, id: 7, license: null } }
       ])
     );
+
     expect(items).toHaveLength(2);
     expect(items[0]?.starredAt).toBe("2026-07-09T00:00:00Z");
     expect(items[0]?.repo.fullName).toBe("Effect-TS/effect");
@@ -129,6 +129,7 @@ describe("UserWire", () => {
         created_at: "2015-01-02T03:04:05Z"
       })
     );
+
     expect(profile).toEqual({
       login: "coldter",
       id: 77_358_146,
@@ -175,6 +176,7 @@ describe("lists wire", () => {
         }
       })
     );
+
     const publicList = data.user?.lists.nodes[0];
     expect(publicList?.id).toBe("UL_public");
     expect(publicList?.isPrivate).toBe(false);
@@ -222,6 +224,7 @@ describe("lists wire", () => {
         }
       })
     );
+
     const node = data.user?.lists.nodes[0];
     expect(node).toBeDefined();
     expect(groupFromUserList(node!, 3, [7, 8])).toEqual({
@@ -239,6 +242,7 @@ describe("GraphqlEnvelopeWire", () => {
     const envelope = Effect.runSync(
       decodeGraphqlEnvelope({ data: { user: null }, errors: [{ message: "boom" }] })
     );
+
     expect(envelope.errors).toEqual([{ message: "boom" }]);
     expect(envelope.data).toEqual({ user: null });
   });

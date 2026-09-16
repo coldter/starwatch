@@ -51,20 +51,24 @@ function LandingPage() {
   const submit = useCallback(
     async (raw: string) => {
       const login = parseLoginInput(raw);
+
       if (!login) {
         toast({
           title: "That doesn't look like a GitHub username",
           body: "Try alice, @alice, or github.com/alice.",
           tone: "error"
         });
+
         return;
       }
+
       setLastLogin(login);
       setMissingUser(null);
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
       setPreview({ status: "loading" });
+
       try {
         const payload = await fetchUser(login, controller.signal);
         setRecents(rememberUser(payload.profile.login, payload.profile.name));
@@ -81,17 +85,21 @@ function LandingPage() {
     async (login: string, full: boolean) => {
       setStarting(true);
       setMissingUser(null);
+
       try {
         const result = await startUserSync(login, { full });
+
         if (!result.started) {
           toast({
             title: "Index up to date",
             body: "We checked just now — nothing new to fetch yet."
           });
         }
+
         goSearch(login);
       } catch (cause) {
         const error = asApiError(cause);
+
         if (error.kind === "not-found") {
           // The sync endpoint fetches the GitHub profile itself, so a 404 here
           // means the username really does not exist.

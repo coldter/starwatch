@@ -6,6 +6,7 @@ import { router } from "./router";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
+
 if (!rootElement) throw new Error("#root not found");
 
 createRoot(rootElement).render(

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useRepo } from "../hooks/useRepo";
 import { useToast } from "../hooks/useToasts";
-import { formatCompact, formatDate, formatNumber, relativeTime } from "../lib/format";
+import { formatDate, formatNumber, relativeTime } from "../lib/format";
 import { GroupChips } from "./GroupChips";
 import { LanguageDot } from "./LanguageDot";
 import { SkeletonCard } from "./SkeletonCard";
@@ -27,6 +27,7 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
   useEffect(() => {
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
+
     return () => {
       restoreRef.current?.focus();
     };
@@ -37,17 +38,24 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
       if (event.key === "Escape") {
         event.stopPropagation();
         onClose();
+
         return;
       }
+
       if (event.key !== "Tab") return;
       const panel = panelRef.current;
+
       if (!panel) return;
+
       const focusable = panel.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
       );
+
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+
       if (!first || !last) return;
+
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -56,7 +64,9 @@ export function RepoDrawer({ owner, name, onClose }: RepoDrawerProps) {
         first.focus();
       }
     };
+
     document.addEventListener("keydown", onKeyDown, true);
+
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [onClose]);
 

@@ -22,4 +22,5 @@ export const Repo = Schema.Struct({
   starredAt: Schema.NullOr(Schema.String),
   htmlUrl: Schema.String
 });
+
 export type Repo = typeof Repo.Type;

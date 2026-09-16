@@ -1,13 +1,14 @@
 import type { Ai, D1Database } from "@cloudflare/workers-types";
 import { D1Client } from "@effect/sql-d1";
-import { makeWorkersAiEmbedder, type WorkersAiBinding } from "@starwatch/cloudflare/ai";
+import { makeWorkersAiEmbedder, WorkersAiTextEmbedding, type WorkersAiBinding } from "@starwatch/cloudflare/ai";
 import { makeGithubClient } from "@starwatch/cloudflare/github";
 import { camelize, RepoStore, UserFts } from "@starwatch/cloudflare/storage";
-import { Embedder, GithubClient, type EmbedderShape } from "@starwatch/core/sync";
+import { Embedder, GithubClient, type EmbedderService } from "@starwatch/core/sync";
 import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import { makeVectorBlobFiles, type RawR2Bucket, type VectorBlobFilesShape } from "./adapters/vector-bucket.ts";
+import { layerVectorBlobFiles, type RawR2Bucket, type VectorBlobFiles } from "./adapters/vector-bucket.ts";
 
 /**
  * Everything a sync workflow needs, resolved once per Worker isolate in the
@@ -20,20 +21,18 @@ import { makeVectorBlobFiles, type RawR2Bucket, type VectorBlobFilesShape } from
  * which carries a fresh `Scope` for the per-run service graph.
  */
 
-export interface SyncDepsShape {
+export interface SyncDepsService {
   /** `RepoStore` + `UserFts` wired to the D1 `SqlClient` (`camelize` rows). */
   readonly storage: Layer.Layer<RepoStore | UserFts>;
   /** GitHub REST/GraphQL client over the Workers global `fetch`. */
   readonly github: Layer.Layer<GithubClient>;
   /** Workers AI embedder (`bge-small-en-v1.5`, 384d). */
-  readonly embedder: EmbedderShape;
-  /** Effect-native R2 file ops for vector parts/intermediates. */
-  readonly vectorFiles: VectorBlobFilesShape;
+  readonly embedder: EmbedderService;
   /** One layer to provide to a workflow run body. */
-  readonly runLayers: Layer.Layer<RepoStore | UserFts | GithubClient | Embedder>;
+  readonly runLayers: Layer.Layer<RepoStore | UserFts | GithubClient | Embedder | VectorBlobFiles>;
 }
 
-export class SyncDeps extends Context.Service<SyncDeps, SyncDepsShape>()("starwatch/SyncDeps") {}
+export class SyncDeps extends Context.Service<SyncDeps, SyncDepsService>()("starwatch/SyncDeps") {}
 
 export interface SyncDepsOptions {
   readonly rawD1: D1Database;
@@ -45,23 +44,36 @@ export interface SyncDepsOptions {
 }
 
 /**
- * The `raw.run` overloads are model-typed; narrow to the embedder contract.
+ * Adapt the raw Workers AI binding to the embedder's minimal `run` contract,
+ * decoding the model envelope with the schema that owns its shape.
+ *
  * `raw` is `undefined` during the Alchemy **plan phase** (Node, no bindings),
  * so the run function is resolved lazily and only rejects if it is actually
  * used before isolate boot provides a real `env.AI`.
  */
 const toWorkersAiBinding = (raw: Ai | undefined): WorkersAiBinding => ({
-  run: (model, input) => {
-    if (raw === undefined || typeof raw.run !== "function") {
+  run: async (model, input) => {
+    if (raw === undefined) {
       return Promise.reject(
         new Error("Workers AI binding unavailable (plan-time construction or missing AI binding)")
       );
     }
-    return (raw.run as unknown as WorkersAiBinding["run"])(model, input);
+
+    const result = await raw.run(model, input);
+
+    return Schema.decodeUnknownSync(WorkersAiTextEmbedding)(result);
   }
 });
 
-export const makeSyncDeps = (options: SyncDepsOptions): SyncDepsShape => {
+/**
+ * Build the sync dependency values for one isolate.
+ *
+ * Kept as a **value factory** (not a buildable `Layer`): the Worker init phase
+ * runs at plan time in Node with an empty binding environment, so building the
+ * D1/HTTP layers must wait until a request or workflow run — each of which
+ * carries a fresh `Scope` for the per-run service graph.
+ */
+export const syncDepsFrom = (options: SyncDepsOptions): SyncDepsService => {
   const sql = D1Client.layer({
     db: options.rawD1,
     // The storage layer expects post-transform camelCase keys (docs/08 §sql).
@@ -76,14 +88,17 @@ export const makeSyncDeps = (options: SyncDepsOptions): SyncDepsShape => {
   }).pipe(Layer.provide(FetchHttpClient.layer));
 
   const embedder = makeWorkersAiEmbedder(toWorkersAiBinding(options.rawAi));
-  const vectorFiles = makeVectorBlobFiles(options.rawBucket);
 
   return {
     storage,
     github,
     embedder,
-    vectorFiles,
-    runLayers: Layer.mergeAll(storage, github, Layer.succeed(Embedder, embedder))
+    runLayers: Layer.mergeAll(
+      storage,
+      github,
+      Layer.succeed(Embedder, embedder),
+      layerVectorBlobFiles(options.rawBucket)
+    )
   };
 };
 

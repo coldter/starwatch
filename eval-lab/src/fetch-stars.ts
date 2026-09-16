@@ -18,6 +18,7 @@ async function main(): Promise<void> {
     '/user/starred?per_page=100',
     '--jq', JQ,
   ];
+
   const { stdout } = await execFileP('gh', args, { maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
   const lines = stdout.split('\n').filter((l) => l.trim().length > 0);
   const stars = lines.map((l) => JSON.parse(l));

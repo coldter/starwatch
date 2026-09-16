@@ -11,9 +11,11 @@ export const normalizeLogin = (raw: string): string => raw.trim().replace(/^@+/,
 /** `cf-connecting-ip`, then the first `x-forwarded-for` hop (dev). */
 export const clientIp = (request: HttpServerRequest.HttpServerRequest): string => {
   const direct = Option.getOrUndefined(Headers.get(request.headers, "cf-connecting-ip"));
+
   if (direct !== undefined && direct.length > 0) return direct;
   const forwarded = Option.getOrUndefined(Headers.get(request.headers, "x-forwarded-for"));
   const first = forwarded?.split(",")[0]?.trim();
+
   return first !== undefined && first.length > 0 ? first : "unknown";
 };
 
@@ -34,34 +36,42 @@ export const idleState = (login: string): UserIndexState => ({
 export const parseTime = (value: string | null | undefined): number | null => {
   if (value === null || value === undefined) return null;
   const ms = Date.parse(value);
+
   return Number.isFinite(ms) ? ms : null;
 };
 
 const parseNumber = (value: string | undefined): number | undefined => {
   if (value === undefined || value.trim().length === 0) return undefined;
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const parseBoolean = (value: string | undefined): boolean | undefined => {
   if (value === undefined) return undefined;
   const normalized = value.trim().toLowerCase();
+
   if (normalized === "true" || normalized === "1") return true;
+
   if (normalized === "false" || normalized === "0") return false;
+
   return undefined;
 };
 
 const splitList = (value: string | undefined): ReadonlyArray<string> | undefined => {
   if (value === undefined) return undefined;
+
   const items = value
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+
   return items.length > 0 ? items : undefined;
 };
 
 const optionalText = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
+
   return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
 };
 
@@ -83,6 +93,7 @@ export const parseFilters = (query: SearchQuery) => ({
 
 export const parseMode = (value: string | undefined): SearchMode => {
   const normalized = value?.trim().toLowerCase();
+
   return normalized === "keyword" || normalized === "hybrid" || normalized === "semantic"
     ? normalized
     : "auto";
@@ -90,6 +101,8 @@ export const parseMode = (value: string | undefined): SearchMode => {
 
 export const parseLimit = (value: string | undefined): number => {
   const parsed = parseNumber(value);
+
   if (parsed === undefined) return DEFAULT_SEARCH_LIMIT;
+
   return Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.floor(parsed)));
 };

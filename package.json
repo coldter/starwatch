@@ -12,8 +12,13 @@
     "dev:webui": "pnpm --filter @starwatch/webui run dev",
     "build": "pnpm --filter @starwatch/webui run build",
     "typecheck": "pnpm -r typecheck",
+    "lint": "oxlint",
     "test": "pnpm -r test",
     "plan": "pnpm --filter @starwatch/worker run plan",
     "deploy": "pnpm build && pnpm --filter @starwatch/worker run deploy"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.82.0",
+    "oxlint": "1.82.0"
   }
 }

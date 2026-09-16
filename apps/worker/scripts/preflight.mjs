@@ -18,13 +18,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const skip = process.env.STARWATCH_SKIP_PREFLIGHT === "1";
+
 const hasEnvCredentials =
   (Boolean(process.env.CLOUDFLARE_API_TOKEN) && Boolean(process.env.CLOUDFLARE_ACCOUNT_ID)) ||
   (Boolean(process.env.CLOUDFLARE_API_KEY) && Boolean(process.env.CLOUDFLARE_EMAIL));
 
 /** `alchemy profile create` leaves an empty profile dir; configured = non-empty. */
 const profile = process.env.ALCHEMY_PROFILE ?? "default";
+
 const profileDir = join(homedir(), ".alchemy", "profiles", profile);
+
 const hasProfile = (() => {
   try {
     return existsSync(profileDir) && readdirSync(profileDir).length > 0;
@@ -53,4 +56,5 @@ console.error(`
 
   Then run \`pnpm dev\` again. (Set STARWATCH_SKIP_PREFLIGHT=1 to bypass this check.)
 `);
+
 process.exit(1);

@@ -7,8 +7,13 @@
  */
 
 export * from "./classify.ts";
+
 export * from "./expand.ts";
+
 export * from "./fusion.ts";
+
 export * from "./snippet.ts";
+
 export * from "./text.ts";
+
 export * from "./vector.ts";

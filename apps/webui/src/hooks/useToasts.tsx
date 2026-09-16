@@ -18,7 +18,9 @@ let nextToastId = 1;
 
 export function useToast(): (input: ToastInput) => void {
   const context = useContext(ToastContext);
+
   if (context === null) throw new Error("useToast must be used inside <ToastProvider>");
+
   return context.toast;
 }
 
@@ -30,6 +32,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
     const timer = timers.current.get(id);
+
     if (timer !== undefined) {
       window.clearTimeout(timer);
       timers.current.delete(id);

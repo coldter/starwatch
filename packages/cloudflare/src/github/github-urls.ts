@@ -8,7 +8,9 @@
  */
 
 export const GITHUB_API_BASE = "https://api.github.com";
+
 export const GITHUB_RAW_BASE = "https://raw.githubusercontent.com";
+
 export const GITHUB_GRAPHQL_URL = `${GITHUB_API_BASE}/graphql`;
 
 /** Candidate README paths, in probe order (docs/09 §3.2/§3.3). */
@@ -28,6 +30,7 @@ export const starPageUrl = (login: string, page: number, perPage: number): strin
     sort: "created",
     direction: "asc"
   });
+
   return `${GITHUB_API_BASE}/users/${encodeURIComponent(login)}/starred?${params.toString()}`;
 };
 
@@ -42,6 +45,7 @@ export const readmeProbeUrls = (
 ): ReadonlyArray<string> => {
   const repoPath = fullName.split("/").map(encodeURIComponent).join("/");
   const ref = encodeURIComponent(defaultBranch);
+
   return README_PROBE_PATHS.map((path) => `${GITHUB_RAW_BASE}/${repoPath}/${ref}/${path}`);
 };
 
@@ -53,17 +57,22 @@ export const parseLinkNext = (linkHeader: string | null | undefined): number | u
   if (linkHeader === null || linkHeader === undefined || linkHeader.length === 0) {
     return undefined;
   }
+
   for (const part of linkHeader.split(",")) {
     if (!/rel="next"/.test(part)) continue;
     const match = /<([^>]+)>/.exec(part);
     const target = match?.[1];
+
     if (target === undefined) return undefined;
+
     try {
       const page = Number(new URL(target).searchParams.get("page"));
+
       if (Number.isInteger(page) && page > 0) return page;
     } catch {
       return undefined;
     }
   }
+
   return undefined;
 };

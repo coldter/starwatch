@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Runtime from "effect/Runtime";
+import * as Schema from "effect/Schema";
 import { ApiError, CliInputError, NoResultsError, mapHttpError } from "../src/api.ts";
+
+const UserNotFoundBody = Schema.TaggedStruct("UserNotFound", { message: Schema.String });
+
+const SyncInProgressBody = Schema.TaggedStruct("SyncInProgress", {});
 
 describe("mapHttpError", () => {
   it("explains 404s for users and repos", () => {
@@ -16,17 +21,19 @@ describe("mapHttpError", () => {
 
   it("prefers the API message when the body carries one", () => {
     const body = JSON.stringify({
-      error: { _tag: "UserNotFound", message: "Could not resolve @ghost" }
+      error: UserNotFoundBody.make({ message: "Could not resolve @ghost" })
     });
+
     expect(mapHttpError(404, body, {}).message).toBe("Could not resolve @ghost");
   });
 
   it("turns sync 429s into attach/cooldown guidance", () => {
     const inProgress = mapHttpError(
       429,
-      JSON.stringify({ error: { _tag: "SyncInProgress" } }),
+      JSON.stringify({ error: SyncInProgressBody.make({}) }),
       { login: "alice" }
     );
+
     expect(inProgress.code).toBe("RATE_LIMITED");
     expect(inProgress.message).toContain("already running");
     expect(inProgress.hint).toContain("starwatch sync alice --wait");
@@ -36,6 +43,7 @@ describe("mapHttpError", () => {
       JSON.stringify({ error: { code: "SyncCooldown", retryAfterSeconds: 90 } }),
       { login: "alice" }
     );
+
     expect(cooldown.hint).toContain("90s");
   });
 

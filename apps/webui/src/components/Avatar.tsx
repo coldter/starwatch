@@ -47,5 +47,6 @@ function initialsFor(name: string | null | undefined, login: string): string {
   const parts = source.split(/[\s_-]+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "?";
   const second = parts.length > 1 ? parts[parts.length - 1]?.[0] : undefined;
+
   return `${first}${second ?? ""}`.toUpperCase();
 }

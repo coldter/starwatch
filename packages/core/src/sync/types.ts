@@ -54,7 +54,7 @@ export interface StarPage {
 }
 
 /** Public GitHub client surface used by sync workflows. */
-export interface GithubClientShape {
+export interface GithubClientService {
   readonly getUserProfile: (login: string) => Effect.Effect<UserProfile, GithubClientError>;
   readonly listStarPage: (
     login: string,
@@ -72,7 +72,7 @@ export interface GithubClientShape {
   ) => Effect.Effect<GithubReadme | null, GithubRateLimited | GithubUpstream>;
 }
 
-export class GithubClient extends Context.Service<GithubClient, GithubClientShape>()(
+export class GithubClient extends Context.Service<GithubClient, GithubClientService>()(
   "@starwatch/GithubClient"
 ) {}
 
@@ -91,10 +91,10 @@ export class EmbedFailed extends Schema.TaggedError<EmbedFailed>()("EmbedFailed"
 }) {}
 
 /** Bounded-batch embedder; vectors are `Float32Array` rows in input order. */
-export interface EmbedderShape {
+export interface EmbedderService {
   readonly embed: (
     texts: ReadonlyArray<string>
   ) => Effect.Effect<ReadonlyArray<Float32Array>, EmbedFailed>;
 }
 
-export class Embedder extends Context.Service<Embedder, EmbedderShape>()("@starwatch/Embedder") {}
+export class Embedder extends Context.Service<Embedder, EmbedderService>()("@starwatch/Embedder") {}

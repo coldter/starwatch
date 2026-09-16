@@ -132,6 +132,7 @@ describe("buildSearchQueryString", () => {
       starredBefore: "2026-01-01",
       limit: 10
     });
+
     expect(query).toBe(
       [
         "q=durable%20jobs",

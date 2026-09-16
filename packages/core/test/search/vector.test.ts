@@ -64,11 +64,13 @@ describe("cosineSimilarity", () => {
 describe("topK", () => {
   it("orders by cosine and respects k", () => {
     const query = new Float32Array([1, 0]);
+
     const entries = [
       { id: 1, vector: new Float32Array([0, 1]) },
       { id: 2, vector: new Float32Array([1, 0]) },
       { id: 3, vector: new Float32Array([0.5, 0.5]) }
     ];
+
     const result = topK(query, entries, 2);
     expect(result.map((entry) => entry.id)).toEqual([2, 3]);
     expect(result[0]?.score).toBeCloseTo(1, 12);
@@ -76,10 +78,12 @@ describe("topK", () => {
 
   it("breaks score ties by id ascending", () => {
     const query = new Float32Array([1, 0]);
+
     const entries = [
       { id: 9, vector: new Float32Array([1, 0]) },
       { id: 4, vector: new Float32Array([1, 0]) }
     ];
+
     expect(topK(query, entries, 2).map((entry) => entry.id)).toEqual([4, 9]);
   });
 

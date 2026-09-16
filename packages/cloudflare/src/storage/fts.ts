@@ -74,10 +74,11 @@ export const ftsTrigramTableName = (login: string): string => `${ftsTableName(lo
 /** Per-repo README cap shared by both replace and incremental upserts. */
 const capReadme = (readme: string | null): string => {
   const raw = readme ?? "";
+
   return raw.length > README_MAX_CHARS ? raw.slice(0, README_MAX_CHARS) : raw;
 };
 
-export interface UserFtsShape {
+export interface UserFtsService {
   readonly ensureUserFts: (login: string) => Effect.Effect<void, SqlError>;
   /**
    * Replace the user's whole index. Enforces the D1 budgets: 64 KB of README
@@ -112,7 +113,7 @@ export interface UserFtsShape {
   ) => Effect.Effect<ReadonlyArray<FtsHit>, SqlError>;
 }
 
-export class UserFts extends Context.Service<UserFts, UserFtsShape>()("UserFts") {
+export class UserFts extends Context.Service<UserFts, UserFtsService>()("UserFts") {
   static readonly layer = Layer.effect(
     UserFts,
     Effect.gen(function* () {
@@ -145,6 +146,7 @@ export class UserFts extends Context.Service<UserFts, UserFtsShape>()("UserFts")
         yield* sql`DELETE FROM ${sql(porter)}`;
         yield* sql`DELETE FROM ${sql(trigram)}`;
         let used = 0;
+
         for (const doc of docs) {
           const topics = doc.topics.join(" ");
           const description = doc.description ?? "";
@@ -183,16 +185,19 @@ export class UserFts extends Context.Service<UserFts, UserFtsShape>()("UserFts")
             (doc) =>
               sql`(${doc.repoId}, ${doc.fullName}, ${doc.description ?? ""}, ${doc.topics.join(" ")}, ${capReadme(doc.readme)})`
           );
+
           yield* sql`
             INSERT INTO ${sql(porter)} (rowid, full_name, description, topics, readme)
             VALUES ${sql.csv(values)}
           `;
         }
+
         for (const batch of chunk(docs, 24)) {
           const values = batch.map(
             (doc) =>
               sql`(${doc.repoId}, ${doc.fullName}, ${doc.description ?? ""}, ${doc.topics.join(" ")})`
           );
+
           yield* sql`
             INSERT INTO ${sql(trigram)} (rowid, full_name, description, topics)
             VALUES ${sql.csv(values)}
@@ -213,21 +218,27 @@ export class UserFts extends Context.Service<UserFts, UserFtsShape>()("UserFts")
         Effect.gen(function* () {
           const limit = options?.limit ?? DEFAULT_FTS_LIMIT;
           const candidates = options?.candidateIds;
+
           if (candidates !== undefined && candidates.length === 0) {
             return [];
           }
+
           const parts: ReadonlyArray<ReadonlyArray<number> | undefined> =
             candidates === undefined ? [undefined] : chunk(candidates, FTS_CANDIDATE_CHUNK);
+
           const weights = options?.weights;
+
           const bm25 =
             weights === undefined
               ? sql`bm25(${sql(table)})`
               : sql`bm25(${sql(table)}, ${sql.csv(weights.map((weight) => sql`${weight}`))})`;
+
           // `+rowid` disables FTS5's rowid constraint push-down: with a bound
           // parameter, a bare `rowid IN (?)` makes FTS5 return every match
           // (verified on SQLite 3.53.4). Unary plus forces an ordinary scan
           // filter over the MATCH result instead.
           const hits: Array<FtsHitRow> = [];
+
           for (const ids of parts) {
             const rows =
               ids === undefined
@@ -245,11 +256,14 @@ export class UserFts extends Context.Service<UserFts, UserFtsShape>()("UserFts")
                     ORDER BY score
                     LIMIT ${limit}
                   `;
+
             for (const row of rows) {
               hits.push(Schema.decodeUnknownSync(FtsHitRow)(row));
             }
           }
+
           hits.sort((a, b) => a.score - b.score || a.repoId - b.repoId);
+
           return hits.slice(0, limit).map((row, index) => ({
             repoId: row.repoId,
             rank: index + 1,

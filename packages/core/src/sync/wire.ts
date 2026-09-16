@@ -17,7 +17,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
-import type { Group, Repo, UserProfile } from "@starwatch/domain";
+import type { Group } from "@starwatch/domain";
 
 /** `{ login }` -> `login`. */
 const OwnerLoginWire = Schema.Struct({ login: Schema.String }).pipe(
@@ -142,10 +142,15 @@ export const GraphqlEnvelopeWire = Schema.Struct({
 });
 
 export const decodeRepo = Schema.decodeUnknownEffect(RepoWire);
+
 export const decodeUserProfile = Schema.decodeUnknownEffect(UserWire);
+
 export const decodeStarItems = Schema.decodeUnknownEffect(Schema.Array(StarItemWire));
+
 export const decodeUserLists = Schema.decodeUnknownEffect(UserListsWire);
+
 export const decodeListItemsPage = Schema.decodeUnknownEffect(ListItemsPageWire);
+
 export const decodeGraphqlEnvelope = Schema.decodeUnknownEffect(GraphqlEnvelopeWire);
 
 /**

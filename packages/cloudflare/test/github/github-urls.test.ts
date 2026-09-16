@@ -52,6 +52,7 @@ describe("parseLinkNext", () => {
     const header =
       '<https://api.github.com/user/77358146/starred?per_page=100&page=2>; rel="next", ' +
       '<https://api.github.com/user/77358146/starred?per_page=100&page=35>; rel="last"';
+
     expect(parseLinkNext(header)).toBe(2);
   });
 
@@ -59,6 +60,7 @@ describe("parseLinkNext", () => {
     const header =
       '<https://api.github.com/user/1/starred?page=1>; rel="prev", ' +
       '<https://api.github.com/user/1/starred?page=7>; rel="next"';
+
     expect(parseLinkNext(header)).toBe(7);
   });
 

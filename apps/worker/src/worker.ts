@@ -12,10 +12,10 @@ import * as Etag from "effect/unstable/http/Etag";
 import * as HttpPlatform from "effect/unstable/http/HttpPlatform";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
-import { makeVectorBlobBucket, type RawR2Bucket } from "./adapters/vector-bucket.ts";
+import { layerVectorBlobFiles, toVectorBlobBucket, type RawR2Bucket } from "./adapters/vector-bucket.ts";
 import { StarwatchApi } from "./api.ts";
 import { SERVICE_VERSION } from "./constants.ts";
-import { makeSyncDeps, SyncDeps } from "./deps.ts";
+import { syncDepsFrom, SyncDeps } from "./deps.ts";
 import { reposGroup } from "./handlers/repos.ts";
 import { searchGroup } from "./handlers/search.ts";
 import { systemGroup } from "./handlers/system.ts";
@@ -60,9 +60,27 @@ const init = Effect.gen(function* () {
   yield* Cloudflare.D1.QueryDatabase(database);
   yield* Cloudflare.R2.ReadWriteBucket(bucketResource);
   yield* Cloudflare.Workers.AI("AI");
+  // SAFETY: Alchemy's `WorkerEnvironment` types every binding as an untyped
+  // value; the `Cloudflare.D1.QueryDatabase` binding yielded above registers
+  // `database.LogicalId` as the D1 handle Cloudflare injects at isolate boot.
   const rawD1 = env[database.LogicalId] as D1Database;
-  const rawBucket = env[bucketResource.LogicalId] as R2Bucket;
+  // SAFETY: same untyped `WorkerEnvironment`; the
+  // `Cloudflare.R2.ReadWriteBucket` binding yielded above registers
+  // `bucketResource.LogicalId` as the injected R2 bucket handle.
+  const r2Bucket = env[bucketResource.LogicalId] as R2Bucket;
+  // SAFETY: same untyped `WorkerEnvironment`; `Cloudflare.Workers.AI("AI")`
+  // yielded above registers the Workers AI handle under the `AI` key.
   const rawAi = env.AI as Ai;
+
+  const rawBucket: RawR2Bucket = {
+    get: (key) => r2Bucket.get(key),
+    put: async (key, value) => {
+      await r2Bucket.put(key, value);
+    },
+    delete: async (keys) => {
+      await r2Bucket.delete(keys);
+    }
+  };
 
   // Zero-permission fine-grained PAT (docs/09 §4.1); empty in local dev.
   const githubToken = yield* Config.redacted("GITHUB_TOKEN").pipe(
@@ -75,16 +93,17 @@ const init = Effect.gen(function* () {
     namespaceId: 1001,
     simple: { limit: 60, period: 60 }
   });
+
   const syncRate = yield* Cloudflare.RateLimit("SYNC_RATE", {
     namespaceId: 1002,
     simple: { limit: 5, period: 60 }
   });
 
-  const rawR2 = rawBucket as unknown as RawR2Bucket;
-  const vectorBucket = makeVectorBlobBucket(rawR2);
-  const sync = makeSyncDeps({
+  const vectorBucket = toVectorBlobBucket(rawBucket);
+
+  const sync = syncDepsFrom({
     rawD1,
-    rawBucket: rawR2,
+    rawBucket,
     rawAi,
     githubToken: Redacted.value(githubToken),
     userAgent: `starwatch/${SERVICE_VERSION} (+https://starwatch.workers.dev)`
@@ -93,7 +112,8 @@ const init = Effect.gen(function* () {
   const searchLayer = Layer.mergeAll(
     sync.storage,
     Layer.succeed(Embedder, sync.embedder),
-    Layer.succeed(VectorBlobStore, new R2VectorBlobStore(vectorBucket))
+    Layer.succeed(VectorBlobStore, new R2VectorBlobStore(vectorBucket)),
+    layerVectorBlobFiles(rawBucket)
   );
 
   // Yielding the workflow class runs its init once per isolate and returns
@@ -104,7 +124,6 @@ const init = Effect.gen(function* () {
   const deps: WorkerDeps = {
     sync,
     searchLayer,
-    vectorFiles: sync.vectorFiles,
     searchRate,
     syncRate,
     listing
@@ -141,26 +160,23 @@ const init = Effect.gen(function* () {
 export default Effect.gen(function* () {
   const isDev = yield* ALCHEMY_DEV;
 
-  return yield* Cloudflare.Worker(
-    "StarwatchWorker",
-    {
-      main: import.meta.url,
-      ...(isDev
-        ? {}
-        : {
-            assets: {
-              directory: "../webui/dist",
-              // API traffic always reaches the Worker; every other path falls
-              // through to the SPA assets with an index.html fallback.
-              runWorkerFirst: ["/api/*"],
-              notFoundHandling: "single-page-application"
-            }
-          }),
-      compatibility: {
-        date: "2026-09-01",
-        flags: ["nodejs_compat"]
-      }
-    },
-    init
-  );
+  const workerProps: Cloudflare.WorkerProps = {
+    main: import.meta.url,
+    compatibility: {
+      date: "2026-09-01",
+      flags: ["nodejs_compat"]
+    }
+  };
+
+  if (!isDev) {
+    workerProps.assets = {
+      directory: "../webui/dist",
+      // API traffic always reaches the Worker; every other path falls
+      // through to the SPA assets with an index.html fallback.
+      runWorkerFirst: ["/api/*"],
+      notFoundHandling: "single-page-application"
+    };
+  }
+
+  return yield* Cloudflare.Worker("StarwatchWorker", workerProps, init);
 });

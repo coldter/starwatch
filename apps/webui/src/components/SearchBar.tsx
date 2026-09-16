@@ -27,23 +27,28 @@ export function SearchBar({ value, onSubmit, placeholder, busy = false, autoFocu
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
+      const target = event.target;
+
       const typing =
-        target !== null &&
+        target instanceof HTMLElement &&
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 
       if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
+
         return;
       }
+
       if (event.key === "/" && !typing) {
         event.preventDefault();
         inputRef.current?.focus();
       }
     };
+
     window.addEventListener("keydown", onKeyDown);
+
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 

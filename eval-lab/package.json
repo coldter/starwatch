@@ -12,6 +12,7 @@
     "eval": "node src/eval.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.7.0"
+    "@huggingface/transformers": "^3.7.0",
+    "effect": "catalog:"
   }
 }

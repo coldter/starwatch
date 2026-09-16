@@ -54,7 +54,9 @@ export const DEFAULT_LEG_WEIGHTS: LegWeights = {
  * exact-name repo must not be pinned above a 30k★ concept leader).
  */
 export const STAR_PRIOR_COEFFICIENT = 0.25;
+
 export const STAR_PRIOR_REFERENCE = 50_000;
+
 export const STAR_PRIOR_CAP = 1.25;
 
 export const ARCHIVED_PENALTY = 0.4;
@@ -66,6 +68,7 @@ export const ARCHIVED_PENALTY = 0.4;
  * representative of a family is the one that keeps its score.
  */
 export const OWNER_DUPLICATE_PENALTY = 0.85;
+
 export const NAME_DUPLICATE_PENALTY = 0.7;
 
 /**
@@ -81,8 +84,11 @@ export const NAME_DUPLICATE_PENALTY = 0.7;
  * with no leg rank never gains score from prose alone.
  */
 export const TOPIC_OVERLAP_PER_TERM = 0.003;
+
 export const TOPIC_OVERLAP_CAP = 3;
+
 export const DESCRIPTION_OVERLAP_PER_TERM = 0.0015;
+
 export const DESCRIPTION_OVERLAP_CAP = 3;
 
 /**
@@ -99,9 +105,13 @@ export const DESCRIPTION_OVERLAP_CAP = 3;
  * {@link NAME_BOOST_MAX}. Lower the cap to widen the thin-evidence clamp.
  */
 export const NAME_EXACT_FACTOR = 1.45;
+
 export const NAME_PREFIX_FACTOR = 1.2;
+
 export const NAME_TOKEN_FACTOR = 1.1;
+
 export const NAME_PREFIX_MIN_CHARS = 3;
+
 export const NAME_BOOST_MAX = 1.6;
 
 const EMPTY_GROUPS: ReadonlyArray<string> = Object.freeze([]);
@@ -137,14 +147,17 @@ export const rankByScore = (rows: ReadonlyArray<Scored>): ReadonlyArray<Ranked> 
 export const computeNameStats = (repos: ReadonlyArray<Repo>): Map<string, number> => {
   const stats = new Map<string, number>();
   const seen = new Set<string>();
+
   for (const repo of repos) {
     seen.clear();
+
     for (const token of tokenize(repo.name)) {
       if (seen.has(token)) continue;
       seen.add(token);
       stats.set(token, (stats.get(token) ?? 0) + 1);
     }
   }
+
   return stats;
 };
 
@@ -154,9 +167,11 @@ export const computeNameStats = (repos: ReadonlyArray<Repo>): Map<string, number
  */
 export const termSpecificity = (term: string, nameStats: ReadonlyMap<string, number>): number => {
   let df = 0;
+
   for (const token of tokenize(term)) {
     df = Math.max(df, nameStats.get(token) ?? 0);
   }
+
   return 1 / (1 + Math.log2(1 + df));
 };
 
@@ -167,12 +182,15 @@ export const evidenceTerms = (
 ): ReadonlyArray<string> => {
   const seen = new Set<string>();
   const out: string[] = [];
+
   for (const term of [...queryTokens, ...conceptTerms]) {
     const key = term.trim().toLowerCase();
+
     if (key.length < 2 || seen.has(key)) continue;
     seen.add(key);
     out.push(term);
   }
+
   return out;
 };
 
@@ -189,6 +207,7 @@ export const nameBoost = (
   conceptTerms: ReadonlyArray<string> = []
 ): number => {
   const repoName = normalizeName(repo.name);
+
   if (repoName.length === 0) return 1;
 
   const nameTokens = new Set(tokenize(repo.name));
@@ -197,9 +216,11 @@ export const nameBoost = (
 
   for (const term of candidates) {
     const normalized = normalizeName(term);
+
     if (normalized.length < 2) continue;
 
     let tier = 1;
+
     if (normalized === repoName) {
       tier = NAME_EXACT_FACTOR;
     } else if (normalized.length >= NAME_PREFIX_MIN_CHARS && repoName.startsWith(normalized)) {
@@ -207,9 +228,11 @@ export const nameBoost = (
     } else if (nameTokens.has(normalized)) {
       tier = NAME_TOKEN_FACTOR;
     }
+
     if (tier <= 1) continue;
 
     const factor = 1 + (tier - 1) * termSpecificity(term, nameStats);
+
     if (factor > best) best = factor;
   }
 
@@ -220,6 +243,7 @@ export const nameBoost = (
 export const starPrior = (stars: number): number => {
   if (!Number.isFinite(stars) || stars <= 0) return 1;
   const ratio = Math.log10(1 + stars) / Math.log10(1 + STAR_PRIOR_REFERENCE);
+
   return Math.min(1 + STAR_PRIOR_COEFFICIENT * ratio, STAR_PRIOR_CAP);
 };
 
@@ -228,12 +252,15 @@ const containsTokenSequence = (
   needle: ReadonlyArray<string>
 ): boolean => {
   if (needle.length === 0 || needle.length > haystack.length) return false;
+
   outer: for (let i = 0; i + needle.length <= haystack.length; i++) {
     for (let j = 0; j < needle.length; j++) {
       if (haystack[i + j] !== needle[j]) continue outer;
     }
+
     return true;
   }
+
   return false;
 };
 
@@ -241,9 +268,11 @@ const countFieldMatches = (terms: ReadonlyArray<string>, field: string): number 
   if (field.length === 0) return 0;
   const fieldTokens = tokenize(field);
   let matches = 0;
+
   for (const term of terms) {
     if (containsTokenSequence(fieldTokens, tokenize(term))) matches++;
   }
+
   return matches;
 };
 
@@ -251,10 +280,12 @@ const countFieldMatches = (terms: ReadonlyArray<string>, field: string): number 
 export const overlapBonus = (repo: Repo, terms: ReadonlyArray<string>): number => {
   if (terms.length === 0) return 0;
   const topicMatches = Math.min(countFieldMatches(terms, repo.topics.join(" ")), TOPIC_OVERLAP_CAP);
+
   const descriptionMatches = Math.min(
     countFieldMatches(terms, repo.description ?? ""),
     DESCRIPTION_OVERLAP_CAP
   );
+
   return (
     topicMatches * TOPIC_OVERLAP_PER_TERM + descriptionMatches * DESCRIPTION_OVERLAP_PER_TERM
   );
@@ -316,16 +347,20 @@ const addLeg = (
   if (!rows || rows.length === 0) return;
 
   const bestRankByRepo = new Map<number, number>();
+
   for (const row of rows) {
     if (!Number.isFinite(row.rank) || row.rank < 1) continue;
     const current = bestRankByRepo.get(row.repoId);
+
     if (current === undefined || row.rank < current) bestRankByRepo.set(row.repoId, row.rank);
   }
 
   for (const [repoId, rank] of bestRankByRepo) {
     const repo = repos.get(repoId);
+
     if (!repo) continue;
     const existing = accs.get(repoId);
+
     const acc: Accumulator = existing ?? {
       repo,
       rrf: 0,
@@ -333,6 +368,7 @@ const addLeg = (
       score: 0,
       boostFired: false
     };
+
     acc.rrf += weight / (RRF_K + rank);
     acc.legRanks[leg] = rank;
     accs.set(repoId, acc);
@@ -345,6 +381,7 @@ const compareHits = (a: Accumulator, b: Accumulator): number =>
 const applyDuplicatePenalties = (hits: ReadonlyArray<Accumulator>): void => {
   const ownerCounts = new Map<string, number>();
   const nameCounts = new Map<string, number>();
+
   for (const hit of hits) {
     const ownerKey = hit.repo.owner.toLowerCase();
     const nameKey = normalizeName(hit.repo.name);
@@ -367,6 +404,7 @@ export const fuse = (input: FuseInput, options: FuseOptions = {}): ReadonlyArray
     expanded: options.weights?.expanded ?? DEFAULT_LEG_WEIGHTS.expanded,
     semantic: options.weights?.semantic ?? DEFAULT_LEG_WEIGHTS.semantic
   };
+
   const nameStats = options.nameStats ?? new Map<string, number>();
   const queryTokens = options.queryTokens ?? [];
   const conceptTerms = options.conceptTerms ?? [];
@@ -381,24 +419,29 @@ export const fuse = (input: FuseInput, options: FuseOptions = {}): ReadonlyArray
     const boost = nameBoost(acc.repo, queryTokens, nameStats, conceptTerms);
     acc.boostFired = boost > 1;
     let score = acc.rrf * boost * starPrior(acc.repo.stars);
+
     if (acc.repo.archived) score *= ARCHIVED_PENALTY;
     score += overlapBonus(acc.repo, terms);
     acc.score = score;
   }
 
   const ordered = [...accs.values()].sort(compareHits);
+
   if (options.duplicatePenalties !== false) applyDuplicatePenalties(ordered);
   ordered.sort(compareHits);
 
   return ordered.map((acc) => {
     const matchedBy: MatchSource[] = [];
+
     for (const source of MATCH_SOURCE_ORDER) {
       if (source === "name") {
         if (acc.boostFired) matchedBy.push(source);
         continue;
       }
+
       if (acc.legRanks[source] !== undefined) matchedBy.push(source);
     }
+
     return {
       repo: acc.repo,
       score: acc.score,

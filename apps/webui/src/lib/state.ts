@@ -15,6 +15,7 @@ export function isTerminalPhase(phase: SyncPhase): boolean {
 
 export function hasIndex(state: UserIndexState | null | undefined): boolean {
   if (!state) return false;
+
   return state.reposMetadata > 0 || state.lastSyncedAt !== null;
 }
 
@@ -23,31 +24,37 @@ const STALE_MS = 24 * 60 * 60 * 1000;
 export function isStale(state: UserIndexState | null | undefined, now: number = Date.now()): boolean {
   if (!state || state.lastSyncedAt === null) return true;
   const timestamp = Date.parse(state.lastSyncedAt);
+
   if (Number.isNaN(timestamp)) return true;
+
   return now - timestamp > STALE_MS;
 }
 
 /** Metadata is searchable but no vectors exist yet. */
 export function isMetadataOnly(state: UserIndexState | null | undefined): boolean {
   if (!state) return false;
+
   return hasIndex(state) && state.semanticDocs === 0;
 }
 
 /** Repos that belong in the semantic window (docs/14: newest 1,500). */
 export function semanticWindow(state: UserIndexState): number {
   if (state.starsTotal <= 0) return SEMANTIC_WINDOW;
+
   return Math.min(state.starsTotal, SEMANTIC_WINDOW);
 }
 
 /** 0..100 semantic coverage for this user's index. */
 export function semanticCoverage(state: UserIndexState | null | undefined): number {
   if (!state || !hasIndex(state)) return 0;
+
   return percent(state.semanticDocs, semanticWindow(state));
 }
 
 /** 0..100 progress for the currently active phase. */
 export function phaseProgress(state: UserIndexState | null | undefined): number {
   if (!state) return 0;
+
   switch (state.phase) {
     case "listing":
       return percent(state.reposMetadata, state.starsTotal);
@@ -93,6 +100,7 @@ export function freshness(state: UserIndexState | null | undefined, now: number 
       detail: "Indexing takes about 10 seconds for metadata; semantic search fills in after."
     };
   }
+
   switch (state.phase) {
     case "listing":
       return {
@@ -134,7 +142,9 @@ export function freshness(state: UserIndexState | null | undefined, now: number 
           detail: "Metadata search in ~10 seconds. Semantic search fills in over the next few minutes."
         };
       }
+
       const stale = isStale(state, now);
+
       return {
         tone: stale ? "stale" : "fresh",
         label: `Indexed ${relativeTime(state.lastSyncedAt, now)}`,

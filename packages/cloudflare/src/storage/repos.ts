@@ -48,8 +48,12 @@ export interface VectorBlobPointer {
  */
 export const REPO_BATCH_SIZE = 50;
 
-/** Map the persisted README state onto the sync planner's fetch status. */
-const toFetchStatus = (state: ReadmeState): ReadmeFetchState["status"] => {
+/**
+ * Map the persisted README state onto the sync planner's fetch status.
+ * `readme_state` is `TEXT NOT NULL` with no CHECK constraint, so any value the
+ * pipeline did not write degrades to `"error"` instead of failing the read.
+ */
+const toFetchStatus = (state: string): ReadmeFetchState["status"] => {
   switch (state) {
     case "present":
       return "ok";
@@ -78,7 +82,7 @@ export interface ReadmeUpdate {
  * No method uses transactions (D1 has none) and every write is an idempotent
  * `INSERT ... ON CONFLICT DO UPDATE`, so callers may retry a partial batch.
  */
-export interface RepoStoreShape {
+export interface RepoStoreService {
   readonly upsertUser: (profile: UserProfile) => Effect.Effect<void, SqlError>;
   readonly getUser: (login: string) => Effect.Effect<UserProfile | null, SqlError>;
   readonly upsertIndexState: (state: UserIndexState) => Effect.Effect<void, SqlError>;
@@ -205,7 +209,7 @@ const toIndexState = (row: IndexStateRow): UserIndexState => ({
   updatedAt: row.updatedAt
 });
 
-export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("RepoStore") {
+export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("RepoStore") {
   static readonly layer = Layer.effect(
     RepoStore,
     Effect.gen(function* () {
@@ -238,6 +242,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
       const getUser = Effect.fn("RepoStore.getUser")(function* (login: string) {
         const rows = yield* sql<UserRow>`SELECT * FROM users WHERE login = ${login} LIMIT 1`;
         const row = rows[0];
+
         return row === undefined ? null : toUser(Schema.decodeUnknownSync(UserRow)(row));
       });
 
@@ -266,6 +271,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
       const getIndexState = Effect.fn("RepoStore.getIndexState")(function* (login: string) {
         const rows = yield* sql<IndexStateRow>`SELECT * FROM user_index_state WHERE login = ${login} LIMIT 1`;
         const row = rows[0];
+
         return row === undefined ? null : toIndexState(Schema.decodeUnknownSync(IndexStateRow)(row));
       });
 
@@ -318,6 +324,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
       ) {
         if (repos.length === 0) return;
         const now = nowIso();
+
         for (const batch of chunk(repos, REPO_BATCH_SIZE)) {
           // `topics` is pre-serialized so the JSON payload stays a flat
           // string, and `archived` is JSON true/false -> SQLite 1/0.
@@ -339,6 +346,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
               htmlUrl: repo.htmlUrl
             }))
           );
+
           // `WHERE true` disambiguates SQLite's INSERT…SELECT…ON CONFLICT parse.
           yield* sql`
             INSERT INTO repos (
@@ -380,6 +388,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
               html_url = excluded.html_url,
               updated_at = excluded.updated_at
           `;
+
           const starJson = JSON.stringify(
             batch.map((repo) => ({
               repoId: repo.id,
@@ -387,6 +396,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
               page: page ?? null
             }))
           );
+
           yield* sql`
             INSERT INTO user_stars (login, repo_id, starred_at, star_page)
             SELECT
@@ -407,6 +417,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         const rows = yield* sql<RepoIdRow>`
           SELECT repo_id FROM user_stars WHERE login = ${login} ORDER BY repo_id
         `;
+
         return rows.map((row) => Schema.decodeUnknownSync(RepoIdRow)(row).repoId);
       });
 
@@ -414,8 +425,10 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         const rows = yield* sql<StarPageRow>`
           SELECT star_page, repo_id FROM user_stars WHERE login = ${login} ORDER BY repo_id
         `;
+
         return rows.map((row) => {
           const decoded = Schema.decodeUnknownSync(StarPageRow)(row);
+
           return { starPage: decoded.starPage, repoId: decoded.repoId };
         });
       });
@@ -434,6 +447,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         ids: ReadonlyArray<number>
       ) {
         const repos: Array<Repo> = [];
+
         for (const idsChunk of chunk(ids, 90)) {
           const rows = yield* sql<RepoRow>`
             SELECT r.*, s.starred_at
@@ -442,10 +456,12 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             WHERE r.id IN ${sql.in(idsChunk)}
             ORDER BY r.id
           `;
+
           for (const row of rows) {
             repos.push(toRepo(Schema.decodeUnknownSync(RepoRow)(row)));
           }
         }
+
         return repos;
       });
 
@@ -454,29 +470,37 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         filters: SearchFilters
       ) {
         const conditions: Array<Fragment> = [];
+
         if (filters.language !== undefined) {
           // Case-insensitive: GitHub returns "TypeScript", users type "typescript".
           conditions.push(sql`LOWER(r.language) = LOWER(${filters.language})`);
         }
+
         if (filters.minStars !== undefined) {
           conditions.push(sql`r.stars >= ${filters.minStars}`);
         }
+
         if (filters.maxStars !== undefined) {
           conditions.push(sql`r.stars <= ${filters.maxStars}`);
         }
+
         if (filters.archived !== undefined) {
           conditions.push(sql`r.archived = ${boolToInt(filters.archived)}`);
         }
+
         if (filters.license !== undefined) {
           // SPDX ids are stored uppercase ("MIT"); accept any input casing.
           conditions.push(sql`LOWER(COALESCE(r.license, '')) = LOWER(${filters.license})`);
         }
+
         if (filters.starredAfter !== undefined) {
           conditions.push(sql`s.starred_at >= ${filters.starredAfter}`);
         }
+
         if (filters.starredBefore !== undefined) {
           conditions.push(sql`s.starred_at <= ${filters.starredBefore}`);
         }
+
         // Topic filter: every provided topic must be present (AND), compared
         // case-insensitively because GitHub topics are lowercase by convention
         // but user input need not be.
@@ -485,8 +509,10 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             sql`EXISTS (SELECT 1 FROM json_each(r.topics_json) AS t WHERE lower(t.value) = lower(${topic}))`
           );
         }
+
         // Groups are OR by default (docs/04 §5.2).
         const groupSlugs = filters.groups ?? [];
+
         if (groupSlugs.length > 0) {
           conditions.push(
             sql`EXISTS (
@@ -496,7 +522,9 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             )`
           );
         }
+
         const where = sql.and(conditions);
+
         const rows = yield* sql<RepoRow>`
           SELECT r.*, s.starred_at
           FROM repos r
@@ -504,6 +532,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
           WHERE s.login = ${login} AND ${where}
           ORDER BY s.starred_at DESC, r.id DESC
         `;
+
         return rows.map((row) => toRepo(Schema.decodeUnknownSync(RepoRow)(row)));
       });
 
@@ -511,7 +540,9 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         const rows = yield* sql<RepoRow>`
           SELECT r.*, NULL AS starred_at FROM repos r WHERE r.full_name = ${fullName} LIMIT 1
         `;
+
         const row = rows[0];
+
         return row === undefined ? null : toRepo(Schema.decodeUnknownSync(RepoRow)(row));
       });
 
@@ -524,10 +555,13 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             (SELECT COUNT(*) FROM repos r JOIN user_stars s ON s.repo_id = r.id
               WHERE s.login = ${login} AND r.readme_state = 'present') AS readmes_fetched
         `;
+
         const row = rows[0];
+
         if (row === undefined) {
           return { starsTotal: 0, reposMetadata: 0, readmesFetched: 0 };
         }
+
         return Schema.decodeUnknownSync(RepoStatsRow)(row);
       });
 
@@ -535,7 +569,9 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         const rows = yield* sql<StarEtagRow>`
           SELECT etag FROM star_etags WHERE login = ${login} AND page = ${page} LIMIT 1
         `;
+
         const row = rows[0];
+
         return row === undefined ? null : Schema.decodeUnknownSync(StarEtagRow)(row).etag;
       });
 
@@ -560,10 +596,13 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         const now = nowIso();
         const existing = yield* sql<GroupIdRow>`SELECT id FROM groups WHERE login = ${login}`;
         const existingIds = existing.map((row) => Schema.decodeUnknownSync(GroupIdRow)(row).id);
+
         for (const ids of chunk(existingIds, 90)) {
           yield* sql`DELETE FROM group_repos WHERE group_id IN ${sql.in(ids)}`;
         }
+
         yield* sql`DELETE FROM groups WHERE login = ${login}`;
+
         for (const group of groups) {
           yield* sql`
             INSERT INTO groups (id, login, name, slug, position, updated_at)
@@ -576,6 +615,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
               updated_at = excluded.updated_at
           `;
           const repoIds = [...new Set(group.repoIds)];
+
           if (repoIds.length > 0) {
             // One bound parameter for the whole membership list via JSON1.
             yield* sql`
@@ -590,6 +630,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         const groupRows = yield* sql<GroupRow>`
           SELECT * FROM groups WHERE login = ${login} ORDER BY position ASC, slug ASC
         `;
+
         const groupRepos = yield* sql<GroupRepoRow>`
           SELECT gr.group_id, gr.repo_id
           FROM group_repos gr
@@ -597,18 +638,23 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
           WHERE g.login = ${login}
           ORDER BY gr.repo_id
         `;
+
         const memberships = new Map<string, Array<number>>();
+
         for (const row of groupRepos) {
           const decoded = Schema.decodeUnknownSync(GroupRepoRow)(row);
           const list = memberships.get(decoded.groupId);
+
           if (list === undefined) {
             memberships.set(decoded.groupId, [decoded.repoId]);
           } else {
             list.push(decoded.repoId);
           }
         }
+
         return groupRows.map((row) => {
           const group = Schema.decodeUnknownSync(GroupRow)(row);
+
           return {
             id: group.id,
             name: group.name,
@@ -624,6 +670,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         repoIds: ReadonlyArray<number>
       ) {
         const byRepo = new Map<number, Array<string>>();
+
         for (const ids of chunk(repoIds, 90)) {
           const rows = yield* sql<GroupSlugRow>`
             SELECT gr.repo_id, g.slug
@@ -632,9 +679,11 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             WHERE g.login = ${login} AND gr.repo_id IN ${sql.in(ids)}
             ORDER BY g.slug
           `;
+
           for (const row of rows) {
             const decoded = Schema.decodeUnknownSync(GroupSlugRow)(row);
             const list = byRepo.get(decoded.repoId);
+
             if (list === undefined) {
               byRepo.set(decoded.repoId, [decoded.slug]);
             } else {
@@ -642,6 +691,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             }
           }
         }
+
         return byRepo;
       });
 
@@ -652,6 +702,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             : update.text.length > README_MAX_CHARS
               ? update.text.slice(0, README_MAX_CHARS)
               : update.text;
+
         yield* sql`
           UPDATE repos SET
             readme_text = ${text},
@@ -668,6 +719,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
         ids: ReadonlyArray<number>
       ) {
         const out = new Map<number, string>();
+
         for (const idsChunk of chunk(ids, 90)) {
           const rows = yield* sql<ReadmeTextRow>`
             SELECT r.id AS repo_id, r.readme_text
@@ -675,11 +727,14 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
             JOIN user_stars s ON s.repo_id = r.id AND s.login = ${login}
             WHERE r.id IN ${sql.in(idsChunk)} AND r.readme_text IS NOT NULL
           `;
+
           for (const row of rows) {
             const decoded = Schema.decodeUnknownSync(ReadmeTextRow)(row);
+
             if (decoded.readmeText !== null) out.set(decoded.repoId, decoded.readmeText);
           }
         }
+
         return out;
       });
 
@@ -690,15 +745,18 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
           JOIN user_stars s ON s.repo_id = r.id
           WHERE s.login = ${login}
         `;
+
         const out = new Map<number, ReadmeFetchState>();
+
         for (const row of rows) {
           const decoded = Schema.decodeUnknownSync(ReadmeStateRow)(row);
           out.set(decoded.repoId, {
             repoId: decoded.repoId,
             pushedAt: decoded.pushedAt,
-            status: toFetchStatus(decoded.readmeState as ReadmeState)
+            status: toFetchStatus(decoded.readmeState)
           });
         }
+
         return out;
       });
 
@@ -720,8 +778,10 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreShape>()("Rep
       const getVectorBlob = Effect.fn("RepoStore.getVectorBlob")(function* (login: string) {
         const rows = yield* sql<VectorBlobRow>`SELECT * FROM vector_blobs WHERE login = ${login} LIMIT 1`;
         const row = rows[0];
+
         if (row === undefined) return null;
         const decoded = Schema.decodeUnknownSync(VectorBlobRow)(row);
+
         return { dims: decoded.dims, bytesLen: decoded.bytesLen, updatedAt: decoded.updatedAt };
       });
 

@@ -132,6 +132,7 @@ export function FilterBar({
             <div className="chip-row">
               {groups.map((group) => {
                 const selected = state.group.includes(group.slug);
+
                 return (
                   <button
                     key={group.slug}

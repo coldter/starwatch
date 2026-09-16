@@ -65,9 +65,11 @@ describe("VectorBlobStore", () => {
       yield* store.putVectors(LOGIN, vectors);
 
       const object = yield* Effect.promise(() => bucket.get(vectorBlobKey(LOGIN)));
+
       if (object === null) {
         return yield* Effect.die("expected the vector blob to exist");
       }
+
       const bytes = new Uint8Array(yield* Effect.promise(() => object.arrayBuffer()));
       expect(bytes).toEqual(encodeVectors(vectors));
       expect(decodeVectors(bytes).length).toBe(vectors.length);
@@ -96,6 +98,7 @@ describe("VectorBlobStore", () => {
         put: () => Promise.reject(new Error("nope")),
         delete: () => Promise.reject(new Error("nope"))
       };
+
       const store = new R2VectorBlobStore(failing);
 
       const error = yield* store.getVectors(LOGIN).pipe(Effect.flip);

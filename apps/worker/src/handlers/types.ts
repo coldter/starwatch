@@ -2,8 +2,8 @@ import type { Embedder } from "@starwatch/core/sync";
 import type { RepoStore, UserFts, VectorBlobStore } from "@starwatch/cloudflare/storage";
 import type * as Cloudflare from "alchemy/Cloudflare";
 import type * as Layer from "effect/Layer";
-import type { SyncDepsShape } from "../deps.ts";
-import type { VectorBlobFilesShape } from "../adapters/vector-bucket.ts";
+import type { SyncDepsService } from "../deps.ts";
+import type { VectorBlobFiles } from "../adapters/vector-bucket.ts";
 import type { StarListingInput } from "../sync/listing-workflow.ts";
 
 /**
@@ -12,11 +12,11 @@ import type { StarListingInput } from "../sync/listing-workflow.ts";
  */
 export interface WorkerDeps {
   /** Sync-side service graph (D1 storage + GitHub + embedder). */
-  readonly sync: SyncDepsShape;
-  /** Search-side graph: storage + embedder + per-user R2 vector blob. */
-  readonly searchLayer: Layer.Layer<RepoStore | UserFts | Embedder | VectorBlobStore>;
-  /** Sidecar + part file access for vector blobs (search reads ids sidecar). */
-  readonly vectorFiles: VectorBlobFilesShape;
+  readonly sync: SyncDepsService;
+  /** Search-side graph: storage + embedder + per-user R2 vector blob and id sidecar. */
+  readonly searchLayer: Layer.Layer<
+    RepoStore | UserFts | Embedder | VectorBlobStore | VectorBlobFiles
+  >;
   /** Per-IP burst limiter on `/api/users/:login/search` (60/60s). */
   readonly searchRate: Cloudflare.RateLimitClient;
   /** Per-IP burst limiter on `POST /api/users/:login/sync` (5/60s). */
