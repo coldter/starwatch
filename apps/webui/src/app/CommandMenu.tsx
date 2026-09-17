@@ -15,6 +15,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import type { SearchMode } from "@starwatch/domain";
+import { useSemanticSearch } from "@/app/capabilities";
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
 import { useToast } from "@/app/toast";
 import { copyText } from "@/lib/clipboard";
@@ -52,6 +53,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const { setTheme } = useTheme();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const login = loginFromPath(pathname);
+  const semanticSearch = useSemanticSearch();
 
   const run = useCallback(
     (action: () => void) => {
@@ -115,7 +117,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       });
     }
 
-    if (login !== null) {
+    // A keyword-only deployment has no mode to switch: "Smart" and "Keyword"
+    // would be the same request, so the group is not offered at all.
+    if (login !== null && semanticSearch) {
       for (const entry of MODES) {
         commands.push({
           id: `mode-${entry.mode}`,
@@ -210,7 +214,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     );
 
     return commands;
-  }, [login, navigate, run, setTheme, toast]);
+  }, [login, navigate, run, semanticSearch, setTheme, toast]);
 
   return (
     <CommandPalette

@@ -1,4 +1,5 @@
 import type { DegradedReason, SearchResponse, SearchSort } from "@starwatch/domain";
+import { useSemanticSearch } from "@/app/capabilities";
 import { NoticeStrip } from "@/components/common/StatePanel";
 import { Loader } from "@/components/motion/loader";
 import { coveragePercent, formatNumber, plural } from "@/lib/format";
@@ -21,8 +22,10 @@ const DEGRADED_COPY: Record<DegradedReason, string> = {
 
 export function ResultSummary({ response, status, semanticDocs, sort }: ResultSummaryProps) {
   // An empty response query is the browse path: there is no retrieval mode and
-  // no semantic coverage to report, only the ordering the reader picked.
+  // no semantic coverage to report, only the ordering the reader picked. A
+  // keyword-only deployment never has either to name, whatever the URL asked.
   const browse = response.query.length === 0;
+  const semanticSearch = useSemanticSearch();
 
   return (
     <div className="flex flex-col gap-2">
@@ -42,9 +45,13 @@ export function ResultSummary({ response, status, semanticDocs, sort }: ResultSu
           </>
         ) : (
           <>
-            <span aria-hidden="true">·</span>
-            <span>{SEARCH_MODE_LABELS[response.mode]} mode</span>
-            {semanticDocs > 0 ? (
+            {semanticSearch ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{SEARCH_MODE_LABELS[response.mode]} mode</span>
+              </>
+            ) : null}
+            {semanticSearch && semanticDocs > 0 ? (
               <>
                 <span aria-hidden="true">·</span>
                 <span>semantic coverage {coveragePercent(response.semanticCoverage)}%</span>

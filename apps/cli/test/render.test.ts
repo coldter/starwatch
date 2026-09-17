@@ -217,7 +217,7 @@ describe("search output", () => {
     );
     const hint = renderEmptyHint("quantum toaster", "hybrid");
     expect(hint).toContain('No results for "quantum toaster" in hybrid mode.');
-    expect(hint).toContain("--mode semantic");
+    expect(hint).toContain("another --mode");
   });
 
   it("pretty-prints JSON and round-trips it", () => {
@@ -292,8 +292,11 @@ describe("sync and health output", () => {
 
   it("renders health with the target URL", () => {
     expect(
-      renderHealth({ ok: true, service: "starwatch", version: "1.2.3" }, "http://127.0.0.1:8787"),
-    ).toBe("starwatch 1.2.3 · ok · http://127.0.0.1:8787");
+      renderHealth(
+        { ok: true, service: "starwatch", version: "1.2.3", semanticSearch: false },
+        "http://127.0.0.1:8787",
+      ),
+    ).toBe("starwatch 1.2.3 · ok · semantic search off · http://127.0.0.1:8787");
   });
 
   it("renders errors as one line plus a named fix", () => {

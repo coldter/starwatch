@@ -167,19 +167,21 @@ export const renderSearchSummary = (response: SearchResponse): string => {
 
   const coverage = formatCoverage(response.semanticCoverage);
 
-  if (coverage < 100) parts.push(`semantic ${coverage}%`);
+  // 0% is the keyword-only answer (a keyword-only deployment, or a keyword
+  // request on an embedding one) and 100% needs no note — neither belongs in
+  // every summary line. `status` carries the real counter.
+  if (coverage > 0 && coverage < 100) parts.push(`semantic ${coverage}%`);
 
   if (response.degraded !== undefined) parts.push(`degraded: ${response.degraded}`);
 
   return parts.join(" · ");
 };
 
-/** stderr guidance for an empty result set, mentions `--mode semantic`. */
+/** stderr guidance for an empty result set; no mode is named as a promise. */
 export const renderEmptyHint = (query: string, mode: string): string =>
   [
     `No results for "${query}" in ${mode} mode.`,
-    "Try: --mode semantic for meaning-based matches · --mode keyword for exact names ·",
-    "widen --min-stars/--lang/--topic filters.",
+    "Try: another --mode · widen --min-stars/--lang/--topic filters.",
   ].join(" ");
 
 export interface RepoPageInput {
@@ -252,14 +254,20 @@ const identityLine = (profile: UserProfile, color: boolean): string => {
   return `${bold(`@${profile.login}`, color)}${name}`;
 };
 
-const indexStateLine = (state: UserIndexState): string =>
-  [
+const indexStateLine = (state: UserIndexState): string => {
+  const parts = [
     `${phaseSymbol(state.phase)} ${state.phase}`,
     `${formatCount(state.starsTotal)} stars`,
     `metadata ${formatCount(state.reposMetadata)}`,
     `readmes ${formatCount(state.readmesFetched)}`,
-    `semantic ${formatCount(state.semanticDocs)}`,
-  ].join(" · ");
+  ];
+
+  // The worker reports 0 on a keyword-only deployment, where a `semantic 0`
+  // segment would only raise a question the CLI cannot answer from here.
+  if (state.semanticDocs > 0) parts.push(`semantic ${formatCount(state.semanticDocs)}`);
+
+  return parts.join(" · ");
+};
 
 /** `status`: profile + index state + freshness. */
 export const renderStatusPage = (
@@ -303,12 +311,16 @@ export const renderSyncStart = (result: SyncStartInput): string =>
     : `Sync already running · phase ${result.phase}`;
 
 /** One progress line per poll (stderr while `sync --wait` runs). */
-export const renderSyncProgress = (state: UserIndexState): string =>
-  [
+export const renderSyncProgress = (state: UserIndexState): string => {
+  const parts = [
     `${phaseSymbol(state.phase)} ${state.phase}`,
     `${formatCount(state.reposMetadata)}/${formatCount(state.starsTotal)} metadata`,
-    `semantic ${formatCount(state.semanticDocs)}`,
-  ].join(" · ");
+  ];
+
+  if (state.semanticDocs > 0) parts.push(`semantic ${formatCount(state.semanticDocs)}`);
+
+  return parts.join(" · ");
+};
 
 /** Final `sync --wait` / `status` state. */
 export const renderSyncState = (state: UserIndexState): string => {
@@ -329,10 +341,13 @@ export interface HealthInput {
   readonly ok: boolean;
   readonly service: string;
   readonly version: string;
+  readonly semanticSearch: boolean;
 }
 
 export const renderHealth = (health: HealthInput, apiUrl: string): string =>
-  `${health.service} ${health.version} · ${health.ok ? "ok" : "not ok"} · ${apiUrl}`;
+  `${health.service} ${health.version} · ${health.ok ? "ok" : "not ok"} · ${
+    health.semanticSearch ? "semantic search on" : "semantic search off"
+  } · ${apiUrl}`;
 
 export interface ErrorLike {
   readonly message: string;

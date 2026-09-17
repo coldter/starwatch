@@ -1,4 +1,6 @@
 import { FileText, ListChecks, Sparkles, type LucideIcon } from "lucide-react";
+import { useSemanticSearch } from "@/app/capabilities";
+import { cn } from "@/lib/utils";
 
 interface IndexingStep {
   Icon: LucideIcon;
@@ -26,6 +28,11 @@ const STEPS: ReadonlyArray<IndexingStep> = [
 
 /** Eager-lazy indexing, explained in the plainest words we have. */
 export function HowItWorks() {
+  // The vector card only describes a deployment that builds vectors; the grid
+  // drops to two columns so the row stays even without it.
+  const semanticSearch = useSemanticSearch();
+  const steps = semanticSearch ? STEPS : STEPS.filter((step) => step.title !== "Vectors last");
+
   return (
     <section
       className="mx-auto flex w-full max-w-3xl flex-col gap-4"
@@ -35,8 +42,8 @@ export function HowItWorks() {
         How indexing works
       </h2>
 
-      <ol className="grid gap-3 sm:grid-cols-3">
-        {STEPS.map((step) => (
+      <ol className={cn("grid gap-3", semanticSearch ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+        {steps.map((step) => (
           <li
             key={step.title}
             className="flex flex-col gap-2.5 rounded-2xl border border-border bg-card p-4"

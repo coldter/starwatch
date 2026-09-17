@@ -6,11 +6,12 @@ import {
   SyncInProgress,
   type ListsInfo,
   type SyncPhase,
+  type UserIndexState,
   UserNotFound,
 } from "@starwatch/domain";
 import { canSync, GithubClient } from "@starwatch/core/sync";
 import { activeRunState, ownerRunState, terminateActiveRuns } from "../sync/liveness.ts";
-import { logRun } from "../sync/log.ts";
+import { logError, logRun } from "../sync/log.ts";
 import { isRunIncomplete, patchState, shouldTakeOver } from "../sync/state.ts";
 import {
   budgetDay,
@@ -36,6 +37,17 @@ import type { WorkerDeps } from "./types.ts";
  * Worker init phase cannot build layers: plan-time has no bindings) and maps
  * storage failures to defects -> HTTP 500.
  */
+
+/**
+ * Hide the stored semantic counter when this deployment runs without semantic
+ * search. The column itself keeps its value — flipping the flag back on must
+ * find every vector where the last on-run left it — but the capability is not
+ * part of the wire contract, so the API reports zero rather than a number the
+ * client has to know to ignore.
+ */
+const hideSemanticDocs = (state: UserIndexState, semanticSearch: boolean): UserIndexState =>
+  semanticSearch || state.semanticDocs === 0 ? state : { ...state, semanticDocs: 0 };
+
 export const usersGroup = (deps: WorkerDeps) =>
   HttpApiBuilder.group(StarwatchApi, "users", (handlers) =>
     handlers
@@ -50,7 +62,12 @@ export const usersGroup = (deps: WorkerDeps) =>
           const groups = yield* repos.listGroups(login).pipe(Effect.orDie);
           const lists = yield* repos.getListsInfo(login).pipe(Effect.orDie);
 
-          return { profile, state: stored ?? idleState(login), groups, lists };
+          return {
+            profile,
+            state: hideSemanticDocs(stored ?? idleState(login), deps.sync.semanticSearch),
+            groups,
+            lists,
+          };
         }).pipe(Effect.provide(deps.sync.storage)),
       )
       .handle("refreshUserGroups", ({ params, request }) =>
@@ -101,7 +118,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             yield* repos.putListsInfo(login, lists).pipe(Effect.orDie);
             const groups = yield* repos.listGroups(login).pipe(Effect.orDie);
 
-            logRun("starwatch.lists.refresh-failed", {
+            logError("starwatch.lists.refresh-failed", {
               login,
               phase: "idle",
               reason: fetched.message,
@@ -145,7 +162,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           );
 
           if (!allowed) {
-            logRun("starwatch.sync.refused", {
+            logError("starwatch.sync.refused", {
               login: normalizeLogin(params.login),
               phase: "idle",
               reason: "burst-limit",
@@ -163,7 +180,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           // GitHub request that only ends in 404, and cycling garbage logins is
           // the cheapest way to burn the shared quota (docs/14 §3.3).
           if (!LOGIN_PATTERN.test(login)) {
-            logRun("starwatch.sync.refused", {
+            logError("starwatch.sync.refused", {
               login,
               phase: "idle",
               reason: "invalid-login",
@@ -183,7 +200,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             .pipe(Effect.orDie);
 
           if (!spend.allowed) {
-            logRun("starwatch.sync.refused", {
+            logError("starwatch.sync.refused", {
               login,
               phase: "idle",
               reason: "ip-budget",
@@ -210,7 +227,7 @@ export const usersGroup = (deps: WorkerDeps) =>
               // else: a storm's own cause must be visible in Workers Logs.
               const reason = fetched.cause.toString();
 
-              logRun("starwatch.sync.refused", {
+              logError("starwatch.sync.refused", {
                 login,
                 phase: "idle",
                 reason: "profile-failed",
@@ -244,7 +261,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             const run = yield* activeRunState(deps, login, stored.phase, owner);
 
             if (!shouldTakeOver(stored, run)) {
-              logRun("starwatch.sync.refused", {
+              logError("starwatch.sync.refused", {
                 login,
                 phase: stored.phase,
                 reason: "in-progress",
@@ -269,7 +286,7 @@ export const usersGroup = (deps: WorkerDeps) =>
               .pipe(Effect.orDie);
 
             if (!global.allowed) {
-              logRun("starwatch.sync.refused", {
+              logError("starwatch.sync.refused", {
                 login,
                 phase: "idle",
                 reason: "new-user-budget",
@@ -310,7 +327,7 @@ export const usersGroup = (deps: WorkerDeps) =>
                 );
 
           if (!admission.allowed) {
-            logRun("starwatch.sync.refused", {
+            logError("starwatch.sync.refused", {
               login,
               phase: stored?.phase ?? "idle",
               reason: admission.reason,
@@ -375,6 +392,14 @@ export const usersGroup = (deps: WorkerDeps) =>
                 ? null
                 : Date.now() - Date.parse(stored.updatedAt),
             });
+
+            // Whatever the recorded id pointed at is dead — the takeover check
+            // proved it, and it has just been terminated. The claim below is a
+            // conditional UPDATE on that column, so leaving the stale id would
+            // refuse the claim and strand the account in an active phase with
+            // no run behind it. Runs that end through a terminal path release
+            // their own id; this covers the ones killed before they could.
+            yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
           }
 
           const requestId = crypto.randomUUID();
@@ -397,7 +422,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             // Another request won the race between our probe and this claim.
             const winner = yield* repos.getRunInstance(login).pipe(Effect.orDie);
 
-            logRun("starwatch.sync.refused", {
+            logError("starwatch.sync.refused", {
               login,
               phase: "listing",
               reason: "claim-lost",
@@ -422,7 +447,7 @@ export const usersGroup = (deps: WorkerDeps) =>
               lastError: "The indexing queue rejected the job; try again shortly.",
             });
 
-            logRun("starwatch.sync.refused", {
+            logError("starwatch.sync.refused", {
               login,
               phase: "failed",
               reason: "queue-rejected",
@@ -455,7 +480,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           if (profile === null) return yield* new UserNotFound({ login });
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
 
-          return stored ?? idleState(login);
+          return hideSemanticDocs(stored ?? idleState(login), deps.sync.semanticSearch);
         }).pipe(Effect.provide(deps.sync.storage)),
       )
       .handle("syncEvents", ({ params }) =>
@@ -466,8 +491,12 @@ export const usersGroup = (deps: WorkerDeps) =>
 
           if (profile === null) return yield* new UserNotFound({ login });
 
-          const initial =
-            (yield* repos.getIndexState(login).pipe(Effect.orDie)) ?? idleState(login);
+          const semantic = deps.sync.semanticSearch;
+
+          const initial = hideSemanticDocs(
+            (yield* repos.getIndexState(login).pipe(Effect.orDie)) ?? idleState(login),
+            semantic,
+          );
 
           const updates = Stream.tick("1 seconds").pipe(
             // Each tick builds (and closes) its own short-lived layer, so the
@@ -479,7 +508,7 @@ export const usersGroup = (deps: WorkerDeps) =>
 
                 const state = yield* store.getIndexState(login).pipe(Effect.orDie);
 
-                return state ?? initial;
+                return hideSemanticDocs(state ?? initial, semantic);
               }).pipe(Effect.provide(deps.sync.storage)),
             ),
             // 1 initial + 119 ticks ≈ 2 minutes, then the SSE stream closes;

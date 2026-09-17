@@ -1,5 +1,6 @@
 import { Archive, CircleSlash, Equal, Sparkles, Type } from "lucide-react";
 import type { MatchSource } from "@starwatch/domain";
+import { useSemanticSearch } from "@/app/capabilities";
 import { AnimatedBadge, type AnimatedBadgeStatus } from "@/components/motion/animated-badge";
 import { freshness, type FreshnessTone } from "@/lib/state";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,8 @@ export function FreshnessBadge({
   now?: number;
   className?: string;
 }) {
-  const info = freshness(state, now);
+  const semanticSearch = useSemanticSearch();
+  const info = freshness(state, now, semanticSearch);
 
   return (
     <AnimatedBadge

@@ -19,7 +19,7 @@ import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import { SyncDeps } from "../deps.ts";
 import { MERGE_FAN_IN, README_FETCH_BATCH, README_PROGRESS_EVERY } from "../constants.ts";
-import { elapsedMs, logRun } from "./log.ts";
+import { elapsedMs, logError, logRun } from "./log.ts";
 import { MAX_RATE_LIMIT_WAITS, planRateLimitWait, type RateLimitWait } from "./rate-limit.ts";
 import { describeGithubError, nowIso, patchState } from "./state.ts";
 import {
@@ -32,9 +32,18 @@ import {
 } from "../adapters/vector-bucket.ts";
 
 /**
- * Tier 1 (semantic) refresh: fetch changed READMEs for the newest
- * `SEMANTIC_WINDOW` repos, embed the dirty subset, and rewrite the per-user
- * R2 vector blob (docs/15 §2).
+ * Tier 1 refresh: fetch changed READMEs for the newest `SEMANTIC_WINDOW`
+ * repos, embed the dirty subset, and rewrite the per-user R2 vector blob
+ * (docs/15 §2).
+ *
+ * Two modes, chosen once per run from `STARWATCH_SEMANTIC_SEARCH`:
+ *   * **on** — everything below.
+ *   * **off** — the README fetch and the FTS upsert still run, because README
+ *     text is keyword-search material; every embedding, vector part, merge,
+ *     blob write and `markReadmesPublished` is skipped. A row whose text was
+ *     re-read stays `pending` (vector unpublished) so the next on-deployment
+ *     re-embeds exactly what changed meanwhile, and the R2 objects and the
+ *     stored `semantic_docs` are left exactly as the last on-run wrote them.
  *
  * Free-tier step math (per invocation, docs/13 §1):
  *   * external subrequests ≤ 50 → README_FETCH_BATCH (8) × 6 worst-case raw
@@ -226,7 +235,16 @@ const mergeParts = (
  * still surface to the UI as a state change.
  */
 const markFailed = (login: string, message: string): Effect.Effect<void, never, RepoStore> =>
-  patchState(login, { phase: "failed", lastError: message });
+  Effect.gen(function* () {
+    const repos = yield* RepoStore;
+
+    yield* patchState(login, { phase: "failed", lastError: message });
+    // Terminal: release the account's owner record. `claimRunInstance` is a
+    // conditional UPDATE on that column, so a dead run that keeps its id makes
+    // every later `POST /sync` lose the claim and strands the account in an
+    // active phase nothing owns.
+    yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
+  });
 
 /**
  * Persist one batch's README rows: `present` with the fetched text, or
@@ -281,7 +299,7 @@ const persistReadmes = (
 
 /**
  * Hand the given repos back to the README planner so a later run re-fetches
- * and re-embeds them.
+ * them (and re-embeds them when semantic search is on).
  *
  * Needed for the *current* batch on the timeout-skip and pause paths: those
  * batch ids were never written at all (the write is deferred until the part is
@@ -324,7 +342,10 @@ const idsThrough = (
   lastIndex: number,
 ): ReadonlyArray<number> => batches.slice(0, lastIndex + 1).flat();
 
-const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: StarRefreshInput) {
+const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
+  input: StarRefreshInput,
+  semanticSearch: boolean,
+) {
   const startedAt = Date.now();
   const login = input.login;
   const repos = yield* RepoStore;
@@ -343,27 +364,45 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
       // The vectors belong to *this* account while README rows are shared, so
       // the plan needs the account's published ids: a window repo missing from
       // them is embed work even when its README is current. `null` (no blob
-      // yet) becomes an empty set and every window repo is planned.
-      const publishedIds =
-        (yield* vectorFiles.getIds(vectorIdsKey(login)).pipe(Effect.orDie)) ?? [];
+      // yet) becomes an empty set and every window repo is planned. With
+      // semantic search off the sidecar is not consulted at all — that R2 read
+      // is the first thing the flag must remove.
+      const publishedIds = semanticSearch
+        ? ((yield* vectorFiles.getIds(vectorIdsKey(login)).pipe(Effect.orDie)) ?? [])
+        : [];
 
       const batches = planReadmeWork(all, states, {
         batchSize: README_FETCH_BATCH,
-        existingVectorIds: new Set(publishedIds),
+        existingVectorIds: semanticSearch ? new Set(publishedIds) : undefined,
       });
 
-      const windowIds = all.slice(0, SEMANTIC_WINDOW).map((repo) => repo.id);
+      // The window only bounds vector storage; with nothing to embed it is not
+      // computed, and finalize's overlay never runs.
+      const windowIds = semanticSearch ? all.slice(0, SEMANTIC_WINDOW).map((repo) => repo.id) : [];
 
       // Minted inside the memoized plan so every replay of this instance files
-      // its scratch objects under one token (see `vectorPartBaseKey`).
-      return { batches, windowIds, publishedIds, runToken: runTokenOf(input) };
+      // its scratch objects under one token (see `vectorPartBaseKey`). The mode
+      // rides along for the same reason: later steps read `plan.semantic`, so a
+      // redeploy that flips the flag mid-run cannot make a step disagree with
+      // the plan it replays.
+      return {
+        batches,
+        windowIds,
+        publishedIds,
+        runToken: runTokenOf(input),
+        semantic: semanticSearch,
+      };
     }),
     { retries: { limit: 2, delay: "5 seconds" } },
   );
 
+  // The mode this run executes with, as resolved by its own plan step.
+  const semantic = plan.semantic;
+
   logRun("starwatch.sync.refresh.start", {
     login,
     phase: "fetching-readmes",
+    semantic,
     batches: plan.batches.length,
     window: plan.windowIds.length,
     runToken: plan.runToken,
@@ -403,23 +442,31 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
             // collide with a real hash, so the repo is re-embedded instead of
             // silently kept on a vector that was never published.
             const published = yield* repos.getReadmeStates(login).pipe(Effect.orDie);
-            const publishedSet = new Set(plan.publishedIds);
             const existingHashes = new Map<number, string>();
 
-            for (const id of ids) {
-              const text = previousTexts.get(id);
-              const known = published.get(id);
+            // The published-hash comparison exists only to decide re-embedding;
+            // with semantic search off the plan carries no published ids and
+            // nothing below this step is embedded.
+            if (semantic) {
+              const publishedSet = new Set(plan.publishedIds);
 
-              existingHashes.set(
-                id,
-                publishedSet.has(id) && known !== undefined
-                  ? publishedReadmeHash(known.status, text)
-                  : "",
-              );
+              for (const id of ids) {
+                const text = previousTexts.get(id);
+                const known = published.get(id);
+
+                existingHashes.set(
+                  id,
+                  publishedSet.has(id) && known !== undefined
+                    ? publishedReadmeHash(known.status, text)
+                    : "",
+                );
+              }
             }
 
             const newTexts = new Map<number, string>();
             const states = new Map<number, "present" | "missing">();
+            /** Repos whose text this attempt actually re-read from GitHub. */
+            const refetched = new Set<number>();
 
             for (const id of ids) {
               const repo = repoById.get(id);
@@ -471,6 +518,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
 
               const readme = fetched.value;
 
+              refetched.add(id);
+
               if (readme === null) {
                 newTexts.set(id, "");
                 states.set(id, "missing");
@@ -505,6 +554,41 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
                   ];
             });
 
+            // Semantic off: the fetch + FTS half is the whole batch. Only the
+            // rows this attempt re-read are written, and they stay `pending`
+            // (text stored, vector unpublished) so the next on-deployment
+            // re-embeds exactly the text that changed meanwhile. Rewriting
+            // untouched rows would demote every published hash to dirty and
+            // turn a flag flip into a full re-embed.
+            if (!semantic) {
+              // A batch that re-read nothing changes nothing: the stored text
+              // was already upserted when it was written, and `pending` rows
+              // are re-planned until the flag returns, so rewriting FTS for
+              // them on every daily run would be pure write cost.
+              if (refetched.size > 0) {
+                yield* fts.upsertUserDocs(login, docs).pipe(Effect.orDie);
+              }
+
+              yield* persistReadmes(
+                login,
+                plan.runToken,
+                newTexts,
+                new Map([...states].filter(([id]) => refetched.has(id))),
+              );
+
+              return {
+                ok: true,
+                partBase: null,
+                embedded: 0,
+                error: null,
+                rateLimit: null,
+                timedOut: false,
+              } satisfies BatchOutcome;
+            }
+
+            // Keep lexical search fresh with the fetched README text. FTS has
+            // its own copy, so it stays correct even when the README rows are
+            // rewritten below (see `markNeedsReembed`).
             yield* fts.upsertUserDocs(login, docs).pipe(Effect.orDie);
 
             // Semantic work is content-hash driven (docs/15 §2.1): only docs
@@ -584,7 +668,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
 
         if (wait === null || wait.waitMs <= 0 || !canWaitAgain(rateLimitWaits)) return attempt;
 
-        logRun("starwatch.sync.refresh.rate-limit", {
+        logError("starwatch.sync.refresh.rate-limit", {
           login,
           phase: "fetching-readmes",
           batch: index,
@@ -618,7 +702,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
 
     if (skipped) {
       timedOutBatches += 1;
-      logRun("starwatch.sync.refresh.batch-skipped", {
+      logError("starwatch.sync.refresh.batch-skipped", {
         login,
         phase: "fetching-readmes",
         batch: index,
@@ -630,7 +714,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
       // The batch may have written some README rows before it was interrupted;
       // those must be re-planned or their vectors never land.
       yield* markNeedsReembed(login, ids);
-      logRun("starwatch.sync.refresh.reembed", {
+      logError("starwatch.sync.refresh.reembed", {
         login,
         phase: "fetching-readmes",
         ids: ids.length,
@@ -647,7 +731,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
       const touched = idsThrough(plan.batches, index);
 
       yield* markNeedsReembed(login, touched);
-      logRun("starwatch.sync.refresh.reembed", {
+      logError("starwatch.sync.refresh.reembed", {
         login,
         phase: "paused",
         ids: touched.length,
@@ -663,7 +747,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
             ? `waited ${MAX_RATE_LIMIT_WAITS} times already`
             : "the reset is later than one run may wait";
 
-        logRun("starwatch.sync.refresh.paused", {
+        logError("starwatch.sync.refresh.paused", {
           login,
           phase: "paused",
           batch: index,
@@ -675,6 +759,9 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
           phase: "paused",
           lastError: `${outcome.error ?? "GitHub rate limit"} (${why})`,
         });
+        // Terminal — this run gives up rather than waiting, so it must not keep
+        // the account's owner record (see `markFailed`).
+        yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
 
         const scratch = partBases.flatMap((base) => [`${base}.bin`, `${base}.ids.json`]);
 
@@ -693,7 +780,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
         yield* vectorFiles.deleteMany(scratch).pipe(Effect.ignore);
       }
 
-      logRun("starwatch.sync.refresh.failed", {
+      logError("starwatch.sync.refresh.failed", {
         login,
         phase: "failed",
         batch: index,
@@ -739,6 +826,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
   }
 
   // ---- fan-in merge: keep every merge step under the subrequest cap ----
+  // With semantic search off no batch produced a part, so this loop and the
+  // overlay below have nothing to merge.
   const intermediateBases: string[] = [];
   let current = partBases;
   let round = 1;
@@ -770,6 +859,54 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
     "finalize",
     Effect.gen(function* () {
       const previous = yield* repos.getIndexState(login).pipe(Effect.orDie);
+
+      // Semantic off: a state-only terminal write. No R2 read, no blob rewrite,
+      // no `markReadmesPublished` — whatever the last on-run published stays
+      // published, and rows written `pending` here wait for the flag to return.
+      // The stored `semantic_docs` is carried through, never zeroed, so turning
+      // semantic search back on finds the real count and the same blobs.
+      if (!semantic) {
+        const stats = yield* repos.countStats(login).pipe(Effect.orDie);
+
+        yield* repos
+          .upsertIndexState({
+            login,
+            phase: "ready",
+            starsTotal: stats.starsTotal,
+            reposMetadata: stats.reposMetadata,
+            readmesFetched: stats.readmesFetched,
+            semanticDocs: previous?.semanticDocs ?? 0,
+            lastSyncedAt: previous?.lastSyncedAt ?? null,
+            lastError: null,
+            updatedAt: nowIso(),
+          })
+          .pipe(Effect.orDie);
+
+        // Same single terminal write as the on path: releasing the instance id
+        // is what lets the next request attach, take over, or start cleanly.
+        yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
+
+        // Off batches write no parts, so this is empty on a run that was off
+        // from its plan onwards. It is not *always* empty: an instance whose
+        // plan ran while the flag was on can still have run-scoped parts on
+        // disk, and nothing else would ever collect them.
+        const scratch = [...partBases, ...intermediateBases].flatMap((base) => [
+          `${base}.bin`,
+          `${base}.ids.json`,
+        ]);
+
+        if (scratch.length > 0) {
+          yield* vectorFiles.deleteMany(scratch).pipe(Effect.ignore);
+        }
+
+        return {
+          ok: true,
+          semanticDocs: previous?.semanticDocs ?? 0,
+          embedded: 0,
+          error: null,
+        } satisfies FinalizeOutcome;
+      }
+
       const windowSet = new Set(plan.windowIds);
 
       // Overlay: keep earlier vectors for unchanged window repos, replace
@@ -882,6 +1019,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (input: Star
   logRun("starwatch.sync.refresh.done", {
     login,
     phase: "ready",
+    semantic,
     semanticDocs: finalize.semanticDocs,
     embedded: finalize.embedded,
     elapsedMs: elapsedMs(startedAt),
@@ -902,15 +1040,21 @@ export class StarRefreshWorkflow extends Cloudflare.Workflow<StarRefreshWorkflow
     const deps = yield* SyncDeps;
 
     return Effect.fn(function* (input: StarRefreshInput) {
-      const exit = yield* Effect.exit(refreshBody(input).pipe(Effect.provide(deps.runLayers)));
+      // The flag is read once per isolate here; the body records the resolved
+      // mode in its memoized plan step, and every later step reads that plan
+      // value, so a redeploy mid-run cannot make a step disagree with the plan
+      // it replays.
+      const exit = yield* Effect.exit(
+        refreshBody(input, deps.semanticSearch).pipe(Effect.provide(deps.runLayers)),
+      );
 
       if (Exit.isSuccess(exit)) return exit.value;
-      logRun("starwatch.sync.refresh.failed", {
+      logError("starwatch.sync.refresh.failed", {
         login: input.login,
         phase: "failed",
         reason: "unhandled failure",
       });
-      yield* markFailed(input.login, "semantic refresh failed").pipe(
+      yield* markFailed(input.login, "index refresh failed").pipe(
         Effect.provide(deps.runLayers),
         Effect.ignore,
       );
@@ -923,9 +1067,11 @@ export class StarRefreshWorkflow extends Cloudflare.Workflow<StarRefreshWorkflow
 /**
  * Pure step-count budget helper (documented math, exported for tests).
  *
- * Counts the *worst* case, not the happy path: every batch may be attempted
- * once per allowed wait, and a wait is a `sleep` step of its own — the
- * platform counts both, and the earlier version of this helper omitted them.
+ * Counts the *worst* case of an **on** run, not the happy path: every batch may
+ * be attempted once per allowed wait, and a wait is a `sleep` step of its own —
+ * the platform counts both, and the earlier version of this helper omitted
+ * them. With semantic search off the same batches run, but the embed/part/merge
+ * steps do not, so this count stays an upper bound.
  * `MAX_RATE_LIMIT_WAITS` is per run, so only that many retries are possible in
  * total, which is what keeps the ceiling far below the 1,000-step cap.
  */

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUpDown, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowUpDown, Info, Search, SlidersHorizontal } from "lucide-react";
 import type { SearchMode, SearchSort } from "@starwatch/domain";
+import { useSemanticSearch } from "@/app/capabilities";
+import { NoticeStrip } from "@/components/common/StatePanel";
 import { Button } from "@/components/motion/button/base";
 import { Input } from "@/components/motion/input";
 import { Loader } from "@/components/motion/loader";
@@ -70,6 +72,9 @@ export function SearchToolbar({
 }: SearchToolbarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(value);
+  // A keyword-only deployment has no mode to pick, so the whole segment row is
+  // removed rather than disabled — the same shape browse mode already ships.
+  const semanticSearch = useSemanticSearch();
 
   // The URL is the committed query; the draft follows it until the user types.
   useEffect(() => {
@@ -155,8 +160,18 @@ export function SearchToolbar({
         </Button>
       </div>
 
+      {/* The one place the deployment's retrieval capability is stated. A
+          keyword-only deployment has no mode row to explain itself, and this
+          is a fact about the whole page, not a footnote to the sort control. */}
+      {semanticSearch ? null : (
+        <NoticeStrip icon={Info}>
+          Semantic search is disabled on this deployment, so results come from names, descriptions,
+          topics and READMEs.
+        </NoticeStrip>
+      )}
+
       <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-        {browsing ? null : (
+        {browsing || !semanticSearch ? null : (
           <Tabs
             value={mode}
             onValueChange={onModeChange}

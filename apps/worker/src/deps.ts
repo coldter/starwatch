@@ -38,6 +38,13 @@ export interface SyncDepsService {
   readonly embedder: EmbedderService;
   /** One layer to provide to a workflow run body. */
   readonly runLayers: Layer.Layer<RepoStore | UserFts | GithubClient | Embedder | VectorBlobFiles>;
+  /**
+   * Whether this deployment builds and serves embeddings
+   * (`STARWATCH_SEMANTIC_SEARCH`; off by default). Read once at isolate boot
+   * and closed over, so a run and the requests racing it never disagree, and
+   * an off deployment never calls Workers AI or touches a vector R2 object.
+   */
+  readonly semanticSearch: boolean;
 }
 
 export class SyncDeps extends Context.Service<SyncDeps, SyncDepsService>()("starwatch/SyncDeps") {}
@@ -49,6 +56,8 @@ export interface SyncDepsOptions {
   /** Fine-grained PAT with no permissions; empty string = anonymous (dev). */
   readonly githubToken: string;
   readonly userAgent: string;
+  /** Opt-in embedding/vector pipeline (`STARWATCH_SEMANTIC_SEARCH=1`). */
+  readonly semanticSearch: boolean;
 }
 
 /**
@@ -103,6 +112,7 @@ export const syncDepsFrom = (options: SyncDepsOptions): SyncDepsService => {
     storage,
     github,
     embedder,
+    semanticSearch: options.semanticSearch,
     runLayers: Layer.mergeAll(
       storage,
       github,

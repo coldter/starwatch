@@ -338,7 +338,7 @@ const sync = Command.make(
   {
     login: Argument.string("login").pipe(Argument.withDescription("GitHub login to index")),
     full: Flag.boolean("full").pipe(
-      Flag.withDescription("Re-fetch and re-embed everything, ignoring ETags"),
+      Flag.withDescription("Refetch READMEs and rebuild the index (embeddings only when enabled)"),
       Flag.withDefault(false),
     ),
     wait: Flag.boolean("wait").pipe(

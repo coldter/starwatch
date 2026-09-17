@@ -26,6 +26,7 @@ import { systemGroup } from "./handlers/system.ts";
 import type { WorkerDeps } from "./handlers/types.ts";
 import { usersGroup } from "./handlers/users.ts";
 import { Bucket, Database } from "./resources.ts";
+import { configureRunLogs } from "./sync/log.ts";
 import { StarListingWorkflow } from "./sync/listing-workflow.ts";
 import { StarRefreshWorkflow } from "./sync/refresh-workflow.ts";
 
@@ -53,6 +54,9 @@ const HttpPlatformStub = Layer.succeed(HttpPlatform.HttpPlatform, {
  * uses. The `ALCHEMY_DEV` branch lives in the default export below.
  */
 const init = Effect.gen(function* () {
+  // spellings an operator may reasonably write for "on"; anything else is off,
+  // which is the fail-safe direction for a flag that costs AI neurons.
+  const SEMANTIC_ON_VALUES = new Set(["1", "true", "on", "yes"]);
   // Yield the bindings to attach them to this Worker, then read the raw
   // runtime handles from `WorkerEnvironment` (the same env accessor the
   // binding layers use). Calling `.raw` here would require `RuntimeContext`,
@@ -90,6 +94,23 @@ const init = Effect.gen(function* () {
     Config.withDefault(Redacted.make("")),
   );
 
+  // Informational sync logs are off unless the operator opts in; failures
+  // always emit (`STARWATCH_LOG_RUNS` is bound by this read, default "0").
+  const runLogs = yield* Config.string("STARWATCH_LOG_RUNS").pipe(Config.withDefault("0"));
+
+  configureRunLogs(runLogs === "1");
+
+  // Semantic search (README embeddings + per-account vector blobs) is opt-in and
+  // off by default: an off deployment answers keyword + metadata queries and
+  // never spends a Workers AI neuron or touches a `vectors/` R2 object. The AI
+  // and R2 bindings stay declared — they are free to declare, and keeping the
+  // service graph identical is what lets the flag be flipped by env alone.
+  const semanticSearch = SEMANTIC_ON_VALUES.has(
+    (yield* Config.string("STARWATCH_SEMANTIC_SEARCH").pipe(Config.withDefault("0")))
+      .trim()
+      .toLowerCase(),
+  );
+
   // Per-IP burst filters (docs/14 §3.2); the global budgets remain a DO
   // follow-up, so these bindings are the first line of defence.
   const searchRate = yield* Cloudflare.RateLimit("SEARCH_RATE", {
@@ -118,6 +139,7 @@ const init = Effect.gen(function* () {
     rawAi,
     githubToken: Redacted.value(githubToken),
     userAgent: `starwatch/${SERVICE_VERSION} (+https://starwatch.workers.dev)`,
+    semanticSearch,
   });
 
   const searchLayer = Layer.mergeAll(
@@ -175,10 +197,25 @@ export default Effect.gen(function* () {
   const isDev = yield* ALCHEMY_DEV;
 
   const workerProps: Cloudflare.WorkerProps = {
+    // The script name is the workers.dev hostname: `starwatch.coldter.workers.dev`.
+    name: "starwatch",
     main: import.meta.url,
     compatibility: {
       date: "2026-09-01",
       flags: ["nodejs_compat"],
+    },
+    observability: {
+      enabled: true,
+      // Keep every failure: error logs are the only channel left on, so losing
+      // one to sampling would blind the deployment.
+      headSamplingRate: 1,
+      logs: {
+        enabled: true,
+        // Automatic request logs are noise on a public API. Explicit
+        // `console.error` output (and `logRun` when STARWATCH_LOG_RUNS=1)
+        // is what Workers Logs keeps.
+        invocationLogs: false,
+      },
     },
   };
 

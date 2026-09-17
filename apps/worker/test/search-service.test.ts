@@ -117,6 +117,7 @@ const search = (input: Partial<SearchInput> & { readonly sort: SearchSort }) =>
       filters: {},
       offset: 0,
       limit: 50,
+      semanticSearch: true,
       ...input,
     });
 
@@ -203,6 +204,77 @@ describe("runSearch sort", () => {
   );
 });
 
+describe("runSearch with semantic search off", () => {
+  it.effect("serves a requested semantic mode as plain keyword results", () =>
+    seeded(
+      Effect.gen(function* () {
+        const response = yield* runSearch({
+          login: LOGIN,
+          query: "http client",
+          mode: "semantic",
+          sort: "relevance",
+          filters: {},
+          offset: 0,
+          limit: 50,
+          semanticSearch: false,
+        });
+
+        return response;
+      }),
+    ).pipe(
+      Effect.tap((response) =>
+        Effect.sync(() => {
+          // Off is configuration, not degradation: the answer is honestly
+          // keyword, no mode is claimed that this deployment cannot run, and
+          // the stubbed embedder / vector blob / R2 sidecar (each `Effect.die`)
+          // prove the semantic leg never started.
+          expect(response.mode).toBe("keyword");
+          expect(response.semanticCoverage).toBe(0);
+          expect(response.degraded).toBeUndefined();
+          expect(response.hits.map((hit) => hit.repo.id)).toEqual([3, 2, 1]);
+        }),
+      ),
+      Effect.provide(testLive()),
+    ),
+  );
+
+  it.effect("never reaches for a vector blob even when one would exist", () =>
+    seeded(
+      Effect.gen(function* () {
+        // Seed a published pointer for this account. If the off path consulted
+        // the vector side at all, the pointer would send it into the stubbed
+        // `getVectors`/`getIds`, whose `Effect.die` fails this test — the
+        // regression this case exists to catch.
+        const store = yield* RepoStore;
+
+        yield* store.putVectorBlob(LOGIN, 384, 384 * 4);
+
+        const response = yield* runSearch({
+          login: LOGIN,
+          query: "http client",
+          mode: "auto",
+          sort: "relevance",
+          filters: {},
+          offset: 0,
+          limit: 50,
+          semanticSearch: false,
+        });
+
+        return response;
+      }),
+    ).pipe(
+      Effect.tap((response) =>
+        Effect.sync(() => {
+          expect(response.mode).toBe("keyword");
+          expect(response.degraded).toBeUndefined();
+          expect(response.hits.length).toBeGreaterThan(0);
+        }),
+      ),
+      Effect.provide(testLive()),
+    ),
+  );
+});
+
 describe("runSearch browse", () => {
   it.effect("defaults a bare empty query to most recently starred", () =>
     seeded(search({ query: "", sort: "relevance" })).pipe(
@@ -233,6 +305,7 @@ describe("runSearch browse", () => {
           filters: {},
           offset: 0,
           limit: 2,
+          semanticSearch: true,
         });
 
         const second = yield* runSearch({
@@ -243,6 +316,7 @@ describe("runSearch browse", () => {
           filters: {},
           offset: 2,
           limit: 2,
+          semanticSearch: true,
         });
 
         const past = yield* runSearch({
@@ -253,6 +327,7 @@ describe("runSearch browse", () => {
           filters: {},
           offset: 3,
           limit: 2,
+          semanticSearch: true,
         });
 
         return {
@@ -288,6 +363,7 @@ describe("runSearch browse", () => {
           filters: {},
           offset: 0,
           limit: 50,
+          semanticSearch: true,
         });
 
         return response.hits.map((hit) => ({

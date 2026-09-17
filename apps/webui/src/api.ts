@@ -18,6 +18,7 @@ import {
  * untouched so hooks can ignore them.
  *
  * Contract (apps/worker builds against the same shapes):
+ *   GET  /api/health                           → { ok, service, version, semanticSearch }
  *   GET  /api/users/:login                     → { profile, state, groups }
  *   GET  /api/users/:login/search?…            → SearchResponse
  *   POST /api/users/:login/sync { full? }      → { started, phase }
@@ -25,6 +26,18 @@ import {
  *   GET  /api/users/:login/sync/events         → SSE of UserIndexState
  *   GET  /api/repos/:owner/:name               → { repo, groups }
  */
+
+export interface HealthPayload {
+  ok: boolean;
+  service: string;
+  version: string;
+  /**
+   * Whether this deployment builds and serves embeddings
+   * (`STARWATCH_SEMANTIC_SEARCH`). The server is the only source of truth: the
+   * UI must never offer a retrieval mode the API cannot answer.
+   */
+  semanticSearch: boolean;
+}
 
 export interface UserPayload {
   profile: UserProfile;
@@ -70,6 +83,13 @@ const RepoPayloadSchema = Schema.Struct({
 const SyncStartSchema = Schema.Struct({
   started: Schema.Boolean,
   phase: SyncPhase,
+});
+
+const HealthSchema = Schema.Struct({
+  ok: Schema.Boolean,
+  service: Schema.String,
+  version: Schema.String,
+  semanticSearch: Schema.Boolean,
 });
 
 export type ApiErrorKind =
@@ -282,6 +302,16 @@ export async function fetchUser(login: string, signal?: AbortSignal): Promise<Us
   const response = await request(userPath(login), { signal });
 
   return decodeResponse(UserPayloadSchema, response, "user");
+}
+
+/**
+ * Deployment capabilities, probed once per page load by
+ * `app/capabilities` — never per search.
+ */
+export async function fetchHealth(signal?: AbortSignal): Promise<HealthPayload> {
+  const response = await request("/api/health", { signal });
+
+  return decodeResponse(HealthSchema, response, "health");
 }
 
 export interface SearchQuery {

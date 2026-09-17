@@ -42,6 +42,7 @@ export const searchGroup = (deps: WorkerDeps) =>
           filters: parseFilters(query),
           offset: parseOffset(query.offset),
           limit: parseLimit(query.limit),
+          semanticSearch: deps.sync.semanticSearch,
         }).pipe(Effect.orDie, Effect.provide(deps.searchLayer));
       }),
     ),

@@ -1,5 +1,6 @@
 import type { Group, ListsInfo, UserIndexState } from "@starwatch/domain";
 import { Check, Layers } from "lucide-react";
+import { useSemanticSearch } from "@/app/capabilities";
 import { Button } from "@/components/motion/button/base";
 import { Loader } from "@/components/motion/loader";
 import { NumberTicker } from "@/components/motion/number-ticker";
@@ -163,7 +164,10 @@ export function BrowsePanel({
   onRefreshLists,
 }: BrowsePanelProps) {
   const entries = toEntries(groups);
-  const coverage = semanticCoverage(state);
+  // Nothing about vectors belongs in the rail when the deployment has none:
+  // the counter would read 0 forever and the coverage bar would never move.
+  const semanticSearch = useSemanticSearch();
+  const coverage = semanticSearch ? semanticCoverage(state) : 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -241,32 +245,36 @@ export function BrowsePanel({
             value={state.readmesFetched}
             hint="Repos whose README has been fetched."
           />
-          <IndexStat
-            label="Embedded"
-            value={state.semanticDocs}
-            hint="Repos with a semantic vector."
-          />
+          {semanticSearch ? (
+            <IndexStat
+              label="Embedded"
+              value={state.semanticDocs}
+              hint="Repos with a semantic vector."
+            />
+          ) : null}
         </dl>
 
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-baseline justify-between text-xs">
-            <span className="text-muted-foreground">Semantic coverage</span>
-            <span className="font-medium text-foreground tabular-nums">{coverage}%</span>
+        {semanticSearch ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="text-muted-foreground">Semantic coverage</span>
+              <span className="font-medium text-foreground tabular-nums">{coverage}%</span>
+            </div>
+            <div
+              role="progressbar"
+              aria-label="Semantic coverage"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={coverage}
+              className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            >
+              <span
+                className="block h-full rounded-full bg-live/80"
+                style={{ width: `${coverage}%` }}
+              />
+            </div>
           </div>
-          <div
-            role="progressbar"
-            aria-label="Semantic coverage"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={coverage}
-            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-          >
-            <span
-              className="block h-full rounded-full bg-live/80"
-              style={{ width: `${coverage}%` }}
-            />
-          </div>
-        </div>
+        ) : null}
       </section>
     </div>
   );

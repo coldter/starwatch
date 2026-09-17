@@ -14,6 +14,21 @@ that rebuild: read it before writing any file, and treat it as authoritative.
   `src/app/**` (shell), `src/router.tsx`, `src/routes/**`, `vite.config.ts`,
   `tsconfig.json`, `src/styles.css`.
 
+  **Documented carve-out — the semantic-search capability gate.** When the
+  worker was given a `STARWATCH_SEMANTIC_SEARCH` flag (default off), the UI had
+  to learn the capability from the server, so these files gained one capability
+  read each, through `useSemanticSearch()` from `@/app/capabilities`: `src/api.ts`
+  (`HealthPayload` + `fetchHealth`), `src/app/capabilities.tsx` (new:
+  `CapabilitiesProvider` / `useSemanticSearch`, mounted in `src/main.tsx`),
+  `src/app/CommandMenu.tsx` (hides the search-mode group), `src/lib/state.ts`
+  (`freshness`/`phaseLabel` take the flag), `src/routes/user.tsx` (mode
+  normalisation, gated auto-start and CTAs), and the presentational gates in
+  `src/components/common/Badges.tsx`, `src/features/search/{SearchToolbar,
+ResultSummary,SearchStates}.tsx`, `src/features/user/{IndexPanel,ProfileHeader,
+BrowsePanel}.tsx`, `src/features/landing/{LandingHero,HowItWorks,
+UserPreviewCard}.tsx`. No other rule here changes: this is the only sanctioned
+  reason to touch those paths.
+
 ### Local patches to vendored beUI
 
 Vendored files stay byte-identical to the registry except for these documented
@@ -104,25 +119,25 @@ truth, and this table is a pointer.
 
 ### Shared app components (already written — import, do not duplicate)
 
-| Import                            | API                                                                                                                                                                                                                                  |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@/components/common/Avatar`      | `Avatar({ login, name, src, size?, className? })`                                                                                                                                                                                    |
-| `@/components/common/LanguageDot` | `LanguageDot({ language, className? })`                                                                                                                                                                                              |
-| `@/components/common/RepoPreview` | `RepoPreview({ repo, className?, loading? })` — GitHub's 2:1 social preview; fades in when it arrives and removes itself when GitHub rate-limits or the repo has no preview                                                          |     |
-| `@/components/common/Badges`      | `FreshnessBadge({ state, now?, className? })`, `MatchBadge({ source })`, `ArchivedBadge({ className? })`, `CollectionChip({ name })`, `TopicChip({ children })`                                                                      |
-| `@/components/common/StatePanel`  | `StatePanel({ icon?, title, body?, tone?, children? })`, `ErrorPanel({ title, error, onRetry?, children? })`, `NoticeStrip({ icon?, children, tone?, action? })`, type `DisplayError = { message: string; detail?: string \| null }` |
-| `@/components/common/Skeletons`   | `Skeleton`, `ResultSkeleton`, `ResultSkeletonList`, `HeroSkeleton`                                                                                                                                                                   |
-| `@/components/common/Brand`       | `GitHubMark({ className? })`                                                                                                                                                                                                         |
-| `@/app/toast`                     | `useToast()` → `{ toast, info, success, error, loading, update, dismiss }`; e.g. `toast.success("Link copied", "…")`                                                                                                                 |
-| `@/hooks/useDocumentTitle`        | `useDocumentTitle(title)`                                                                                                                                                                                                            |
-| `@/lib/format`                    | `formatNumber`, `formatCompact`, `relativeTime`, `formatDate`, `formatDateTime`, `coveragePercent`, `percent`                                                                                                                        |
-| `@/lib/state`                     | `hasIndex`, `isActivePhase`, `isTerminalPhase`, `isStale`, `isMetadataOnly`, `exceedsStarCap`, `semanticWindow`, `semanticCoverage`, `phaseProgress`, `phaseLabel`, `freshness`                                                      |
-| `@/lib/languages`                 | `LANGUAGES`, `colorForLanguage`                                                                                                                                                                                                      |
-| `@/lib/repo-images`               | `ownerAvatarUrl(owner, size?)`, `ogImageUrl(repo)` — both derived from the login/name, so no schema or index change is needed                                                                                                        |     |
-| `@/lib/search-params`             | `SearchState`, `UserSearch`, `toggleGroup`, `hasActiveFilters`, `PAGE_SIZE`, `SEARCH_LIMIT`, `SORTS`, `SORT_LABELS`, `SORT_HINTS`, `DEFAULT_SORT`, `toSort`                                                                          |
-| `@/lib/recent`                    | `getRecentUsers()`, `rememberUser(login, name)`                                                                                                                                                                                      |
-| Data types                        | `@starwatch/domain`: `SearchHit`, `SearchResponse`, `SearchMode`, `Group`, `Repo`, `UserProfile`, `UserIndexState`, `SyncPhase`, `DegradedReason`                                                                                    |
-| API types                         | `@/api`: `ApiError`, `UserPayload`, `RepoPayload`                                                                                                                                                                                    |
+| Import                            | API                                                                                                                                                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@/components/common/Avatar`      | `Avatar({ login, name, src, size?, className? })`                                                                                                                                                                                     |
+| `@/components/common/LanguageDot` | `LanguageDot({ language, className? })`                                                                                                                                                                                               |
+| `@/components/common/RepoPreview` | `RepoPreview({ repo, className?, loading? })` — GitHub's 2:1 social preview; fades in when it arrives and removes itself when GitHub rate-limits or the repo has no preview                                                           |     |
+| `@/components/common/Badges`      | `FreshnessBadge({ state, now?, className? })`, `MatchBadge({ source })`, `ArchivedBadge({ className? })`, `CollectionChip({ name })`, `TopicChip({ children })`                                                                       |
+| `@/components/common/StatePanel`  | `StatePanel({ icon?, title, body?, tone?, children? })`, `ErrorPanel({ title, error, onRetry?, children? })`, `NoticeStrip({ icon?, children, tone?, action? })`, type `DisplayError = { message: string; detail?: string \| null }`  |
+| `@/components/common/Skeletons`   | `Skeleton`, `ResultSkeleton`, `ResultSkeletonList`, `HeroSkeleton`                                                                                                                                                                    |
+| `@/components/common/Brand`       | `GitHubMark({ className? })`                                                                                                                                                                                                          |
+| `@/app/toast`                     | `useToast()` → `{ toast, info, success, error, loading, update, dismiss }`; e.g. `toast.success("Link copied", "…")`                                                                                                                  |
+| `@/hooks/useDocumentTitle`        | `useDocumentTitle(title)`                                                                                                                                                                                                             |
+| `@/lib/format`                    | `formatNumber`, `formatCompact`, `relativeTime`, `formatDate`, `formatDateTime`, `coveragePercent`, `percent`                                                                                                                         |
+| `@/lib/state`                     | `hasIndex`, `isActivePhase`, `isTerminalPhase`, `isStale`, `isMetadataOnly`, `exceedsStarCap`, `semanticWindow`, `semanticCoverage`, `phaseProgress`, `phaseLabel(phase, semanticSearch?)`, `freshness(state, now?, semanticSearch?)` |
+| `@/lib/languages`                 | `LANGUAGES`, `colorForLanguage`                                                                                                                                                                                                       |
+| `@/lib/repo-images`               | `ownerAvatarUrl(owner, size?)`, `ogImageUrl(repo)` — both derived from the login/name, so no schema or index change is needed                                                                                                         |     |
+| `@/lib/search-params`             | `SearchState`, `UserSearch`, `toggleGroup`, `hasActiveFilters`, `PAGE_SIZE`, `SEARCH_LIMIT`, `SORTS`, `SORT_LABELS`, `SORT_HINTS`, `DEFAULT_SORT`, `toSort`                                                                           |
+| `@/lib/recent`                    | `getRecentUsers()`, `rememberUser(login, name)`                                                                                                                                                                                       |
+| Data types                        | `@starwatch/domain`: `SearchHit`, `SearchResponse`, `SearchMode`, `Group`, `Repo`, `UserProfile`, `UserIndexState`, `SyncPhase`, `DegradedReason`                                                                                     |
+| API types                         | `@/api`: `ApiError`, `UserPayload`, `RepoPayload`, `HealthPayload` (with `semanticSearch`, the capability flag)                                                                                                                       |
 
 ## 4b. Wire contracts the UI must not break
 
@@ -152,6 +167,17 @@ Two request shapes are load-bearing and were wrong before the rebuild:
   the full candidate count (every filtered star, or the fused match set for a
   query), which is what the pager counts; the worker clamps `offset` to a hard
   ceiling of 10,000.
+- **Semantic search is a deployment capability, not a client assumption.**
+  `GET /api/health` returns `semanticSearch`, and `useSemanticSearch()`
+  (`@/app/capabilities`) is the one place the UI reads it. When it is off the
+  mode segment row is **removed** (not disabled, the same shape browse mode
+  already ships), `ResultSummary` prints no mode and no coverage, the rail drops
+  the Embedded stat and the coverage bar, the "metadata only" badge and the
+  "Enable semantic search" card never render, the ⌘K palette has no search-mode
+  group, and `?mode=semantic|hybrid` is normalised away on the next navigation.
+  A `semantic|hybrid` request is still sent as keyword-safe state and the
+  response's own `mode` is authoritative. When the probe says on, today's UI is
+  unchanged.
 - **Active phases are claims that can go stale.** `runHeartbeat(state)` (in
   `@/lib/state`) measures `updatedAt`, which only progress writes advance; past
   5 minutes an active phase is shown as stalled with _Check again_ /
@@ -198,7 +224,13 @@ state, not an error state.
   `text-xs text-muted-foreground`; numbers `tabular-nums`.
 - Copy: sentence case, plain words, no exclamation marks, no marketing voice.
   Say what happened and what the user can do. Short labels on buttons
-  ("Search", "Index now", "Copy"), never "Click here".
+  ("Search", "Index now", "Copy"), never "Click here". With semantic search
+  off, no semantic-adjacent copy ships except the toolbar notice that says so
+  — `Semantic search is disabled on this deployment, so results come from
+names, descriptions, topics and READMEs.` — and the landing page's
+  keyword-only description: no "vector", "embedding", "meaning" or
+  "coverage" wording anywhere (the design-token phrase "semantic tokens" is
+  style vocabulary and stays).
 - Accessibility: every input has a label or `aria-label`; toggles expose
   `aria-pressed`; async status uses `aria-live`/`role="status"`; never encode
   meaning in color alone (pair the dot with the language name); text contrast

@@ -1,5 +1,6 @@
 import { Building2, MapPin, RefreshCw, Star, type LucideIcon } from "lucide-react";
 import { MAX_STARS, type UserIndexState, type UserProfile } from "@starwatch/domain";
+import { useSemanticSearch } from "@/app/capabilities";
 import { AnimatedBadge } from "@/components/motion/animated-badge";
 import { AnimatedNumber } from "@/components/motion/animated-number";
 import { Button } from "@/components/motion/button/base";
@@ -91,6 +92,9 @@ export function ProfileHeader({
   const active = isActivePhase(state.phase);
   const stale = isStale(state);
   const stars = state.starsTotal || state.reposMetadata;
+  // "Metadata only" is a gap only where vectors are expected; on a keyword-only
+  // deployment it is simply what the index is, so the badge never renders.
+  const semanticSearch = useSemanticSearch();
 
   // A run already in flight outranks the window: the buttons belong to it.
   const running = busy || active;
@@ -99,7 +103,9 @@ export function ProfileHeader({
 
   const primaryHint = blocked
     ? windowHint
-    : "Read this account's stars again. A stale index also refetches READMEs and rebuilds the semantic index.";
+    : semanticSearch
+      ? "Read this account's stars again. A stale index also refetches READMEs and rebuilds the semantic index."
+      : "Read this account's stars again. A stale index also refetches READMEs.";
 
   return (
     <header className="flex flex-col gap-4">
@@ -111,7 +117,7 @@ export function ProfileHeader({
               {profile.name ?? `@${profile.login}`}
             </h1>
             <FreshnessBadge state={state} />
-            {isMetadataOnly(state) ? (
+            {semanticSearch && isMetadataOnly(state) ? (
               <AnimatedBadge status="info" size="sm" contentKey="metadata-only">
                 metadata only
               </AnimatedBadge>

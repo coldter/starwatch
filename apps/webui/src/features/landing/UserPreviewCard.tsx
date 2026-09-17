@@ -1,5 +1,6 @@
 import { MAX_STARS } from "@starwatch/domain";
 import type { UserPayload } from "@/api";
+import { useSemanticSearch } from "@/app/capabilities";
 import { Avatar } from "@/components/common/Avatar";
 import { FreshnessBadge } from "@/components/common/Badges";
 import { AnimatedBadge } from "@/components/motion/animated-badge";
@@ -30,7 +31,8 @@ export function UserPreviewCard({ data, busy, primary, secondary }: UserPreviewC
   const { profile, state } = data;
   const displayName = profile.name ?? `@${profile.login}`;
   const stars = state.starsTotal || state.reposMetadata;
-  const metadataOnly = isMetadataOnly(state);
+  // Keyword-only deployments have no vectors to be missing (see ProfileHeader).
+  const metadataOnly = useSemanticSearch() && isMetadataOnly(state);
   const capped = exceedsStarCap(state);
 
   return (

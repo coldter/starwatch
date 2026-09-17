@@ -12,7 +12,7 @@ import {
   type StarRefreshResult,
 } from "./refresh-workflow.ts";
 import { workflowInstanceLive } from "./liveness.ts";
-import { elapsedMs, logRun } from "./log.ts";
+import { elapsedMs, logError, logRun } from "./log.ts";
 import { planRateLimitWait } from "./rate-limit.ts";
 import { describeGithubError, nowIso, patchState } from "./state.ts";
 
@@ -55,6 +55,29 @@ const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<Readonly
   return out;
 };
 
+/**
+ * Terminal write for a run that will not resume: the `failed`/`paused` phase
+ * plus the release of the account's owner record.
+ *
+ * The release is not bookkeeping. `claimRunInstance` is a conditional UPDATE on
+ * `run_instance_id`, so a finished run that keeps its id makes every later
+ * `POST /sync` lose the claim and leaves the account in an active phase that
+ * nothing owns — the worst case of the stalled-run story this pipeline spends
+ * so much code avoiding. Only terminal paths may call this: a run sleeping out
+ * a rate limit is still alive and keeps its id.
+ */
+const endRun = (
+  login: string,
+  phase: "failed" | "paused",
+  lastError: string,
+): Effect.Effect<void, never, RepoStore> =>
+  Effect.gen(function* () {
+    const repos = yield* RepoStore;
+
+    yield* patchState(login, { phase, lastError });
+    yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
+  });
+
 type PageOutcome =
   | { readonly kind: "fresh"; readonly ids: ReadonlyArray<number>; readonly stop: boolean }
   | { readonly kind: "not-modified" }
@@ -91,7 +114,7 @@ const makeListingBody = (
         );
 
         if (!fetched.ok) {
-          yield* patchState(login, { phase: "failed", lastError: fetched.message });
+          yield* endRun(login, "failed", fetched.message);
 
           return { ok: false as const, starsHint: 0 };
         }
@@ -133,7 +156,7 @@ const makeListingBody = (
           yield* repos
             .putListsInfo(login, { state: "error", error: fetched.message, checkedAt: nowIso() })
             .pipe(Effect.ignore);
-          logRun("starwatch.sync.listing.lists-skipped", {
+          logError("starwatch.sync.listing.lists-skipped", {
             login,
             phase: "listing",
             reason: fetched.message,
@@ -295,14 +318,14 @@ const makeListingBody = (
       );
 
       if (outcome.kind === "error") {
-        logRun("starwatch.sync.listing.paused", {
+        logError("starwatch.sync.listing.paused", {
           login,
           phase: "paused",
           page: pageNumber,
           reason: outcome.message,
           elapsedMs: elapsedMs(startedAt),
         });
-        yield* patchState(login, { phase: "paused", lastError: outcome.message });
+        yield* endRun(login, "paused", outcome.message);
 
         return { ok: false, reason: "github" };
       }
@@ -311,20 +334,20 @@ const makeListingBody = (
         if (outcome.waitMs === 0) {
           const message = `${outcome.message} (${outcome.reason}); retry later`;
 
-          logRun("starwatch.sync.listing.paused", {
+          logError("starwatch.sync.listing.paused", {
             login,
             phase: "paused",
             page: pageNumber,
             reason: outcome.reason,
             elapsedMs: elapsedMs(startedAt),
           });
-          yield* patchState(login, { phase: "paused", lastError: message });
+          yield* endRun(login, "paused", message);
 
           return { ok: false, reason: "rate-limit" };
         }
 
         rateLimitWaits += 1;
-        logRun("starwatch.sync.listing.rate-limit", {
+        logError("starwatch.sync.listing.rate-limit", {
           login,
           phase: "listing",
           page: pageNumber,
@@ -520,12 +543,12 @@ export class StarListingWorkflow extends Cloudflare.Workflow<StarListingWorkflow
       // The boundary is the only path that sees an *unhandled* failure, so it
       // is the one place that must log: without this a run that died inside a
       // step leaves a `failed` row and no explanation in Workers Logs.
-      logRun("starwatch.sync.listing.crashed", {
+      logError("starwatch.sync.listing.crashed", {
         login: input.login,
         phase: "failed",
         error: exit.cause.toString().slice(0, 200),
       });
-      yield* patchState(input.login, { phase: "failed", lastError: "listing failed" }).pipe(
+      yield* endRun(input.login, "failed", "listing failed").pipe(
         Effect.provide(deps.runLayers),
         Effect.ignore,
       );

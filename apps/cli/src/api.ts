@@ -60,6 +60,8 @@ export const HealthResponse = Schema.Struct({
   ok: Schema.Boolean,
   service: Schema.String,
   version: Schema.String,
+  /** Whether the deployment builds and serves embeddings (`STARWATCH_SEMANTIC_SEARCH`). */
+  semanticSearch: Schema.Boolean,
 });
 
 export type HealthResponse = typeof HealthResponse.Type;

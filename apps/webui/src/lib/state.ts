@@ -212,7 +212,11 @@ const PHASE_LABEL: Record<SyncPhase, string> = {
   paused: "Paused",
 };
 
-export function phaseLabel(phase: SyncPhase): string {
+export function phaseLabel(phase: SyncPhase, semanticSearch = true): string {
+  // A stored `embedding` row can outlive a flag flip: with semantic search off
+  // the run is simply finishing the README pass, not embedding anything.
+  if (!semanticSearch && phase === "embedding") return "Finishing indexing";
+
   return PHASE_LABEL[phase];
 }
 
@@ -220,12 +224,15 @@ export function phaseLabel(phase: SyncPhase): string {
 export function freshness(
   state: UserIndexState | null | undefined,
   now: number = Date.now(),
+  semanticSearch = true,
 ): Freshness {
   if (!state) {
     return {
       tone: "none",
       label: "Not indexed yet",
-      detail: "Indexing takes about 10 seconds for metadata; semantic search fills in after.",
+      detail: semanticSearch
+        ? "Indexing takes about 10 seconds for metadata; semantic search fills in after."
+        : "Indexing reads the public star list first; search works as soon as it lands.",
     };
   }
 
@@ -243,11 +250,17 @@ export function freshness(
         detail: "Metadata search already works; results get better as READMEs land.",
       };
     case "embedding":
-      return {
-        tone: "active",
-        label: `Indexing ${semanticCoverage(state)}%`,
-        detail: `Semantic covers ${formatNumber(state.semanticDocs)}/${formatNumber(semanticWindow(state))} repos (newest first).`,
-      };
+      return semanticSearch
+        ? {
+            tone: "active",
+            label: `Indexing ${semanticCoverage(state)}%`,
+            detail: `Semantic covers ${formatNumber(state.semanticDocs)}/${formatNumber(semanticWindow(state))} repos (newest first).`,
+          }
+        : {
+            tone: "active",
+            label: "Finishing indexing",
+            detail: "Wrapping up the run that was already in flight.",
+          };
     case "paused":
       return {
         tone: "paused",
@@ -268,17 +281,21 @@ export function freshness(
         return {
           tone: "none",
           label: "Not indexed yet",
-          detail:
-            "Metadata search in ~10 seconds. Semantic search fills in over the next few minutes.",
+          detail: semanticSearch
+            ? "Metadata search in ~10 seconds. Semantic search fills in over the next few minutes."
+            : "Indexing reads the public star list first; search works as soon as it lands.",
         };
       }
 
       const stale = isStale(state, now);
+      const stars = `${formatNumber(state.starsTotal)} ${plural(state.starsTotal, "star")}`;
 
       return {
         tone: stale ? "stale" : "fresh",
         label: `Indexed ${relativeTime(state.lastSyncedAt, now)}`,
-        detail: `${formatNumber(state.starsTotal)} ${plural(state.starsTotal, "star")} · semantic ${coveragePercent(semanticCoverage(state))}%${stale ? " — may be missing recent stars" : ""}`,
+        detail: semanticSearch
+          ? `${stars} · semantic ${coveragePercent(semanticCoverage(state))}%${stale ? " — may be missing recent stars" : ""}`
+          : `${stars}${stale ? " — may be missing recent stars" : ""}`,
       };
     }
   }

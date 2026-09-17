@@ -47,7 +47,11 @@ import { vectorIdsKey, VectorBlobFiles } from "../adapters/vector-bucket.ts";
  *                exact kNN over the *filtered* candidate set (docs/15 §4).
  *
  * A requested-but-unavailable semantic leg degrades to keyword-only with
- * `degraded: "keyword-only"` instead of failing (docs/08 §3.4).
+ * `degraded: "keyword-only"` instead of failing (docs/08 §3.4). A deployment
+ * with semantic search switched off (`STARWATCH_SEMANTIC_SEARCH`) is a
+ * different case: the mode is not offered at all, so no vector blob is read,
+ * no query is embedded, and nothing is stamped `degraded` — a keyword answer
+ * from a keyword-only deployment is the answer, not a degradation.
  *
  * `sort` (docs/07 §4) is applied *after* fusion, over the fused match set:
  *   * `relevance` — untouched RRF/boost order, per-leg top-50.
@@ -70,6 +74,8 @@ export interface SearchInput {
   /** Row offset for paging; the ordering covers `total` rows. */
   readonly offset: number;
   readonly limit: number;
+  /** This deployment builds/serves embeddings (`STARWATCH_SEMANTIC_SEARCH`). */
+  readonly semanticSearch: boolean;
 }
 
 /** Run an optional leg, degrading to `null` on any failure (never fatal). */
@@ -114,6 +120,10 @@ export const runSearch = (
     const sort: SearchSort = browse && input.sort === "relevance" ? "starred" : input.sort;
 
     const semanticRequested = !browse && input.mode !== "keyword";
+    // Accepted, never honoured: a bookmarked `?mode=semantic` (or an older
+    // client) must not 400, it must simply get keyword results back. `degraded`
+    // is reserved for a mode this deployment *does* offer but could not run.
+    const semanticEnabled = semanticRequested && input.semanticSearch;
     const hybridRequested = !browse && (input.mode === "auto" || input.mode === "hybrid");
 
     // Hard filters become the candidate set first: every leg is constrained to
@@ -194,7 +204,7 @@ export const runSearch = (
     let semanticDocs = 0;
     let semanticCoverage = 0;
 
-    if (semanticRequested) {
+    if (semanticEnabled) {
       const pointer = yield* repos.getVectorBlob(input.login);
 
       if (pointer !== null) {
@@ -316,7 +326,7 @@ export const runSearch = (
       semanticCoverage,
     };
 
-    if (semanticRequested && !semanticRan) {
+    if (semanticEnabled && !semanticRan) {
       response = { ...response, degraded: "keyword-only" };
     }
 

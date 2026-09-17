@@ -10,6 +10,7 @@
 
 - Covers requirements **R1–R7** (search) and fixes the defaults behind **R11–R13** (CLI / WebUI / MCP). If this contract and a requirement disagree, requirements win; if this contract and doc 01 disagree, **this contract wins** (it is later and testable).
 - One engine, three surfaces: CLI (v1), Web UI (v1), MCP (v2) call the same `SearchService`; filter names, defaults and result shape are identical everywhere (§4.5).
+- **Semantic is a deployment capability, not a given.** `GET /api/health` reports `semanticSearch` (`STARWATCH_SEMANTIC_SEARCH`, default off). When it is off, `mode=hybrid|semantic` are answered as keyword results with `mode: "keyword"`, `semanticCoverage: 0` and **no** `degraded` flag — a keyword answer from a keyword-only deployment is the answer, not a degradation — and `relevance` stays the keyword + expansion fusion. Nothing else in this contract changes, and stored vectors/README state survive the flip in both directions.
 - Corpus: **3,448 stars** (live 2026-09-13; earlier docs said 3,277 — a truncated pagination). Percentages below are from a live sample; use them as expectations, not exact counts.
 - Search only sees metadata + README text. No code, issues, releases, or wiki content ([00 §5](00-requirements.md)).
 - Every result is a repo (never a bare document/chunk). `similar <repo>` is the only mode without a text query.

@@ -1,4 +1,5 @@
 import { type FormEvent } from "react";
+import { useSemanticSearch } from "@/app/capabilities";
 import { Button } from "@/components/motion/button/base";
 import { Input } from "@/components/motion/input";
 import { Loader } from "@/components/motion/loader";
@@ -30,6 +31,8 @@ export function LandingHero({
   onSubmit,
   onPickSuggestion,
 }: LandingHeroProps) {
+  const semanticSearch = useSemanticSearch();
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSubmit(value);
@@ -58,7 +61,9 @@ export function LandingHero({
       </h1>
 
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-        Keyword and semantic search over names, descriptions, topics and READMEs.
+        {semanticSearch
+          ? "Keyword and semantic search over names, descriptions, topics and READMEs."
+          : "Keyword search over names, descriptions, topics and READMEs."}
       </p>
 
       <form

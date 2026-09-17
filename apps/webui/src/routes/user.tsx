@@ -29,6 +29,7 @@ import { IndexPanel } from "@/features/user/IndexPanel";
 import { ProfileHeader } from "@/features/user/ProfileHeader";
 import { useSearch, type SearchQueryState } from "@/hooks/useSearch";
 import { asApiError, refreshUserGroups } from "@/api";
+import { useSemanticSearch } from "@/app/capabilities";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useModalSurface } from "@/hooks/useModalSurface";
 import { useSearchShortcut } from "@/hooks/useSearchShortcut";
@@ -38,6 +39,7 @@ import { formatNumber, plural } from "@/lib/format";
 import {
   decodeRawSearchBag,
   DEFAULT_ARCHIVED,
+  DEFAULT_MODE,
   DEFAULT_SORT,
   normalizeUserSearch,
   PAGE_SIZE,
@@ -83,8 +85,30 @@ function UserSearchPage() {
   const search = useMemo(() => normalizeUserSearch(rawSearch), [rawSearch]);
   const navigate = userRoute.useNavigate();
   const toast = useToast();
+  const semanticSearch = useSemanticSearch();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLElement>(null);
+
+  /**
+   * Bring the result list into view after the reader asks for results.
+   * Submitting from far down a browse list — or paging on a long one —
+   * otherwise leaves the viewport on the previous page's tail, with the new
+   * first hit off screen.
+   *
+   * Every caller must navigate with `resetScroll: false`: the router's scroll
+   * restoration resets the window to the top after the new route renders,
+   * which would silently undo this a frame later.
+   */
+  const scrollToResults = useCallback(() => {
+    const target = resultsRef.current;
+
+    if (target === null) return;
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    target.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  }, []);
 
   useSearchShortcut();
 
@@ -143,9 +167,14 @@ function UserSearchPage() {
   const effectiveSort: SearchSort = searching ? search.sort : browseSort;
   const offset = (search.page - 1) * PAGE_SIZE;
 
+  // A bookmarked `?mode=semantic` on a keyword-only deployment is answered with
+  // keyword results: the mode is not offered here, and the response's own
+  // `mode` field is what the summary line reads.
+  const effectiveMode: SearchMode = semanticSearch ? search.mode : "keyword";
+
   const query: SearchQueryState = {
     q: search.q,
-    mode: search.mode,
+    mode: effectiveMode,
     sort: effectiveSort,
     lang: search.lang,
     groups: search.group,
@@ -161,22 +190,45 @@ function UserSearchPage() {
   searchRef.current = search;
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  const semanticRef = useRef(semanticSearch);
+  semanticRef.current = semanticSearch;
 
   // Filter and slider changes replace the current entry: dragging the stars
   // slider would otherwise push a history entry (and a search) per step, and
   // Back would walk the drag instead of leaving the page. A submitted query is
   // a deliberate navigation, so that one pushes.
-  const applyPatch = useCallback((patch: Partial<SearchState>, replace: boolean) => {
-    const next = { ...searchRef.current, ...patch };
-    void navigateRef.current({ search: toUrlSearch(next), replace });
-  }, []);
+  const applyPatch = useCallback(
+    (patch: Partial<SearchState>, replace: boolean, options?: { keepScroll?: boolean }) => {
+      const next = { ...searchRef.current, ...patch };
+
+      // Landing on a keyword-only deployment drops a stale `?mode=`: the next
+      // interaction rewrites the URL without a mode it can no longer honour.
+      if (!semanticRef.current) next.mode = DEFAULT_MODE;
+
+      void navigateRef.current({
+        search: toUrlSearch(next),
+        replace,
+        // `keepScroll` is for the actions that scroll the results into view
+        // themselves; the router's default reset-to-top would cancel them.
+        resetScroll: options?.keepScroll !== true,
+      });
+    },
+    [],
+  );
 
   const applyFilters = useCallback(
     (patch: Partial<SearchState>) => applyPatch({ ...patch, page: 1 }, true),
     [applyPatch],
   );
 
-  const onSubmitQuery = useCallback((q: string) => applyPatch({ q, page: 1 }, false), [applyPatch]);
+  const onSubmitQuery = useCallback(
+    (q: string) => {
+      applyPatch({ q, page: 1 }, false, { keepScroll: true });
+      scrollToResults();
+    },
+    [applyPatch, scrollToResults],
+  );
+
   const onMode = useCallback((mode: SearchMode) => applyFilters({ mode }), [applyFilters]);
 
   const onSort = useCallback((sort: SearchSort) => applyFilters({ sort }), [applyFilters]);
@@ -212,7 +264,13 @@ function UserSearchPage() {
     [applyFilters],
   );
 
-  const onPage = useCallback((page: number) => applyPatch({ page }, false), [applyPatch]);
+  const onPage = useCallback(
+    (page: number) => {
+      applyPatch({ page }, false, { keepScroll: true });
+      scrollToResults();
+    },
+    [applyPatch, scrollToResults],
+  );
 
   const onOpen = useCallback(
     (hit: SearchHit) => applyPatch({ repo: `${hit.repo.owner}/${hit.repo.name}` }, false),
@@ -394,7 +452,10 @@ function UserSearchPage() {
 
     const neverIndexed = !hasIndex(indexState);
 
+    // Only a deployment that builds vectors can be missing them; a keyword-only
+    // one would otherwise start a full pass on every query.
     const semanticMissing =
+      semanticSearch &&
       !neverIndexed &&
       indexState.semanticDocs === 0 &&
       (indexState.phase === "idle" || indexState.phase === "ready");
@@ -414,7 +475,7 @@ function UserSearchPage() {
     // 0); an existing metadata-only index needs the full pass, or the auto-start
     // would re-list and re-close the daily window without ever building vectors.
     handleStartSync({ full: semanticMissing });
-  }, [data, search.q, syncGate, syncPending, handleStartSync]);
+  }, [data, search.q, semanticSearch, syncGate, syncPending, handleStartSync]);
 
   // One refresh when the listing finishes, so early browsers and searchers see
   // the full set. Keyed by login: navigating between two users must not read the
@@ -482,7 +543,10 @@ function UserSearchPage() {
 
   const drawerRepo = lastRepoRef.current;
 
-  const semanticDocs = state?.semanticDocs ?? 0;
+  // The server already reports 0 when the deployment has no vectors; gating
+  // here as well keeps every downstream affordance honest even against a
+  // worker that still sends the stored count.
+  const semanticDocs = semanticSearch ? (state?.semanticDocs ?? 0) : 0;
   const indexPreparing = state !== null && (!hasIndex(state) || isActivePhase(state.phase));
   // No query is the default browse view; the collections rail rides beside it.
   const browsing = !searching;
@@ -595,7 +659,7 @@ function UserSearchPage() {
             value={search.q}
             busy={status === "loading" || status === "refreshing"}
             browsing={browsing}
-            mode={search.mode}
+            mode={effectiveMode}
             sort={effectiveSort}
             filterCount={countActiveFilters(search)}
             filtersOpen={filtersOpen}
@@ -635,7 +699,11 @@ function UserSearchPage() {
             )}
           >
             <section
-              className={cn("flex min-w-0 flex-col gap-4", browsing && "order-2 lg:order-1")}
+              ref={resultsRef}
+              className={cn(
+                "flex min-w-0 scroll-mt-20 flex-col gap-4",
+                browsing && "order-2 lg:order-1",
+              )}
               aria-labelledby="results-heading"
             >
               {/* The results column names itself, so the card headings below
@@ -691,7 +759,9 @@ function UserSearchPage() {
                   ) : searchError ? (
                     <SearchErrorPanel
                       error={searchError}
-                      canFallbackToKeyword={search.mode === "semantic" || search.mode === "hybrid"}
+                      canFallbackToKeyword={
+                        semanticSearch && (search.mode === "semantic" || search.mode === "hybrid")
+                      }
                       onRetry={retry}
                       onMode={onMode}
                     />
@@ -711,7 +781,7 @@ function UserSearchPage() {
                   hasLanguageFilter={search.lang !== undefined}
                   hasCollectionFilter={search.group.length > 0}
                   hasStarFilter={search.minStars !== undefined}
-                  canTrySemantic={semanticDocs > 0 && search.mode !== "semantic"}
+                  canTrySemantic={semanticSearch && semanticDocs > 0 && search.mode !== "semantic"}
                   onClearFilters={onClear}
                   onMode={onMode}
                 />

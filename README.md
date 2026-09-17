@@ -2,27 +2,27 @@
 
 ## _Toy Project ~~trying out effect-ts with cloudflare platform along side Pi agent with open weight models~~_
 
-Public search for GitHub stars. Enter any GitHub username and get full-text + semantic search over that user's public starred repositories — no login required.
+Public search for GitHub stars. Enter any GitHub username and get full-text search over that user's public starred repositories — no login required. Semantic (embedding) search is an opt-in extra, off by default: `STARWATCH_SEMANTIC_SEARCH=1`.
 
-**Stack:** TypeScript · [Effect](https://effect.website) · Cloudflare Workers (Alchemy) · D1 + Workers AI + R2
+**Stack:** TypeScript · [Effect](https://effect.website) · Cloudflare Workers (Alchemy) · D1 + R2 (Workers AI is declared for the deployment, but only called when semantic search is on)
 
 ## How it works
 
 1. **Enter a username** — the public star listing is fetched in seconds; metadata + keyword search is available immediately.
-2. **Eager-lazy indexing** — READMEs are fetched and embedded in the background; semantic results improve progressively while you search.
-3. **Search** — D1 FTS5 keyword search plus `bge-small-en-v1.5` embeddings ranked with weighted RRF, filtered by language, stars, topics, dates, archived state and **collections imported from the user's public GitHub Lists**.
+2. **Eager-lazy indexing** — READMEs are fetched in the background (and embedded too, when semantic search is on); results improve progressively while you search.
+3. **Search** — D1 FTS5 keyword search, filtered by language, stars, topics, dates, archived state and **collections imported from the user's public GitHub Lists**. With `STARWATCH_SEMANTIC_SEARCH=1`, `bge-small-en-v1.5` embeddings are ranked alongside it with weighted RRF.
 
 ## Repository layout
 
-| Path                  | Contents                                                                        |
-| --------------------- | ------------------------------------------------------------------------------- |
-| `apps/worker`         | Worker API (HttpApi), sync workflows, Alchemy stack                             |
-| `apps/webui`          | React 19 SPA — Vite, Tailwind v4, vendored beUI motion components               |
-| `apps/cli`            | Terminal client: `search`, `show`, `sync`, `status`, `groups`, `health`         |
-| `packages/core`       | Pure search and sync planning: FTS5 builder, expansion, RRF, ranking, star diff |
-| `packages/cloudflare` | D1/R2 storage, GitHub client, Workers AI embedder                               |
-| `packages/domain`     | Schema models and the static concept lexicon                                    |
-| `eval-lab`            | Local search-quality lab over a real 3,448-star corpus                          |
+| Path                  | Contents                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| `apps/worker`         | Worker API (HttpApi), sync workflows, Alchemy stack                                     |
+| `apps/webui`          | React 19 SPA — Vite, Tailwind v4, vendored beUI motion components                       |
+| `apps/cli`            | Terminal client: `search`, `show`, `sync`, `status`, `groups`, `health`                 |
+| `packages/core`       | Pure search and sync planning: FTS5 builder, expansion, RRF, ranking, star diff         |
+| `packages/cloudflare` | D1/R2 storage, GitHub client, Workers AI embedder (on deployments with semantic search) |
+| `packages/domain`     | Schema models and the static concept lexicon                                            |
+| `eval-lab`            | Local search-quality lab over a real 3,448-star corpus                                  |
 
 ## Development
 
@@ -30,7 +30,7 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 
 One command runs the whole stack: the Worker in **workerd** (D1/R2/Queues/Workflows simulators, hot reload, API on `:1337`) plus the WebUI Vite dev server (`:5173`, proxying `/api` to the Worker).
 
-Prerequisite — Cloudflare credentials, because Workers AI and the rate-limit bindings run live even in dev:
+Prerequisite — Cloudflare credentials, because the bindings (including Workers AI and the rate limiters) are declared in the Worker even in dev. Semantic search itself is off unless `STARWATCH_SEMANTIC_SEARCH=1`:
 
 ```bash
 # interactive (recommended)
@@ -97,10 +97,10 @@ pnpm --filter @starwatch/eval-lab run eval       # measured quality lab (real co
 ### Deploy to Cloudflare
 
 ```bash
-pnpm deploy       # builds the WebUI, then runs alchemy deploy
+pnpm run deploy   # builds the WebUI, then runs alchemy deploy
 ```
 
-Credentials + `GITHUB_TOKEN` from the local-dev setup apply here too.
+Credentials + `GITHUB_TOKEN` from the local-dev setup apply here too. Semantic search is off unless `apps/worker/.env` sets `STARWATCH_SEMANTIC_SEARCH=1` (see [docs/19](docs/19-implementation-status.md#semantic-search-is-optional)).
 
 **Status:** MVP implemented — worker API + Tier-0/Tier-1 Workflows, CLI, WebUI, `alchemy dev` loop. See [docs/19-implementation-status.md](docs/19-implementation-status.md) for test counts, verification results and known gaps.
 

@@ -1,6 +1,7 @@
 import { Inbox, LoaderCircle, SearchX } from "lucide-react";
 import type { SearchMode } from "@starwatch/domain";
 import type { ApiError } from "@/api";
+import { useSemanticSearch } from "@/app/capabilities";
 import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shimmer";
 import { ErrorPanel, StatePanel } from "@/components/common/StatePanel";
 import { Button, ButtonLink } from "@/components/motion/button/base";
@@ -77,6 +78,8 @@ export function NoResultsPanel({
   onMode,
 }: NoResultsPanelProps) {
   const filterActive = hasLanguageFilter || hasCollectionFilter || hasStarFilter;
+  // Naming "another search mode" is only advice where a mode choice exists.
+  const semanticSearch = useSemanticSearch();
 
   return (
     <StatePanel
@@ -85,7 +88,9 @@ export function NoResultsPanel({
       body={
         filterActive
           ? "Filters are narrowing these results."
-          : "Try fewer or shorter words, or another search mode."
+          : semanticSearch
+            ? "Try fewer or shorter words, or another search mode."
+            : "Try fewer or shorter words."
       }
     >
       {filterActive ? (

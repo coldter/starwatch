@@ -39,6 +39,8 @@ export const Health = Schema.Struct({
   ok: Schema.Boolean,
   service: Schema.String,
   version: Schema.String,
+  /** Whether this deployment builds and serves embeddings (`STARWATCH_SEMANTIC_SEARCH`). */
+  semanticSearch: Schema.Boolean,
 });
 
 const LoginParams = Schema.Struct({ login: Schema.String });

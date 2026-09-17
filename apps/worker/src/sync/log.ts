@@ -1,32 +1,56 @@
 import type { SyncPhase } from "@starwatch/domain";
 
 /**
- * Minimal run logging for the sync workflows (docs/08 §2.5).
+ * Minimal run logging for the sync path (docs/08 §2.5).
  *
- * One JSON line per event on `console.log`, which Workers Logs captures and
- * `wrangler tail` streams. The point is to answer "where is this run?" from a
- * log search alone: every line carries the login, the phase, the step name and
- * the counters, and rate-limit waits carry what GitHub told us.
+ * Two levels, deliberately tiny:
  *
- * Deliberately tiny: no levels, no sinks, no allocation beyond the line itself
- * — the free tier's log budget is real, so call sites stay coarse (start,
- * wait, page/batch summaries, finalize, failure).
+ * - `logRun` — informational progress (start, page/batch summaries, finalize).
+ *   **Off by default** so a public deployment's Workers Logs carries failures
+ *   instead of a line per page and per README batch. `STARWATCH_LOG_RUNS=1`
+ *   turns it on for a debugging run.
+ * - `logError` — failures: GitHub limits, refused admissions, paused or
+ *   crashed runs, partial-batch recoveries. Always emitted on `console.error`,
+ *   which Workers Logs captures and `wrangler tail` streams even when the
+ *   informational channel is off.
+ *
+ * One JSON line per event: every line carries the login, the phase, the step
+ * name and the counters, so a log search alone can answer "where is this run?"
+ * — no sink, no level framework, no allocation beyond the line itself.
  */
+
+let infoEnabled = false;
+
+/** Set once per isolate from the `STARWATCH_LOG_RUNS` binding (worker init). */
+export const configureRunLogs = (enabled: boolean): void => {
+  infoEnabled = enabled;
+};
 
 /** Scalar fields only: anything worth logging is a string, number or boolean. */
 export type LogFields = Readonly<Record<string, string | number | boolean | null>>;
 
-/** Event names are dotted and greppable: `starwatch.sync.page`. */
-export const logRun = (
-  event: string,
-  fields: LogFields & { readonly login: string; readonly phase: SyncPhase },
-): void => {
+type RunFields = LogFields & { readonly login: string; readonly phase: SyncPhase };
+
+const emit = (level: "info" | "error", event: string, fields: RunFields): void => {
   try {
-    console.log(JSON.stringify({ event, at: new Date().toISOString(), ...fields }));
+    const line = JSON.stringify({ event, level, at: new Date().toISOString(), ...fields });
+
+    if (level === "error") console.error(line);
+    else console.log(line);
   } catch {
     // Logging must never break a run (circular value, huge string, …).
   }
 };
+
+/** Informational progress; a no-op unless `STARWATCH_LOG_RUNS=1`. */
+export const logRun = (event: string, fields: RunFields): void => {
+  if (!infoEnabled) return;
+
+  emit("info", event, fields);
+};
+
+/** Failures reach Workers Logs even when informational logs are off. */
+export const logError = (event: string, fields: RunFields): void => emit("error", event, fields);
 
 /** Milliseconds since a start stamp, rounded — every line reports its cost. */
 export const elapsedMs = (startedAt: number): number => Date.now() - startedAt;

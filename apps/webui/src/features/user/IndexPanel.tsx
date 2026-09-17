@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Clock, Sparkles } from "lucide-react";
 import type { SyncPhase, UserIndexState } from "@starwatch/domain";
+import { useSemanticSearch } from "@/app/capabilities";
 import { AgentProgress } from "@/components/agents/loading-states/agent-progress";
 import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shimmer";
 import { TodoList, type TodoItem, type TodoItemStatus } from "@/components/agents/todo-list";
@@ -62,21 +63,23 @@ function useObservedSeconds(active: boolean, phase: SyncPhase): number {
   return seconds;
 }
 
-/** Position of an active phase in the three-step pipeline, 0..2. */
-function phaseStep(phase: SyncPhase): number {
+/** Position of an active phase in the pipeline: metadata → READMEs → [vectors]. */
+function phaseStep(phase: SyncPhase, semanticSearch: boolean): number {
   switch (phase) {
     case "fetching-readmes":
       return 1;
+    // A stored `embedding` row can outlive a flag flip; without semantic search
+    // the run is finishing the README pass, which is the last step there is.
     case "embedding":
-      return 2;
+      return semanticSearch ? 2 : 1;
     default:
       return 0;
   }
 }
 
 /** A step is done once a later phase is running, live on the current phase. */
-function stepStatus(phase: SyncPhase, step: number): TodoItemStatus {
-  const current = phaseStep(phase);
+function stepStatus(phase: SyncPhase, step: number, semanticSearch: boolean): TodoItemStatus {
+  const current = phaseStep(phase, semanticSearch);
 
   if (step < current) return "completed";
 
@@ -105,8 +108,8 @@ function stepDetail(step: PipelineStep): string {
   return `${formatNumber(step.done)} of ${formatNumber(step.total)}`;
 }
 
-/** The three sync stages with their real counters, mapped to `TodoList` items. */
-function pipelineItems(state: UserIndexState): TodoItem[] {
+/** The sync stages with their real counters, mapped to `TodoList` items. */
+function pipelineItems(state: UserIndexState, semanticSearch: boolean): TodoItem[] {
   const steps: PipelineStep[] = [
     {
       id: "metadata",
@@ -120,18 +123,23 @@ function pipelineItems(state: UserIndexState): TodoItem[] {
       done: state.readmesFetched,
       total: state.starsTotal,
     },
-    {
+  ];
+
+  // The third step only exists on deployments that build vectors; a two-step
+  // list is the whole pipeline when semantic search is off.
+  if (semanticSearch) {
+    steps.push({
       id: "semantic",
       title: "Build the semantic index",
       done: state.semanticDocs,
       total: semanticWindow(state),
-    },
-  ];
+    });
+  }
 
   const items: TodoItem[] = [];
 
   for (const [index, step] of steps.entries()) {
-    const status = stepStatus(state.phase, index);
+    const status = stepStatus(state.phase, index, semanticSearch);
 
     if (status === "in-progress") {
       items.push({
@@ -222,12 +230,16 @@ export function IndexPanel({
 }: IndexPanelProps) {
   const active = isActivePhase(state.phase);
   const elapsedSeconds = useObservedSeconds(active, state.phase);
+  const semanticSearch = useSemanticSearch();
 
   if (active) {
     return (
       <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:p-5">
-        <AgentProgress label={phaseLabel(state.phase)} elapsedSeconds={elapsedSeconds} />
-        <TodoList title="Indexing steps" items={pipelineItems(state)} />
+        <AgentProgress
+          label={phaseLabel(state.phase, semanticSearch)}
+          elapsedSeconds={elapsedSeconds}
+        />
+        <TodoList title="Indexing steps" items={pipelineItems(state, semanticSearch)} />
         {stall === "none" ? (
           <ThinkingShimmer>Search works during indexing.</ThinkingShimmer>
         ) : (
@@ -287,7 +299,10 @@ export function IndexPanel({
   }
 
   const settled = state.phase === "idle" || state.phase === "ready";
-  const needsSemantic = isMetadataOnly(state) || (state.semanticDocs === 0 && settled);
+
+  const needsSemantic =
+    semanticSearch && (isMetadataOnly(state) || (state.semanticDocs === 0 && settled));
+
   const staleError = settled && state.lastError !== null;
 
   if (!needsSemantic && !staleError) return null;
