@@ -4,6 +4,7 @@ import { R2VectorBlobStore, VectorBlobStore } from "@starwatch/cloudflare/storag
 import { ALCHEMY_DEV } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -28,7 +29,12 @@ import { usersGroup } from "./handlers/users.ts";
 import { Bucket, Database } from "./resources.ts";
 import { configureRunLogs } from "./sync/log.ts";
 import { StarListingWorkflow } from "./sync/listing-workflow.ts";
-import { StarRefreshWorkflow } from "./sync/refresh-workflow.ts";
+import {
+  StarRefreshWorkflow,
+  RefreshSelf,
+  type StarRefreshInput,
+  type StarRefreshResult,
+} from "./sync/refresh-workflow.ts";
 
 /**
  * `HttpApiBuilder` needs an `HttpPlatform` service at construction time. The
@@ -149,11 +155,29 @@ const init = Effect.gen(function* () {
     layerVectorBlobFiles(rawBucket),
   );
 
-  // Yielding the workflow class runs its init once per isolate and returns
-  // the start/inspect handle used by `POST /api/users/:login/sync`.
+  // Yielding a workflow class runs its init once per isolate and returns the
+  // start/inspect handle used by `POST /api/users/:login/sync`.
   // `provideService` (not `provide`) avoids a Scope requirement in init.
-  const listing = yield* StarListingWorkflow.pipe(Effect.provideService(SyncDeps, sync));
-  const refresh = yield* StarRefreshWorkflow.pipe(Effect.provideService(SyncDeps, sync));
+  //
+  // The refresh chain starts its own successor, so the refresh body needs the
+  // handle this init is about to resolve. A workflow cannot ask for its own
+  // handle — a class cannot resolve itself — so the worker hands it back through
+  // a deferred it fills in as soon as the class exists, before any instance can
+  // run. The deferred is created first because the *listing* resolves the
+  // refresh class at init (to chain into it) and inherits its requirements.
+  const refreshSelf =
+    yield* Deferred.make<Cloudflare.WorkflowHandle<StarRefreshInput, StarRefreshResult>>();
+
+  const provideInitDeps = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.provideService(SyncDeps, sync),
+      Effect.provideService(RefreshSelf, refreshSelf),
+    );
+
+  const listing = yield* provideInitDeps(StarListingWorkflow);
+  const refresh = yield* provideInitDeps(StarRefreshWorkflow);
+
+  yield* Deferred.succeed(refreshSelf, refresh);
 
   const deps: WorkerDeps = {
     sync,

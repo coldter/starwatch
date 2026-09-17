@@ -1,33 +1,54 @@
 import { describe, expect, it } from "@effect/vitest";
-import { MERGE_FAN_IN, README_FETCH_BATCH, README_PROGRESS_EVERY } from "../src/constants.ts";
+import { MERGE_FAN_IN, README_FETCH_BATCH } from "../src/constants.ts";
 import {
   vectorBlobBinKey,
   vectorIdsKey,
   vectorMergeBaseKey,
   vectorPartBaseKey,
 } from "../src/adapters/vector-bucket.ts";
-import { refreshStepBudget } from "../src/sync/refresh-workflow.ts";
+import {
+  README_BATCHES_PER_INSTANCE,
+  refreshChainStepBudget,
+  refreshSliceId,
+  refreshSliceStepBudget,
+} from "../src/sync/refresh-workflow.ts";
 
 /**
- * The refresh workflow's two structural budgets: how many steps one run costs
- * (it must stay under the per-instance cap) and which R2 keys its scratch
- * objects live at (two overlapping runs must not collide).
+ * The refresh chain's structural budgets: steps per instance (the free plan caps
+ * a workflow instance at 1,024) and per chained run, plus the instance ids the
+ * chain hands work to — and which R2 keys its scratch objects live at (two
+ * overlapping runs must not collide).
  */
 
-describe("refreshStepBudget", () => {
-  it("counts plan, batches, retries, heartbeats, merges and finalize", () => {
+describe("refreshSliceStepBudget", () => {
+  it("counts the plan, the batch, the worst-case waits and the hand-off", () => {
+    // 1 plan + 1 batch + 2 rate-limit waits (sleep + retry, the worst case is
+    // per run) + 1 hand-off.
+    expect(refreshSliceStepBudget(1)).toBe(1 + 1 + 4 + 1);
+  });
+
+  it("advances by at least one batch, so the chain always terminates", () => {
+    expect(README_BATCHES_PER_INSTANCE).toBeGreaterThanOrEqual(1);
+  });
+
+  it("stays far under the 1,000-step per-instance cap", () => {
+    expect(refreshSliceStepBudget(1)).toBeLessThan(1_000);
+  });
+
+  it("budgets an empty slice as plan plus close", () => {
+    expect(refreshSliceStepBudget(0, 0)).toBe(2);
+  });
+});
+
+describe("refreshChainStepBudget", () => {
+  it("counts one instance per batch, the run's waits, heartbeats and merges", () => {
     const repos = 1_500;
     const batches = Math.ceil(repos / README_FETCH_BATCH);
 
     expect(batches).toBe(188);
-    // 1 plan + 188 batches + 2 rate-limit waits (each a sleep step) + 2 retry
-    // attempts + 47 heartbeats + 5 fan-in merges + 1 finalize.
-    expect(refreshStepBudget(repos)).toBe(1 + 188 + 4 + 47 + 5 + 1);
-  });
-
-  it("stays well under the 1,000-step per-instance cap for a full window", () => {
-    expect(refreshStepBudget(1_500)).toBeLessThan(1_000);
-    expect(refreshStepBudget(1_500)).toBe(246);
+    // 188 instances × (plan + batch + hand-off) + 2 waits × 2 steps
+    // + 47 heartbeats (one per 4 batches) + 5 fan-in merges.
+    expect(refreshChainStepBudget(repos)).toBe(188 * 3 + 4 + 47 + 5);
   });
 
   it("adds no merge level when the parts already fit the fan-in width", () => {
@@ -36,13 +57,28 @@ describe("refreshStepBudget", () => {
     expect(batches).toBe(40);
     // The merge loop only runs while `parts > MERGE_FAN_IN`, so a window whose
     // parts exactly fill one merge costs no merge step at all.
-    expect(refreshStepBudget(batches * README_FETCH_BATCH)).toBe(
-      1 + batches + 4 + Math.floor(batches / README_PROGRESS_EVERY) + 1,
-    );
+    expect(refreshChainStepBudget(batches * README_FETCH_BATCH)).toBe(40 * 3 + 4 + 10);
   });
 
-  it("still budgets the fixed steps for an empty window", () => {
-    expect(refreshStepBudget(0)).toBe(2);
+  it("buys a handful of full windows inside a day's step budget", () => {
+    // Free plan: 3,000 steps/day (docs/13 §2). This is the number that decides
+    // how many accounts a day the deployment can index.
+    expect(refreshChainStepBudget(1_500)).toBeLessThan(3_000);
+    expect(Math.floor(3_000 / refreshChainStepBudget(1_500))).toBe(4);
+  });
+});
+
+describe("refreshSliceId", () => {
+  it("stays inside the 100-character instance-id limit", () => {
+    const login = "a".repeat(39);
+    const id = refreshSliceId(login, "b".repeat(36), 9_999);
+
+    expect(id.length).toBeLessThanOrEqual(100);
+  });
+
+  it("is unique per slice and stable for a run", () => {
+    expect(refreshSliceId("alice", "run-a", 0)).not.toBe(refreshSliceId("alice", "run-a", 8));
+    expect(refreshSliceId("alice", "run-a", 8)).toBe(refreshSliceId("alice", "run-a", 8));
   });
 });
 

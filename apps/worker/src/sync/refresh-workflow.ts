@@ -14,11 +14,14 @@ import {
 import { repoEmbeddingText } from "@starwatch/cloudflare/ai";
 import { README_MAX_CHARS, RepoStore, UserFts } from "@starwatch/cloudflare/storage";
 import * as Cloudflare from "alchemy/Cloudflare";
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import { SyncDeps } from "../deps.ts";
 import { MERGE_FAN_IN, README_FETCH_BATCH, README_PROGRESS_EVERY } from "../constants.ts";
+import { workflowInstanceLive } from "./liveness.ts";
 import { elapsedMs, logError, logRun } from "./log.ts";
 import { MAX_RATE_LIMIT_WAITS, planRateLimitWait, type RateLimitWait } from "./rate-limit.ts";
 import { describeGithubError, nowIso, patchState } from "./state.ts";
@@ -45,24 +48,35 @@ import {
  *     re-embeds exactly what changed meanwhile, and the R2 objects and the
  *     stored `semantic_docs` are left exactly as the last on-run wrote them.
  *
- * Free-tier step math (per invocation, docs/13 §1):
- *   * external subrequests ≤ 50 → README_FETCH_BATCH (8) × 6 worst-case raw
- *     probes/REST fallback = 48. D1 and R2 calls are Cloudflare-service
- *     subrequests, budgeted separately.
+ * **One run, many instances.** The free plan caps external subrequests per
+ * Workflow *instance* at 50 (docs/13 §2), and the cap counts per instance, not
+ * per invocation: it does not reset on `sleep`, and `limits.subrequests` is a
+ * paid-plan setting. One batch can spend `README_FETCH_BATCH` (8) × 6 (five raw
+ * candidates plus the REST fallback per repo) = 48, so a single batch is the
+ * largest slice that provably fits. A run is therefore a chain: the first
+ * instance plans it ({@link StarRefreshRun}) and executes the first slice, each
+ * later instance executes {@link README_BATCHES_PER_INSTANCE} more and starts
+ * its successor, and the instance that finds nothing left merges the run's parts
+ * and finalizes it. The plan travels with the chain, so no slice re-plans — and
+ * no slice sees its own `pending` writes reshuffle the work.
+ *
+ * Free-tier budget per instance (docs/13 §1):
+ *   * external subrequests ≤ 50 → one batch: 8 × 6 = 48 worst case, see above.
+ *     D1 and R2 calls are Cloudflare-service subrequests, budgeted separately.
  *   * D1 queries ≤ 50 → per 8-repo batch: 1 `getRepos` + 1 `getReadmeTexts`
  *     + 8 `putReadme` + ≤6 FTS upsert statements ≈ 16.
  *   * AI: one `embed` call per non-empty batch (≤32 texts, one subrequest).
  *   * R2: 2 puts per batch (part `.bin` + `.ids.json`).
  *
- * Step count for a full 1,500-repo window (see {@link refreshStepBudget}):
- *   1 plan + 188 README batches (1,500 ÷ 8) + ≤2 rate-limit retries (the wait
- *   budget is per *run*, so two waits buy at most two extra batch attempts)
- *   + 47 heartbeats (every `README_PROGRESS_EVERY` batches, last one always)
- *   + 5 fan-in merges + 1 finalize = **244**, against the 1,000-step cap. A
- *   batch that hits a GitHub limit retries in place after a bounded wait
- *   (docs/03 §1.3): the wait is one `step.sleep` (2 steps per retry with the
- *   attempt), and a batch that hits our own ceiling is skipped rather than
- *   retried, so its step is counted once.
+ * Step count: one instance is `1 plan + 1 batch + 1 hand-off`, plus a heartbeat
+ * in every fourth instance and up to 4 wait steps if GitHub limits the run — 8
+ * at worst, against the 1,024-step cap ({@link refreshSliceStepBudget}); a full
+ * 1,500-repo window is 188 instances plus the run's waits, its 47 heartbeats and
+ * the final instance's 5 fan-in merges ({@link refreshChainStepBudget}). A batch
+ * that hits a GitHub limit retries in place after a bounded wait (docs/03 §1.3):
+ * the wait is one `step.sleep` (2 steps per retry with the attempt), and a batch
+ * that hits our own ceiling is skipped rather than retried, so its step is
+ * counted once.
  */
 
 export interface StarRefreshInput {
@@ -74,6 +88,64 @@ export interface StarRefreshInput {
    * same token and therefore the same part/merge keys.
    */
   readonly runId?: string;
+  /**
+   * The run this instance is a slice of. Absent on the first instance of a
+   * chain — the one that plans — present on every other (see
+   * {@link StarRefreshRun}).
+   */
+  readonly run?: StarRefreshRun;
+}
+
+/**
+ * One tier-1 run, carried by the chain of instances that executes it.
+ *
+ * The first instance plans the run and starts a successor with this value when
+ * batches are left; each successor runs its slice and hands the remainder on.
+ * Carrying the plan, instead of letting every slice re-plan from D1, is what
+ * keeps the chain on one set of batches: a slice's own writes flip rows to
+ * `pending` — which the planner reads as work — so a chain that re-planned would
+ * have to assume its second reading of D1 agreed with its first.
+ */
+export interface StarRefreshRun {
+  /** Every batch of the run, in plan order; the first `done` are already run. */
+  readonly batches: ReadonlyArray<ReadonlyArray<number>>;
+  /**
+   * R2 scratch namespace and instance-id stem for the whole chain, minted by the
+   * first instance (`runTokenOf`) and carried from there.
+   */
+  readonly runToken: string;
+  /** Batches earlier instances of the chain have executed. */
+  readonly done: number;
+  /** The run's semantic window (`plan.windowIds`); read by the final instance. */
+  readonly windowIds: ReadonlyArray<number>;
+  /** Account vectors published before this run (semantic dirty check). */
+  readonly publishedIds: ReadonlyArray<number>;
+  /**
+   * Resolved once, by the run's first instance: a redeploy that flips
+   * `STARWATCH_SEMANTIC_SEARCH` mid-chain must not make a later slice embed (or
+   * skip) work the run's own finalize disagrees with.
+   */
+  readonly semantic: boolean;
+  /**
+   * Run-wide counters. They bound the *run*, not the instance (`MAX_RATE_LIMIT_WAITS`,
+   * `MAX_TIMED_OUT_BATCHES`, `MAX_UNAVAILABLE_READMES`), so every slice inherits
+   * them and hands them back. A chain that reset them per instance would let a
+   * rate-limited or unreachable GitHub be waited on — or silently tolerated —
+   * once per batch and still call the run finished.
+   */
+  readonly waits: number;
+  readonly timedOutBatches: number;
+  readonly unavailable: number;
+  /** The first dropped connection, kept for the failure message. */
+  readonly unavailableError: string | null;
+  /** Vectors this run embedded so far, across its slices. */
+  readonly embedded: number;
+  /**
+   * Part bases earlier instances wrote, for the final merge. Empty with
+   * semantic search off — off batches write no parts — and carried regardless:
+   * a flag flipped mid-chain can leave parts from the instance that planned it.
+   */
+  readonly partBases: ReadonlyArray<string>;
 }
 
 /** What one tier-1 refresh run reports back (workflow instance output). */
@@ -177,6 +249,22 @@ const MAX_TIMED_OUT_BATCHES = 8;
  */
 const MAX_UNAVAILABLE_READMES = 8;
 
+/**
+ * README batches one refresh instance runs.
+ *
+ * The free plan caps external subrequests **per Workflow instance** at 50, and
+ * that cap is not per invocation: sleeping does not reset it, and
+ * `limits.subrequests` is a paid-plan setting (docs/13 §2). One batch can spend
+ * `README_FETCH_BATCH` (8) × 6 (five raw candidates plus the REST fallback per
+ * repo) = 48, so a batch is the largest slice that provably fits. Raising this
+ * means shrinking the per-repo request count first — the slice, not the batch,
+ * is what the cap really bounds.
+ *
+ * It must stay ≥ 1: the hand-off cursor advances by one slice, so a zero-length
+ * slice would make the chain start itself forever (asserted in the budget test).
+ */
+export const README_BATCHES_PER_INSTANCE = 1;
+
 interface FinalizeOutcome {
   readonly ok: boolean;
   readonly semanticDocs: number;
@@ -211,6 +299,23 @@ const readPart = (
   });
 
 /**
+ * This workflow's own handle, filled in by the worker once the class is
+ * resolved.
+ *
+ * The chain starts its own successor, so the body needs the handle of the
+ * workflow it runs inside. A class cannot resolve itself — the runtime hands it
+ * the handle through `WorkflowScope`, whose service type is *not* part of
+ * `WorkflowServices`, so requiring it there leaks into the stack's own
+ * requirements — and a sibling class cannot express it either: each would need
+ * the other's handle at init. The worker already resolves this handle, so it
+ * passes it back through a deferred that the body awaits as it runs.
+ */
+export class RefreshSelf extends Context.Service<
+  RefreshSelf,
+  Deferred.Deferred<Cloudflare.WorkflowHandle<StarRefreshInput, StarRefreshResult>>
+>()("starwatch/RefreshSelf") {}
+
+/**
  * R2 scratch keys embed the run token, so it must be a path-safe label: the
  * listing's `requestId` is a UUID, and the minted fallback is one too.
  */
@@ -222,6 +327,18 @@ const runTokenOf = (input: StarRefreshInput): string => {
   // to prevent.
   return sanitized.length > 0 ? sanitized : crypto.randomUUID();
 };
+
+/**
+ * Instance id for the slice that starts at batch `done`.
+ *
+ * Deterministic, so a replayed hand-off finds the instance it already created
+ * instead of starting a second chain (see the hand-off: `create` + liveness
+ * probe). The token is cut to 36 characters — enough for a UUID — so the id
+ * stays inside the 100-character limit with a maximum-length login (39) in
+ * front.
+ */
+export const refreshSliceId = (login: string, runToken: string, done: number): string =>
+  `refresh-${login}-${runToken.slice(0, 36)}-b${done}`;
 
 /**
  * One refresh batch part, or `null` when the object is gone. `null` is always a
@@ -383,6 +500,7 @@ const idsThrough = (
 const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
   input: StarRefreshInput,
   semanticSearch: boolean,
+  self: Cloudflare.WorkflowHandle,
 ) {
   const startedAt = Date.now();
   const login = input.login;
@@ -392,10 +510,9 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
   const embedder = yield* Embedder;
   const vectorFiles = yield* VectorBlobFiles;
 
-  // ---- plan: which READMEs are dirty, and the semantic window -----------
-  const plan = yield* Cloudflare.Workflows.task(
-    "plan",
-    Effect.gen(function* () {
+  // ---- plan (first instance) or carried plan (every later slice) --------
+  const planRun: Effect.Effect<StarRefreshRun, never, RepoStore | VectorBlobFiles> = Effect.gen(
+    function* () {
       const all = yield* repos.listReposForSearch(login, {}).pipe(Effect.orDie);
       const states: ReadmeStateMap = yield* repos.getReadmeStates(login).pipe(Effect.orDie);
 
@@ -425,22 +542,41 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
       // the plan it replays.
       return {
         batches,
+        done: 0,
         windowIds,
         publishedIds,
         runToken: runTokenOf(input),
         semantic: semanticSearch,
-      };
-    }),
-    { retries: { limit: 2, delay: "5 seconds" } },
+        waits: 0,
+        timedOutBatches: 0,
+        unavailable: 0,
+        unavailableError: null,
+        embedded: 0,
+        partBases: [],
+      } satisfies StarRefreshRun;
+    },
   );
+
+  // Only the first instance plans; the rest were handed a run by their
+  // predecessor, and reading D1 again could only disagree with it.
+  const plan =
+    input.run ??
+    (yield* Cloudflare.Workflows.task("plan", planRun, {
+      retries: { limit: 2, delay: "5 seconds" },
+    }));
 
   // The mode this run executes with, as resolved by its own plan step.
   const semantic = plan.semantic;
+
+  // ---- this instance's slice of the run ---------------------------------
+  const from = Math.min(plan.done, plan.batches.length);
+  const through = Math.min(from + README_BATCHES_PER_INSTANCE, plan.batches.length);
 
   logRun("starwatch.sync.refresh.start", {
     login,
     phase: "fetching-readmes",
     semantic,
+    batch: from,
     batches: plan.batches.length,
     window: plan.windowIds.length,
     runToken: plan.runToken,
@@ -448,19 +584,21 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
 
   // ---- per-batch README fetch + embed + part write ----------------------
   const partBases: string[] = [];
-  let embeddedTotal = 0;
-  let timedOutBatches = 0;
-  // Repos lost to dropped connections, run-wide: bounded by
-  // `MAX_UNAVAILABLE_READMES` so a dead dependency cannot masquerade as a few
-  // unlucky requests (see the skip site in the batch).
-  let unavailableTotal = 0;
+  // Each of these is run-wide, so it starts from what earlier slices spent or
+  // lost (see `StarRefreshRun`).
+  let embeddedTotal = plan.embedded;
+  let timedOutBatches = plan.timedOutBatches;
+  // Repos lost to dropped connections: bounded by `MAX_UNAVAILABLE_READMES` so a
+  // dead dependency cannot masquerade as a few unlucky requests (see the skip
+  // site in the batch).
+  let unavailableTotal = plan.unavailable;
   // The first dropped connection of the run, kept for the failure message: a
   // count says the run lost repos, the message says to what.
-  let unavailableError: string | null = null;
+  let unavailableError: string | null = plan.unavailableError;
   // Run-wide wait budget (docs/03 §1.3): `MAX_RATE_LIMIT_WAITS` is a bound on
   // the *run*, not per batch, so a systemic limit stops the run after two
   // bounded waits instead of 188 × 2 × 15 minutes of sleeping.
-  let rateLimitWaits = 0;
+  let rateLimitWaits = plan.waits;
 
   /**
    * Terminal failure for a batch: nothing this run wrote will be published, so
@@ -485,7 +623,11 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
 
       // Early exit: the parts this run wrote will never be merged, so delete
       // them here rather than leaking ~2 MB per full window per aborted run.
-      const scratch = partBases.flatMap((base) => [`${base}.bin`, `${base}.ids.json`]);
+      // Earlier slices' parts are in `plan.partBases` and are this run's too.
+      const scratch = [...plan.partBases, ...partBases].flatMap((base) => [
+        `${base}.bin`,
+        `${base}.ids.json`,
+      ]);
 
       if (scratch.length > 0) {
         yield* vectorFiles.deleteMany(scratch).pipe(Effect.ignore);
@@ -503,7 +645,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
       return { ok: false, semanticDocs: 0, embedded: embeddedTotal } satisfies StarRefreshResult;
     });
 
-  for (let index = 0; index < plan.batches.length; index++) {
+  for (let index = from; index < through; index++) {
     const ids = plan.batches[index] ?? [];
 
     // One batch, retried in place while GitHub is limiting us. The wait lives
@@ -953,11 +1095,72 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
     }
   }
 
+  // ---- chain: hand the rest of the run to the next instance -------------
+  // One instance cannot finish a run: the free plan caps external subrequests
+  // per instance at 50 and a batch may spend 48 (see the header). When batches
+  // are left, this instance starts its successor with the plan, the cursor and
+  // the run-wide counters, and stops. The successor is the account's owner from
+  // then on; the instance that finds nothing left runs the merge and finalize
+  // below.
+  if (through < plan.batches.length) {
+    const nextId = refreshSliceId(login, plan.runToken, through);
+
+    const next: StarRefreshRun = {
+      ...plan,
+      done: through,
+      waits: rateLimitWaits,
+      timedOutBatches,
+      unavailable: unavailableTotal,
+      unavailableError,
+      embedded: embeddedTotal,
+      partBases: [...plan.partBases, ...partBases],
+    };
+
+    const handedOff = yield* Cloudflare.Workflows.task(
+      `handoff-${through}`,
+      Effect.gen(function* () {
+        const created = yield* Effect.exit(
+          self.create({ id: nextId, params: { login, run: next } satisfies StarRefreshInput }),
+        );
+
+        // A create that lost a race with an existing id is not a failure: the
+        // instance this hand-off needs is already there. A replayed hand-off
+        // (deterministic id) lands here, which is what makes the step safe.
+        if (Exit.isSuccess(created)) return true;
+
+        return yield* workflowInstanceLive(self, nextId);
+      }),
+    );
+
+    if (!handedOff) {
+      return yield* abortRun(`The indexing queue rejected the next slice (${nextId})`, through - 1);
+    }
+
+    // Ownership moves with the work. The recorded id is what the attach path
+    // probes, so a chain that kept naming a finished instance would look
+    // abandoned — and an abandoned `fetching-readmes` account invites a takeover
+    // of a run that is still fetching.
+    yield* repos.setRunInstance(login, nextId).pipe(Effect.orDie);
+
+    logRun("starwatch.sync.refresh.chained", {
+      login,
+      phase: "fetching-readmes",
+      batch: through,
+      batches: plan.batches.length,
+      next: nextId,
+      elapsedMs: elapsedMs(startedAt),
+    });
+
+    return { ok: true, semanticDocs: 0, embedded: embeddedTotal } satisfies StarRefreshResult;
+  }
+
   // ---- fan-in merge: keep every merge step under the subrequest cap ----
   // With semantic search off no batch produced a part, so this loop and the
   // overlay below have nothing to merge.
   const intermediateBases: string[] = [];
-  let current = partBases;
+  // Earlier slices' parts come first: the run's parts are all one level, and
+  // only this final instance merges them.
+  let current = [...plan.partBases, ...partBases];
   let round = 1;
 
   while (current.length > MERGE_FAN_IN) {
@@ -1018,7 +1221,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
         // from its plan onwards. It is not *always* empty: an instance whose
         // plan ran while the flag was on can still have run-scoped parts on
         // disk, and nothing else would ever collect them.
-        const scratch = [...partBases, ...intermediateBases].flatMap((base) => [
+        const scratch = [...plan.partBases, ...partBases, ...intermediateBases].flatMap((base) => [
           `${base}.bin`,
           `${base}.ids.json`,
         ]);
@@ -1127,7 +1330,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
       yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
 
       // One R2 delete call for every scratch object (parts + intermediates).
-      const scratch = [...partBases, ...intermediateBases].flatMap((base) => [
+      const scratch = [...plan.partBases, ...partBases, ...intermediateBases].flatMap((base) => [
         `${base}.bin`,
         `${base}.ids.json`,
       ]);
@@ -1162,18 +1365,23 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
 
 export class StarRefreshWorkflow extends Cloudflare.Workflow<StarRefreshWorkflow>()(
   "StarRefreshWorkflow",
-  // Free per-instance cap is 1,000 steps; a full window budgets 244.
+  // Free per-instance cap is 1,024 steps; one slice budgets 8.
   { limits: { steps: 1_000 } },
   Effect.gen(function* () {
     const deps = yield* SyncDeps;
+    const selfHandle = yield* RefreshSelf;
 
     return Effect.fn(function* (input: StarRefreshInput) {
+      // Resolved by the worker right after this class was created; the body runs
+      // strictly later, once per instance, which is what makes this await safe.
+      const self = yield* Deferred.await(selfHandle);
+
       // The flag is read once per isolate here; the body records the resolved
       // mode in its memoized plan step, and every later step reads that plan
       // value, so a redeploy mid-run cannot make a step disagree with the plan
-      // it replays.
+      // it replays. Chained instances carry the value on (see `StarRefreshRun`).
       const exit = yield* Effect.exit(
-        refreshBody(input, deps.semanticSearch).pipe(Effect.provide(deps.runLayers)),
+        refreshBody(input, deps.semanticSearch, self).pipe(Effect.provide(deps.runLayers)),
       );
 
       if (Exit.isSuccess(exit)) return exit.value;
@@ -1193,28 +1401,24 @@ export class StarRefreshWorkflow extends Cloudflare.Workflow<StarRefreshWorkflow
 ) {}
 
 /**
- * Pure step-count budget helper (documented math, exported for tests).
+ * Steps one refresh instance spends on a slice of `sliceBatches` batches, worst
+ * case: the plan (or the carried plan), the batches, the run's remaining
+ * rate-limit waits (`sleep` + attempt), and the hand-off (or the finalize) that
+ * closes the instance. A heartbeat lands in every fourth instance of a chain and
+ * is counted there by {@link refreshChainStepBudget}, not per slice.
  *
- * Counts the *worst* case of an **on** run, not the happy path: every batch may
- * be attempted once per allowed wait, and a wait is a `sleep` step of its own —
- * the platform counts both, and the earlier version of this helper omitted
- * them. With semantic search off the same batches run, but the embed/part/merge
- * steps do not, so this count stays an upper bound.
- * `MAX_RATE_LIMIT_WAITS` is per run, so only that many retries are possible in
- * total, which is what keeps the ceiling far below the 1,000-step cap.
+ * Exported for tests: the per-instance ceiling (1,024 steps on the free plan)
+ * is what makes the slice size a correctness constraint rather than a tuning
+ * knob.
  */
-export const refreshStepBudget = (repoCount: number): number => {
-  const batches = Math.ceil(Math.max(0, repoCount) / README_FETCH_BATCH);
+export const refreshSliceStepBudget = (
+  sliceBatches: number,
+  waits: number = MAX_RATE_LIMIT_WAITS * 2,
+): number => 1 + sliceBatches + waits + 1;
 
-  if (batches === 0) return 2;
-
-  // Heartbeats: one per `README_PROGRESS_EVERY` batches, plus the final batch.
-  const heartbeats =
-    Math.floor(batches / README_PROGRESS_EVERY) + (batches % README_PROGRESS_EVERY === 0 ? 0 : 1);
-
-  // Fan-in levels until one base remains; each level costs ⌈n ÷ MERGE_FAN_IN⌉
-  // steps (alchemy runs them as one step each).
-  let level = batches;
+/** Fan-in merge steps for `parts` parts: one per group, level by level. */
+const mergeSteps = (parts: number): number => {
+  let level = parts;
   let merges = 0;
 
   while (level > MERGE_FAN_IN) {
@@ -1222,10 +1426,25 @@ export const refreshStepBudget = (repoCount: number): number => {
     merges += level;
   }
 
-  // The wait budget is per run, so at most `MAX_RATE_LIMIT_WAITS` extra batch
-  // attempts exist across the whole run, and each of those waits is itself a
-  // `sleep` step: the platform counts both.
-  const waitSteps = MAX_RATE_LIMIT_WAITS * 2;
+  return merges;
+};
 
-  return 1 + batches + waitSteps + heartbeats + merges + 1;
+/**
+ * Steps a whole chained run over `repoCount` repos spends, across its instances:
+ * every slice, the run's rate-limit waits once, and the final instance's fan-in
+ * merges. The free plan counts steps per day (docs/13 §2), so this is the number
+ * that decides how many accounts a day the deployment can index.
+ */
+export const refreshChainStepBudget = (repoCount: number): number => {
+  const batches = Math.ceil(Math.max(0, repoCount) / README_FETCH_BATCH);
+
+  if (batches === 0) return refreshSliceStepBudget(0, 0);
+
+  const instances = Math.ceil(batches / README_BATCHES_PER_INSTANCE);
+  const slice = refreshSliceStepBudget(README_BATCHES_PER_INSTANCE, 0);
+
+  const heartbeats =
+    Math.floor(batches / README_PROGRESS_EVERY) + (batches % README_PROGRESS_EVERY === 0 ? 0 : 1);
+
+  return instances * slice + MAX_RATE_LIMIT_WAITS * 2 + heartbeats + mergeSteps(batches);
 };
