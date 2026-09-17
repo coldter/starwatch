@@ -1,6 +1,6 @@
 # starwatch
 
-## _Toy Project ~~trying out effect-ts with cloudflare platform along side Pi agent with open weight models~~_
+## *Toy Project _trying out effect-ts with cloudflare platform along side Pi agent with open weight models_*
 
 Public search for GitHub stars. Enter any GitHub username and get full-text search over that user's public starred repositories — no login required. Semantic (embedding) search is an opt-in extra, off by default: `STARWATCH_SEMANTIC_SEARCH=1`.
 
@@ -77,15 +77,6 @@ component contract, slice ownership and conventions are documented in
 ```bash
 npx shadcn@latest add @beui/<slug>   # from apps/webui — add or update a component
 ```
-
-Vendored beUI sources are excluded from oxlint/oxfmt so registry updates stay
-byte-identical; app code uses the semantic tokens (`bg-card`,
-`text-muted-foreground`, `text-star`, …) rather than raw palette values.
-
-The palette is the **[Pierre theme](https://github.com/pierrecomputer/theme)**
-(MIT), vibrant variants: neutral near-black/white surfaces with Display-P3
-accents — the P3 values in dark, their deeper sRGB steps in light where a hue
-must also carry text, and the electric P3 blue as `--ring` in both.
 
 ### Tests & search-quality lab
 
