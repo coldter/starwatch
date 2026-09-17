@@ -112,7 +112,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(
           "inline-flex items-center justify-center font-medium select-none",
           "transition-colors",
-          "disabled:pointer-events-none disabled:opacity-50",
+          // Local patch: 50% left the primary fill too faint to read as a button in
+          // the light theme. See docs/ui-contract.md (vendored patches).
+          "disabled:pointer-events-none disabled:opacity-70",
           ripple && "relative overflow-hidden",
           VARIANT_CLASS[variant],
           SIZE_CLASS[size],

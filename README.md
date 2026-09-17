@@ -73,6 +73,11 @@ Vendored beUI sources are excluded from oxlint/oxfmt so registry updates stay
 byte-identical; app code uses the semantic tokens (`bg-card`,
 `text-muted-foreground`, `text-star`, …) rather than raw palette values.
 
+The palette is the **[Pierre theme](https://github.com/pierrecomputer/theme)**
+(MIT), vibrant variants: neutral near-black/white surfaces with Display-P3
+accents — the P3 values in dark, their deeper sRGB steps in light where a hue
+must also carry text, and the electric P3 blue as `--ring` in both.
+
 ### Tests & search-quality lab
 
 ```bash

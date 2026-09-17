@@ -73,6 +73,12 @@
       "skillPath": "skills/interface-review/SKILL.md",
       "computedHash": "692fc5f2cfc2ad08951ea68ee6f5db9c99b759fa46b18e53101cd50d51a94f3a"
     },
+    "slopless": {
+      "source": "berelevant-ai/slopless",
+      "sourceType": "github",
+      "skillPath": "skills/slopless/SKILL.md",
+      "computedHash": "c6864da9830479072d1d5ba44103c7fcd69f81967a171a98778074b5d72a28af"
+    },
     "variant": {
       "source": "jakubkrehel/skills",
       "sourceType": "github",

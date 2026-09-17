@@ -24,6 +24,7 @@ update, or the bug returns):
 | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `components/motion/bottom-sheet.tsx`, `combobox/use-active-option.ts`, `loader.tsx`, `lib/hooks/{use-row-cursor,use-slider}.ts` | undefined-safe reads for this repo's `noUncheckedIndexedAccess`; the slider also skips reporting values that did not change step           |
 | `components/motion/text-shimmer.tsx`                                                                                            | imports its helpers from `@/lib/text-shimmer` instead of itself                                                                            |
+| `components/motion/button/base.tsx`                                                                                             | disabled fill at `opacity-50` vanished into the light theme's page; raised to `opacity-70`                                                 |
 | `components/motion/select.tsx`                                                                                                  | returns focus to the trigger after a choice; upstream leaves focus on `<body>` because the closed panel is `inert`                         |
 | `components/motion/scroll-reveal.tsx`                                                                                           | unchanged, but consumers must pass `amount="some"` and a `print:` override when the content matters (see `features/search/ResultList.tsx`) |
 
@@ -107,6 +108,7 @@ truth, not this table.
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `@/components/common/Avatar`      | `Avatar({ login, name, src, size?, className? })`                                                                                                                                                                                    |
 | `@/components/common/LanguageDot` | `LanguageDot({ language, className? })`                                                                                                                                                                                              |
+| `@/components/common/RepoPreview` | `RepoPreview({ repo, className?, loading? })` — GitHub's 2:1 social preview; fades in when it arrives and removes itself when GitHub rate-limits or the repo has no preview                                                          |     |
 | `@/components/common/Badges`      | `FreshnessBadge({ state, now?, className? })`, `MatchBadge({ source })`, `ArchivedBadge({ className? })`, `CollectionChip({ name })`, `TopicChip({ children })`                                                                      |
 | `@/components/common/StatePanel`  | `StatePanel({ icon?, title, body?, tone?, children? })`, `ErrorPanel({ title, error, onRetry?, children? })`, `NoticeStrip({ icon?, children, tone?, action? })`, type `DisplayError = { message: string; detail?: string \| null }` |
 | `@/components/common/Skeletons`   | `Skeleton`, `ResultSkeleton`, `ResultSkeletonList`, `HeroSkeleton`                                                                                                                                                                   |
@@ -116,6 +118,7 @@ truth, not this table.
 | `@/lib/format`                    | `formatNumber`, `formatCompact`, `relativeTime`, `formatDate`, `formatDateTime`, `coveragePercent`, `percent`                                                                                                                        |
 | `@/lib/state`                     | `hasIndex`, `isActivePhase`, `isTerminalPhase`, `isStale`, `isMetadataOnly`, `exceedsStarCap`, `semanticWindow`, `semanticCoverage`, `phaseProgress`, `phaseLabel`, `freshness`                                                      |
 | `@/lib/languages`                 | `LANGUAGES`, `colorForLanguage`                                                                                                                                                                                                      |
+| `@/lib/repo-images`               | `ownerAvatarUrl(owner, size?)`, `ogImageUrl(repo)` — both derived from the login/name, so no schema or index change is needed                                                                                                        |     |
 | `@/lib/search-params`             | `SearchState`, `UserSearch`, `toggleGroup`, `hasActiveFilters`, `PAGE_SIZE`, `SEARCH_LIMIT`                                                                                                                                          |
 | `@/lib/recent`                    | `getRecentUsers()`, `rememberUser(login, name)`                                                                                                                                                                                      |
 | Data types                        | `@starwatch/domain`: `SearchHit`, `SearchResponse`, `SearchMode`, `Group`, `Repo`, `UserProfile`, `UserIndexState`, `SyncPhase`, `DegradedReason`                                                                                    |
@@ -137,11 +140,31 @@ Two request shapes are load-bearing and were wrong before the rebuild:
 
 ## 5. Visual direction
 
-Night sky with a star: deep indigo surfaces, one warm gold accent for stars,
-mint for live state. Quiet chrome, generous whitespace, one clear primary action
-per surface. Cards carry information density — this is a search tool, not a
-dashboard.
+Pierre theme, vibrant variants (github.com/pierrecomputer/theme, MIT): neutral
+near-black/white surfaces with Display-P3 hues. Gold still marks stars, green
+marks live state, one clear primary action per surface. Cards carry information
+density — this is a search tool, not a dashboard.
 
+|       | page      | card      | popover   | muted     | border    |
+| ----- | --------- | --------- | --------- | --------- | --------- |
+| dark  | `#0a0a0a` | `#101010` | `#1d1d1d` | `#171717` | `#2c2c2c` |
+| light | `#f5f5f5` | `#ffffff` | `#ffffff` | `#ededed` | `#d4d4d4` |
+
+Dark takes the theme's P3 values as-is and pairs the bright fills with near-black
+text (`--primary-foreground`), the way the theme itself does. On white those same
+hues cannot carry text _and_ sit under white text, so light uses the deeper sRGB
+steps of the same ramps; `--ring` stays the electric P3 blue in both themes
+because a focus indicator only has to clear 3:1. The measured ratios live in the
+header comment of `src/styles.css` — keep them in sync when a token moves.
+
+Third-party images (owner avatar, social preview) are decoration, never
+information: each has a fallback — initials, or no tile at all — they lazy-load,
+and the result list only renders a preview from `lg` up so phones never fetch
+one. GitHub rate-limits the preview endpoint, so a missing tile is a normal
+state, not an error state.
+
+- Style with semantic tokens only (`bg-card`, `text-muted-foreground`, `text-star`),
+  never a raw palette value; a new hue is a new token, not a class in a component.
 - Type scale: page title `text-2xl sm:text-3xl font-semibold tracking-tight`;
   section title `text-base font-semibold`; body `text-sm`; meta
   `text-xs text-muted-foreground`; numbers `tabular-nums`.

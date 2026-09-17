@@ -6,9 +6,23 @@
  * never raw palette values, so light/dark and any future re-theme stay in this
  * file.
  *
- * Palette: a night-sky indigo surface with a warm "star" gold accent — the
- * product is about starred repositories, so gold marks stars and indigo marks
- * the index. Both themes are contrast-checked against WCAG AA for body text.
+ * Palette: Pierre (github.com/pierrecomputer/theme, MIT), the "vibrant"
+ * variants — a neutral scale for surfaces and Display-P3 hues for accents.
+ *   dark  ← pierre-dark-vibrant    page #0a0a0a, card #101010, popover #1d1d1d
+ *   light ← pierre-light-vibrant   page #f5f5f5, card #ffffff, popover #ffffff
+ *
+ * Dark uses the theme's P3 values verbatim (5:1 → 13:1 on the near-black
+ * surfaces) with near-black text on the bright fills, the way the theme pairs
+ * them. Light uses the same hues one to three steps deeper: on white a hue has
+ * to carry both roles (text on a 10% tint *and* a fill under white), which the
+ * P3 values cannot do below 4.5:1. `--ring` is the electric P3 blue in both
+ * themes — it is a focus indicator, so 3:1 is the bar it has to clear.
+ *
+ * Contrast (WCAG 2.1, measured against the surface each token sits on):
+ *   dark    foreground 18.97:1  muted 7.85:1  star 11.08:1  info 10.12:1
+ *           live 9.33:1  warn 13.13:1  destructive 5.15:1  primary 7.56:1
+ *   light   foreground 18.16:1  muted 5.51:1  star 3.98:1 (display text/fills)
+ *           live 4.55:1  warn 4.74:1  info 5.97:1  destructive 4.55:1
  */
 
 @import "tailwindcss";
@@ -21,84 +35,99 @@
 :root {
   --radius: 0.75rem;
 
-  --background: oklch(0.995 0.003 95);
-  --foreground: oklch(0.21 0.02 265);
+  /* pierre light: window #f5f5f5 page, editor #ffffff content, inset #ededed. */
+  --background: oklch(0.97 0 0);
+  --foreground: oklch(0.145 0 0);
 
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.02 265);
+  --card-foreground: oklch(0.145 0 0);
 
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.02 265);
+  --popover-foreground: oklch(0.145 0 0);
 
-  --primary: oklch(0.5 0.16 273);
-  --primary-foreground: oklch(0.99 0.004 275);
+  /* blue.700 #216cab — 5.5:1 under white, 5.1:1 as text on the page. */
+  --primary: oklch(0.518 0.123 248.5);
+  --primary-foreground: oklch(0.985 0 0);
 
-  --secondary: oklch(0.965 0.006 265);
-  --secondary-foreground: oklch(0.26 0.02 265);
+  --secondary: oklch(0.946 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
 
-  --muted: oklch(0.965 0.006 265);
-  --muted-foreground: oklch(0.5 0.019 265);
+  --muted: oklch(0.946 0 0);
+  --muted-foreground: oklch(0.5 0 0);
 
-  --accent: oklch(0.955 0.012 275);
-  --accent-foreground: oklch(0.26 0.02 265);
+  --accent: oklch(0.922 0 0);
+  --accent-foreground: oklch(0.205 0 0);
 
-  --destructive: oklch(0.55 0.19 25);
-  --destructive-foreground: oklch(0.99 0.004 25);
+  --destructive: oklch(0.57 0.203 24);
+  --destructive-foreground: oklch(0.985 0 0);
 
-  --border: oklch(0.9 0.008 265);
-  --border-strong: oklch(0.84 0.012 265);
-  --input: oklch(0.9 0.008 265);
-  --ring: oklch(0.46 0.16 273);
+  --border: oklch(0.87 0 0);
+  --border-strong: oklch(0.795 0 0);
+  --input: oklch(0.87 0 0);
+  /* pierre light vibrant blue — a Display-P3 hue, 3.3:1 on the page. */
+  --ring: oklch(0.623 0.171 247.9);
 
-  /* Product accents: gold = a star, indigo = indexed, mint = live. */
-  --star: oklch(0.68 0.15 78);
-  --live: oklch(0.62 0.13 165);
-  --success: oklch(0.55 0.14 160);
-  --warn: oklch(0.7 0.15 65);
-  --info: oklch(0.58 0.13 240);
+  /* Product accents: gold = a star, green = live, amber = a warning. */
+  --star: oklch(0.603 0.119 72.4);
+  --live: oklch(0.531 0.141 147.8);
+  --success: oklch(0.531 0.141 147.8);
+  --warn: oklch(0.536 0.101 89.3);
+  --info: oklch(0.475 0.075 224.8);
 
-  --chart-1: oklch(0.5 0.16 273);
-  --chart-2: oklch(0.68 0.15 78);
-  --chart-3: oklch(0.62 0.13 165);
-  --chart-4: oklch(0.58 0.13 240);
-  --chart-5: oklch(0.6 0.17 330);
+  --chart-1: oklch(0.518 0.123 248.5);
+  --chart-2: oklch(0.603 0.119 72.4);
+  --chart-3: oklch(0.531 0.141 147.8);
+  --chart-4: oklch(0.475 0.075 224.8);
+  --chart-5: oklch(0.548 0.221 320.1);
 }
 
 .dark {
-  --background: oklch(0.165 0.019 268);
-  --foreground: oklch(0.96 0.008 265);
+  /* pierre dark: editor #0a0a0a page, elevated #101010 card, window #171717
+     muted, inset #1d1d1d popover — chrome recedes, content sits on black. */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
 
-  --card: oklch(0.207 0.021 268);
-  --card-foreground: oklch(0.96 0.008 265);
+  --card: oklch(0.173 0 0);
+  --card-foreground: oklch(0.985 0 0);
 
-  --popover: oklch(0.207 0.021 268);
-  --popover-foreground: oklch(0.96 0.008 265);
+  --popover: oklch(0.231 0 0);
+  --popover-foreground: oklch(0.985 0 0);
 
-  --primary: oklch(0.74 0.14 283);
-  --primary-foreground: oklch(0.17 0.02 268);
+  /* pierre dark vibrant P3 blue; the theme pairs bright fills with near-black. */
+  --primary: oklch(0.707 0.176 246.4);
+  --primary-foreground: oklch(0.145 0 0);
 
-  --secondary: oklch(0.255 0.022 268);
-  --secondary-foreground: oklch(0.95 0.008 265);
+  --secondary: oklch(0.205 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
 
-  --muted: oklch(0.255 0.022 268);
-  --muted-foreground: oklch(0.72 0.018 265);
+  --muted: oklch(0.205 0 0);
+  --muted-foreground: oklch(0.715 0 0);
 
-  --accent: oklch(0.29 0.03 275);
-  --accent-foreground: oklch(0.96 0.008 265);
+  --accent: oklch(0.293 0 0);
+  --accent-foreground: oklch(0.985 0 0);
 
-  --destructive: oklch(0.68 0.17 25);
-  --destructive-foreground: oklch(0.16 0.02 25);
+  --destructive: oklch(0.678 0.266 24.8);
+  --destructive-foreground: oklch(0.145 0 0);
 
-  --border: oklch(1 0 0 / 11%);
-  --border-strong: oklch(1 0 0 / 22%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.78 0.13 283);
+  /* Solid hairlines: #2c2c2c is the theme's indentGuide.activeBackground, and
+     a translucent white line would pick up whatever sits behind it. */
+  --border: oklch(0.293 0 0);
+  --border-strong: oklch(0.333 0 0);
+  --input: oklch(0.293 0 0);
+  --ring: oklch(0.707 0.176 246.4);
 
-  --star: oklch(0.84 0.14 82);
-  --live: oklch(0.78 0.13 165);
-  --success: oklch(0.78 0.14 160);
-  --warn: oklch(0.82 0.14 68);
-  --info: oklch(0.76 0.11 235);
+  /* Vibrant P3 accents: gold star, jade live, yellow warn, cyan info. */
+  --star: oklch(0.834 0.174 72.9);
+  --live: oklch(0.747 0.193 158.4);
+  --success: oklch(0.747 0.193 158.4);
+  --warn: oklch(0.886 0.178 89.6);
+  --info: oklch(0.786 0.157 224.4);
+
+  --chart-1: oklch(0.707 0.176 246.4);
+  --chart-2: oklch(0.834 0.174 72.9);
+  --chart-3: oklch(0.747 0.193 158.4);
+  --chart-4: oklch(0.786 0.157 224.4);
+  --chart-5: oklch(0.721 0.231 320.8);
 }
 
 /* ── Tailwind theme mapping ──────────────────────────────────────────────── */

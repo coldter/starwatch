@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, Star, X } from "lucide-react";
 import type { Group, Repo } from "@starwatch/domain";
 import { useToast } from "@/app/toast";
+import { Avatar } from "@/components/common/Avatar";
 import { ArchivedBadge, CollectionChip, TopicChip } from "@/components/common/Badges";
 import { LanguageDot } from "@/components/common/LanguageDot";
+import { RepoPreview } from "@/components/common/RepoPreview";
 import { Skeleton } from "@/components/common/Skeletons";
 import { ErrorPanel } from "@/components/common/StatePanel";
 import { ActionSwapBlurButton, type ActionSwapItem } from "@/components/motion/action-swap-blur";
@@ -12,6 +14,7 @@ import { Drawer } from "@/components/motion/drawer";
 import { useRepo } from "@/hooks/useRepo";
 import { copyText } from "@/lib/clipboard";
 import { formatDate, formatNumber, relativeTime } from "@/lib/format";
+import { ownerAvatarUrl } from "@/lib/repo-images";
 
 export interface RepoDrawerProps {
   open: boolean;
@@ -111,20 +114,30 @@ export function RepoDrawer({ open, owner, name, onClose }: RepoDrawerProps) {
       <div ref={panelRef} className="flex min-h-0 flex-1 flex-col">
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3.5">
           <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold tracking-tight">
+            <div className="flex items-center gap-2">
               {repo ? (
-                <a
-                  href={repo.htmlUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="rounded-sm hover:underline"
-                >
-                  {repo.fullName}
-                </a>
-              ) : (
-                <span className="text-muted-foreground">{fallbackTitle}</span>
-              )}
-            </h2>
+                <Avatar
+                  login={repo.owner}
+                  src={ownerAvatarUrl(repo.owner, 64)}
+                  size={24}
+                  className="rounded-md"
+                />
+              ) : null}
+              <h2 className="truncate text-base font-semibold tracking-tight">
+                {repo ? (
+                  <a
+                    href={repo.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="rounded-sm hover:underline"
+                  >
+                    {repo.fullName}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{fallbackTitle}</span>
+                )}
+              </h2>
+            </div>
             {repo?.archived ? <ArchivedBadge className="mt-1.5" /> : null}
           </div>
           <Button
@@ -159,9 +172,9 @@ export function RepoDrawer({ open, owner, name, onClose }: RepoDrawerProps) {
 function RepoDrawerSkeleton() {
   return (
     <div className="space-y-3 p-4" role="status" aria-label="Loading repository details">
+      <Skeleton className="aspect-2/1 w-full rounded-xl" />
       <Skeleton className="h-3.5 w-4/5" />
       <Skeleton className="h-3.5 w-3/5" />
-      <Skeleton className="h-28 w-full rounded-xl" />
       <Skeleton className="h-5 w-1/2 rounded-full" />
       <Skeleton className="h-20 w-full rounded-xl" />
     </div>
@@ -174,6 +187,8 @@ function RepoDetail({ repo, groups }: { repo: Repo; groups: ReadonlyArray<Group>
 
   return (
     <div className="space-y-5 px-4 py-4">
+      <RepoPreview repo={repo} loading="eager" className="w-full" />
+
       <p className="text-sm leading-relaxed text-muted-foreground">
         {repo.description ?? "No description on GitHub."}
       </p>
