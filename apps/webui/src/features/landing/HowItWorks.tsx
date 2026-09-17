@@ -9,18 +9,18 @@ interface IndexingStep {
 const STEPS: ReadonlyArray<IndexingStep> = [
   {
     Icon: ListChecks,
-    title: "The star list lands first",
-    body: "The public star listing is read in seconds, so keyword search works almost immediately.",
+    title: "Star list first",
+    body: "The public star list loads in seconds, so keyword search works right away.",
   },
   {
     Icon: FileText,
-    title: "READMEs fill in behind it",
-    body: "Descriptions, topics and READMEs stream into the index while you search.",
+    title: "READMEs next",
+    body: "Descriptions, topics and READMEs are fetched while you search.",
   },
   {
     Icon: Sparkles,
-    title: "Meaning arrives last",
-    body: "Vectors are built for the newest repositories, so semantic results improve as coverage grows.",
+    title: "Vectors last",
+    body: "Vectors are built for the newest repos, so meaning search improves as coverage grows.",
   },
 ];
 
@@ -52,10 +52,6 @@ export function HowItWorks() {
           </li>
         ))}
       </ol>
-
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        Public stars only — nothing private is ever fetched or stored.
-      </p>
     </section>
   );
 }

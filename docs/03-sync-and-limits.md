@@ -383,9 +383,7 @@ CREATE TABLE sync_runs (
 - SSO authorizing PATs: <https://docs.github.com/en/authentication/authenticating-with-saml-single-sign-on/authorizing-a-personal-access-token-for-use-with-saml-single-sign-on>
 - API versions (2022-11-28 default; 2026-03-10 current): <https://docs.github.com/en/rest/about-the-rest-api/api-versions>
 
-
 - Workflows limits: <https://developers.cloudflare.com/workflows/reference/limits/> · API (`sleepUntil`, retries, restart, statuses): <https://developers.cloudflare.com/workflows/build/workers-api/> · retry defaults: <https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/>
-
 
 - Worker secrets: <https://developers.cloudflare.com/workers/configuration/secrets/>
 - Cache API (per-colo, directives, Access caveat): <https://developers.cloudflare.com/workers/runtime-apis/cache/>

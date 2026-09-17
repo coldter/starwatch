@@ -68,10 +68,7 @@ function LandingPage() {
       const login = parseLoginInput(raw);
 
       if (!login) {
-        toast.error(
-          "That doesn't look like a GitHub username",
-          "Try alice, @alice, or github.com/alice.",
-        );
+        toast.error("Not a GitHub username", "Try alice, @alice, or github.com/alice.");
 
         return;
       }
@@ -104,10 +101,7 @@ function LandingPage() {
         const result = await startUserSync(login, { full });
 
         if (!result.started) {
-          toast.info(
-            "Nothing new to index yet",
-            "We checked just now — GitHub has no newer stars to read.",
-          );
+          toast.info("Nothing new to index yet", "GitHub has no newer stars to read.");
         }
 
         goSearch(login);
@@ -161,14 +155,14 @@ function LandingPage() {
       {preview.status === "error" && preview.error.kind === "not-found" ? (
         missingUser !== null ? (
           <NoticeStrip tone="error" icon={Database}>
-            We couldn&apos;t find a GitHub user named &ldquo;@{missingUser}&rdquo;. Check the
-            spelling — usernames use letters, numbers and single hyphens.
+            No GitHub user named &ldquo;@{missingUser}&rdquo;. Check the spelling — usernames use
+            letters, numbers and single hyphens.
           </NoticeStrip>
         ) : (
           <StatePanel
             icon={Database}
             title={`@${lastLogin ?? query} isn't in the shared index yet`}
-            body="Indexing reads the public star list first, so keyword search works within seconds. READMEs and semantic search fill in behind it."
+            body="Indexing loads the public star list first; keyword search works within seconds."
           >
             <Button
               variant="primary"
@@ -186,7 +180,7 @@ function LandingPage() {
 
       {preview.status === "error" && preview.error.kind !== "not-found" ? (
         <ErrorPanel
-          title="Couldn't look that user up"
+          title="Couldn't look up that user"
           error={preview.error}
           onRetry={() => {
             void submit(query);

@@ -21,8 +21,8 @@ function NotFoundPage() {
   return (
     <NotFoundGlitch
       className="page-shell py-10"
-      title="This star isn't on the map"
-      description="That route doesn't exist. Head home and look up a GitHub user instead."
+      title="Page not found"
+      description="This page doesn't exist."
       homeHref="/"
       homeLabel="Back home"
       browseHref="https://github.com/coldter/starwatch"
@@ -35,10 +35,8 @@ function RootErrorBoundary({ error, reset }: ErrorComponentProps) {
   return (
     <div className="page-shell py-16">
       <ErrorPanel
-        title="Something broke while rendering this page"
-        error={
-          error instanceof Error ? error : new Error("An unexpected error occurred in the app.")
-        }
+        title="Something went wrong"
+        error={error instanceof Error ? error : new Error("Reload the page if it keeps happening.")}
         onRetry={reset}
       >
         <Link

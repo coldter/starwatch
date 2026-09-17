@@ -20,9 +20,9 @@ export function IndexPreparingPanel({ login }: { login: string }) {
       <StatePanel
         icon={LoaderCircle}
         title={`Reading @${login}'s stars…`}
-        body="Indexing starts with the public star list, then reads READMEs behind it."
+        body="Indexing starts with the star list; READMEs follow."
       >
-        <ThinkingShimmer>Results appear as soon as the first batch lands.</ThinkingShimmer>
+        <ThinkingShimmer>Results appear as the index loads.</ThinkingShimmer>
       </StatePanel>
     </div>
   );
@@ -55,8 +55,8 @@ export function NoResultsPanel({
       title={`No matches for “${query}”`}
       body={
         filterActive
-          ? "Your filters are narrowing these results. Clear them to search the whole index."
-          : "Try fewer or shorter words, or switch how the query is searched."
+          ? "Filters are narrowing these results."
+          : "Try fewer or shorter words, or another search mode."
       }
     >
       {filterActive ? (

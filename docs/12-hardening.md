@@ -394,9 +394,7 @@ Every event carries `route`, `outcome`, `ms`, `mode`, `ip_hash` (never raw IP), 
 - Workers pricing (10M req + 30M CPU-ms included): <https://developers.cloudflare.com/workers/platform/pricing/>
 - Workers AI pricing (10k neurons/day; bge-m3, bge-reranker rates) + limits (embeddings 3,000 req/min): <https://developers.cloudflare.com/workers-ai/platform/pricing/> · <https://developers.cloudflare.com/workers-ai/platform/limits/>
 
-
 - AI Gateway rate limiting + caching + Workers binding (`gateway` options, `aiGatewayLogId`) + observability/costs: <https://developers.cloudflare.com/ai-gateway/features/rate-limiting/> · <https://developers.cloudflare.com/ai-gateway/features/caching/> · <https://developers.cloudflare.com/ai-gateway/usage/worker-binding-methods/> · <https://developers.cloudflare.com/ai-gateway/observability/>
-
 
 - Durable Objects pricing (requests/duration/SQLite): <https://developers.cloudflare.com/durable-objects/platform/pricing/>
 - Queues pricing + limits (25 GB backlog, 14-day retention, batch 100) + backlog metrics: <https://developers.cloudflare.com/queues/platform/pricing/> · <https://developers.cloudflare.com/queues/platform/limits/> · <https://developers.cloudflare.com/queues/observability/metrics/>

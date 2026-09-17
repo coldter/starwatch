@@ -42,26 +42,26 @@ export function BrowsePanel({ login, state, groups, selected, onPickGroup }: Bro
       : `Search in ${selectedNames.length} collections`;
 
   const body = !hasSelection
-    ? "Type a few words — names, descriptions, topics and READMEs are all searchable."
+    ? "Search names, descriptions, topics and READMEs."
     : selectedNames.length === 1
-      ? `Type a search term to look inside ${firstSelected}.`
-      : "Type a search term to look inside the selected collections.";
+      ? `Search inside ${firstSelected}.`
+      : "Search inside the selected collections.";
 
   const tiles: StatTile[] = [
     {
       label: plural(state.reposMetadata, "repo indexed", "repos indexed"),
       value: state.reposMetadata,
-      hint: "Starred repos whose metadata starwatch has read.",
+      hint: "Repos with metadata indexed.",
     },
     {
       label: plural(state.readmesFetched, "README fetched", "READMEs fetched"),
       value: state.readmesFetched,
-      hint: "README files pulled in so their text is searchable.",
+      hint: "Repos with READMEs fetched.",
     },
     {
       label: plural(state.semanticDocs, "vector embedded", "vectors embedded"),
       value: state.semanticDocs,
-      hint: "Repos converted to vectors for meaning-based search.",
+      hint: "Repos with vectors embedded.",
     },
     {
       label: "semantic coverage",

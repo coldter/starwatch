@@ -19,7 +19,7 @@
 | Search-quality lab   | `eval-lab`                        | Local FTS5 + embeddings eval over the real 3,448-star corpus                                                                                 |
 | Design docs          | `docs/00–18`                      | Research, pivots, free-tier feasibility, hardening, ranking, eval                                                                            |
 
-**Test counts:** core 124 · cloudflare 67 · cli 43 · worker search e2e 8 = **242 passing**; all 6 packages typecheck; WebUI builds (`apps/webui/dist`).
+**Test counts:** core 124 · cloudflare 67 · cli 43 · worker (search e2e 8 + sync state 3) 11 = **245 passing**; all 6 packages typecheck; WebUI builds (`apps/webui/dist`).
 
 ## The docs/18 quality fixes are in the code
 

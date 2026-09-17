@@ -166,6 +166,12 @@ export function useUserIndex(login: string): UserIndexResult {
         source.close();
         setForceWatch(false);
         setTransport("off");
+
+        // One authoritative read when the watch ends: the state stream carries
+        // only `UserIndexState`, so a run that re-listed public Lists (group
+        // membership) or moved the headline counters still needs the user
+        // payload. Also covers a stream that closed before the last frame.
+        void load(true);
       }
     };
 
@@ -185,7 +191,7 @@ export function useUserIndex(login: string): UserIndexResult {
       closed = true;
       source.close();
     };
-  }, [shouldWatch, login]);
+  }, [shouldWatch, login, load]);
 
   // Polling fallback: every 5 seconds, never faster (free-tier request budget).
   useEffect(() => {

@@ -21,7 +21,7 @@ import { copyText } from "@/lib/clipboard";
 import { getRecentUsers } from "@/lib/recent";
 
 const MODES: ReadonlyArray<{ mode: SearchMode; label: string; hint: string }> = [
-  { mode: "auto", label: "Smart mode", hint: "starwatch picks the best strategy" },
+  { mode: "auto", label: "Smart mode", hint: "best mode per query" },
   { mode: "keyword", label: "Keyword mode", hint: "exact words only" },
   { mode: "hybrid", label: "Hybrid mode", hint: "keyword results re-ranked by meaning" },
   { mode: "semantic", label: "Semantic mode", hint: "meaning over indexed READMEs" },
@@ -140,7 +140,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     commands.push(
       {
         id: "copy-link",
-        label: "Copy link to this page",
+        label: "Copy page link",
         group: "Page",
         keywords: ["share", "url", "clipboard"],
         icon: Copy,
@@ -148,7 +148,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           run(() => {
             void copyText(window.location.href).then((copied) => {
               if (copied) {
-                toast.success("Link copied", "The current URL is on your clipboard.");
+                toast.success("Link copied");
 
                 return;
               }

@@ -1,6 +1,4 @@
 import { type FormEvent } from "react";
-import { ShieldCheck, Star } from "lucide-react";
-import { AnimatedBadge } from "@/components/motion/animated-badge";
 import { Button } from "@/components/motion/button/base";
 import { Input } from "@/components/motion/input";
 import { Loader } from "@/components/motion/loader";
@@ -20,9 +18,9 @@ export interface LandingHeroProps {
 }
 
 /**
- * The front door: a quiet badge row, the headline with its one gold word, and a
- * single lookup form. Nothing competes with the input — it is the only thing
- * asking to be used.
+ * The front door: the headline with its one gold word, and a single lookup
+ * form. Nothing competes with the input — it is the only thing asking to be
+ * used.
  */
 export function LandingHero({
   value,
@@ -39,15 +37,6 @@ export function LandingHero({
 
   return (
     <section className="flex flex-col items-center gap-6 py-6 text-center sm:py-10">
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <AnimatedBadge status="neutral" size="sm" icon={<ShieldCheck className="size-3" />}>
-          No sign-in
-        </AnimatedBadge>
-        <AnimatedBadge status="neutral" size="sm" icon={<Star className="size-3" />}>
-          Public stars only
-        </AnimatedBadge>
-      </div>
-
       <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl lg:text-5xl">
         <TextReveal
           as="span"
@@ -69,8 +58,7 @@ export function LandingHero({
       </h1>
 
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-        Full-text and semantic search over public starred repositories — names, descriptions, topics
-        and READMEs, read straight from GitHub.
+        Keyword and semantic search over names, descriptions, topics and READMEs.
       </p>
 
       <form
@@ -83,7 +71,7 @@ export function LandingHero({
           classNames={{ field: "h-12" }}
           value={value}
           onChange={onChange}
-          placeholder="@username, github.com/username, or a profile URL"
+          placeholder="@username or profile URL"
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}

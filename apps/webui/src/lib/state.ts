@@ -137,7 +137,7 @@ export function freshness(
       return {
         tone: "failed",
         label: "Indexing failed",
-        detail: state.lastError ?? "We'll retry automatically. Metadata search still works.",
+        detail: state.lastError ?? "Retrying automatically. Metadata search still works.",
       };
     case "ready":
     case "idle":

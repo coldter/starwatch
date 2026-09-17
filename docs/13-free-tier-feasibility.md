@@ -303,9 +303,7 @@ Free-plan facts and page update dates:
 - Durable Objects pricing (100k req/day, 13k GB-s/day, SQLite-only free) and limits (5 GB/account; updated 2026-06-01): <https://developers.cloudflare.com/durable-objects/platform/pricing/> · <https://developers.cloudflare.com/durable-objects/platform/limits/>
 - Queues pricing and limits (10k ops/day, 24 h free retention; updated 2026-04-21): <https://developers.cloudflare.com/queues/platform/pricing/> · <https://developers.cloudflare.com/queues/platform/limits/>
 
-
 - Workflows pricing (3k steps/day, 1 GB-mo; updated 2026-07-21) and limits (1,024 steps/instance, 100 concurrent, 10 ms CPU/step; updated 2026-06-15): <https://developers.cloudflare.com/workflows/reference/pricing/> · <https://developers.cloudflare.com/workflows/reference/limits/>
-
 
 - Workers AI pricing (10k neurons/day, per-model rates; updated 2026-08-28) and limits (updated 2026-08-07): <https://developers.cloudflare.com/workers-ai/platform/pricing/> · <https://developers.cloudflare.com/workers-ai/platform/limits/>
 - Vectorize pricing (5M stored / 30M queried dims free; updated 2026-04-21), limits (Free columns: 100 indexes, 1,000 namespaces; updated 2026-08-05), intro (free plan supported; updated 2026-08-25): <https://developers.cloudflare.com/vectorize/platform/pricing/> · <https://developers.cloudflare.com/vectorize/platform/limits/> · <https://developers.cloudflare.com/vectorize/get-started/intro/>

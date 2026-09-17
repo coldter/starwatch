@@ -107,9 +107,13 @@ export function isAbortError(cause: unknown): boolean {
 export function asApiError(cause: unknown): ApiError {
   if (cause instanceof ApiError) return cause;
 
-  return new ApiError("network", "Couldn't reach starwatch. Check your connection and try again.", {
-    cause,
-  });
+  return new ApiError(
+    "network",
+    "Couldn't reach the server. Check your connection and try again.",
+    {
+      cause,
+    },
+  );
 }
 
 const ErrorBody = Schema.Struct({
@@ -131,7 +135,7 @@ async function decodeResponse<S extends Schema.ConstraintDecoder<unknown>>(
 
     return Schema.decodeUnknownSync(schema)(body);
   } catch (cause) {
-    throw new ApiError("decode", `starwatch couldn't read the ${what} response.`, {
+    throw new ApiError("decode", `Couldn't read the ${what} response.`, {
       status: response.status,
       cause,
     });
@@ -180,7 +184,7 @@ async function toApiError(response: Response): Promise<ApiError> {
   const retryAfterSeconds = parseRetryAfter(response.headers.get("retry-after"));
 
   if (response.status === 404) {
-    return new ApiError("not-found", detail ?? "We couldn't find that on GitHub.", {
+    return new ApiError("not-found", detail ?? "Not found on GitHub.", {
       status: response.status,
       detail,
     });
@@ -189,7 +193,7 @@ async function toApiError(response: Response): Promise<ApiError> {
   if (response.status === 429 || tag === "SyncCooldown" || tag === "GithubRateLimited") {
     return new ApiError(
       "rate-limited",
-      detail ?? `starwatch is rate-limited right now.${humanizeRetry(retryAfterSeconds)}`,
+      detail ?? `Rate limited.${humanizeRetry(retryAfterSeconds)}`,
       { status: response.status, retryAfterSeconds, detail },
     );
   }
@@ -202,18 +206,14 @@ async function toApiError(response: Response): Promise<ApiError> {
   }
 
   if (response.status === 403 || tag === "BudgetExceeded") {
-    return new ApiError(
-      "budget",
-      detail ?? "This is temporarily limited to protect the free budget.",
-      {
-        status: response.status,
-        detail,
-      },
-    );
+    return new ApiError("budget", detail ?? "Temporarily limited. Try again later.", {
+      status: response.status,
+      detail,
+    });
   }
 
   if (response.status >= 500) {
-    return new ApiError("http", detail ?? "starwatch hit a server error. Retry in a moment.", {
+    return new ApiError("http", detail ?? "Server error. Retry in a moment.", {
       status: response.status,
       detail,
     });

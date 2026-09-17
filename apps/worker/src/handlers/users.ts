@@ -6,6 +6,7 @@ import {
   UserNotFound,
 } from "@starwatch/domain";
 import { canSync, GithubClient } from "@starwatch/core/sync";
+import { patchState } from "../sync/state.ts";
 import { RepoStore } from "@starwatch/cloudflare/storage";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -118,6 +119,8 @@ export const usersGroup = (deps: WorkerDeps) =>
                 state === "waiting" ||
                 state === "waitingForPause"
               ) {
+                yield* patchState(login, { phase: "listing", lastError: null });
+
                 return { started: false, phase: "listing" as const };
               }
             }
@@ -146,6 +149,13 @@ export const usersGroup = (deps: WorkerDeps) =>
               message: "The indexing queue could not accept this job; try again shortly.",
             });
           }
+
+          // Stamp the run as active *before* answering. The workflow's own
+          // first write happens a few hundred ms later, so without this a
+          // client that opens the events stream right after this response
+          // would read a terminal phase, stop watching, and never see the
+          // finished run's new `last_synced_at`.
+          yield* patchState(login, { phase: "listing", lastError: null });
 
           return { started: true, phase: "listing" as const };
         }).pipe(Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github))),

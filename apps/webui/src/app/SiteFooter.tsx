@@ -11,7 +11,7 @@ export function SiteFooter() {
       <div className="page-shell flex flex-col gap-3 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center">
         <p className="flex items-center gap-1.5">
           <span className="inline-block size-1.5 rounded-full bg-live" aria-hidden="true" />
-          Public GitHub stars only — no account, no token, nothing private is ever fetched.
+          Public GitHub stars only.
         </p>
         <div className="flex items-center gap-1 sm:ml-auto">
           <ButtonLink

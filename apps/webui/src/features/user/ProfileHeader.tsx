@@ -1,8 +1,9 @@
-import { Building2, MapPin, Star, type LucideIcon } from "lucide-react";
+import { Building2, MapPin, RefreshCw, Star, type LucideIcon } from "lucide-react";
 import { MAX_STARS, type UserIndexState, type UserProfile } from "@starwatch/domain";
 import { AnimatedBadge } from "@/components/motion/animated-badge";
 import { AnimatedNumber } from "@/components/motion/animated-number";
 import { Button } from "@/components/motion/button/base";
+import { Tooltip } from "@/components/motion/tooltip";
 import { Avatar } from "@/components/common/Avatar";
 import { FreshnessBadge } from "@/components/common/Badges";
 import { formatCompact, formatNumber, plural } from "@/lib/format";
@@ -13,10 +14,9 @@ export interface ProfileHeaderProps {
   state: UserIndexState;
   /** A start-sync request is in flight. */
   busy: boolean;
-  /** A background re-check is in flight. */
-  refreshing: boolean;
   onStartSync: (options?: { full?: boolean }) => void;
-  onRefresh: () => void;
+  /** Cheap metadata re-list: ask GitHub for the star list again. */
+  onRecheck: () => void;
 }
 
 /**
@@ -63,9 +63,8 @@ export function ProfileHeader({
   profile,
   state,
   busy,
-  refreshing,
   onStartSync,
-  onRefresh,
+  onRecheck,
 }: ProfileHeaderProps) {
   const indexed = hasIndex(state);
   const active = isActivePhase(state.phase);
@@ -136,9 +135,15 @@ export function ProfileHeader({
         >
           {primaryActionLabel(indexed, active, stale)}
         </Button>
-        <Button variant="ghost" size="md" disabled={refreshing} onClick={onRefresh}>
-          {refreshing ? "Checking…" : "Re-check"}
-        </Button>
+        <Tooltip
+          content="List your starred repos again — metadata only, no READMEs. GitHub is asked once every 15 minutes at most."
+          side="bottom"
+        >
+          <Button variant="ghost" size="md" disabled={busy || active} onClick={onRecheck}>
+            <RefreshCw className="size-3.5" aria-hidden="true" />
+            Re-check GitHub
+          </Button>
+        </Tooltip>
       </div>
     </header>
   );

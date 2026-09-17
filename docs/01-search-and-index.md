@@ -203,9 +203,7 @@ Stable through ~10× usage growth. First cost that grows: Vectorize stored dimen
 - D1 FTS5: <https://developers.cloudflare.com/d1/sql-api/sql-statements/>
 - Vectorize limits: <https://developers.cloudflare.com/vectorize/platform/limits/> · filtering: <https://developers.cloudflare.com/vectorize/reference/metadata-filtering/> · pricing: <https://developers.cloudflare.com/vectorize/platform/pricing/>
 
-
 - Workers AI models: <https://developers.cloudflare.com/workers-ai/models> · pricing: <https://developers.cloudflare.com/workers-ai/platform/pricing> · reranker: <https://developers.cloudflare.com/workers-ai/models/bge-reranker-base>
 - AI Search: <https://developers.cloudflare.com/ai-search/> · limits/pricing: <https://developers.cloudflare.com/ai-search/platform/limits-pricing>
-
 
 - GitHub search limitation: <https://docs.github.com/en/search-github/searching-on-github/searching-for-repositories> (no `is:starred`; 1,000-result cap: <https://docs.github.com/en/rest/search/search>)

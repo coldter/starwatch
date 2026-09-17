@@ -207,6 +207,8 @@ The $0 launch ([13](13-free-tier-feasibility.md)–[15](15-free-semantic-search.
 - **Semantic path:** repo-level 512d vectors in a per-user R2 blob + in-Worker kNN ([15 §2](15-free-semantic-search.md)) replaces per-user Vectorize namespaces; the semantic window is the newest **1,500** repos and listing is capped at `MAX_STARS = 10,000` ([14 §3.6](14-abuse-protection.md)).
 - **Daily budget is free-quota headroom**, not a share of the GitHub quota; GitHub's 5,000 req/h window runs 300 reserved → 4,700 usable, paced ≤700/min ([14 §3.4](14-abuse-protection.md)).
 - **SSE only; no progress polling** ([13 §2(f)](13-free-tier-feasibility.md)); close streams on `done`.
+- **A started run is stamped active before `POST /sync` answers.** The workflow's own first write lands a few hundred ms later, so the handler writes `phase: "listing"` itself. Otherwise a client that opens the events stream right after the response reads a terminal snapshot, stops watching, and never sees the finished run's fresh `last_synced_at` — the freshness chip then stays at the old age until a reload. `last_synced_at` is the cooldown anchor, so the start stamp must not move it.
+- **Re-check means "ask GitHub again"**: the header's re-check button posts a metadata re-list (`full: false`), never a client-only refetch. The 15-minute relist cooldown is the honest answer to a too-early click.
 - **Collections are precomputed per `index_version`** (D1 or Cache API) rather than scanned per request ([13 §4.2](13-free-tier-feasibility.md)).
 - **Indexed-user soft cap 50 full/warm** with LRU demotion/eviction ([14 §3.6](14-abuse-protection.md), [10 §6](10-multitenant-architecture.md)).
 

@@ -37,7 +37,7 @@ interface ModeOption {
 const MODE_OPTIONS: ReadonlyArray<ModeOption> = [
   {
     value: "auto",
-    hint: "starwatch picks the strategy for this query.",
+    hint: "Picks the best mode per query.",
   },
   {
     value: "keyword",
@@ -49,7 +49,7 @@ const MODE_OPTIONS: ReadonlyArray<ModeOption> = [
   },
   {
     value: "semantic",
-    hint: "Searches meaning over the READMEs indexed for this user.",
+    hint: "Meaning search over indexed READMEs.",
   },
 ];
 

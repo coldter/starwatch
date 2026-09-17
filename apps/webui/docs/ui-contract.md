@@ -145,6 +145,12 @@ Two request shapes are load-bearing and were wrong before the rebuild:
   change, like filters). An empty query with a non-default sort is the browse
   request (`q=&sort=…`); with the default sort an empty query must not hit the
   API at all.
+- **The freshness chip reads `state.lastSyncedAt`,** so anything that promises a
+  re-check must actually start a run: the header's `Re-check GitHub` button posts
+  a metadata re-list (`full: false`) and never a client-only refetch. The server
+  stamps `phase: "listing"` before it answers `POST /sync`; the client watches the
+  events stream until a terminal phase, then takes one authoritative
+  `GET /users/:login` (the state stream carries no groups).
 
 ## 5. Visual direction
 

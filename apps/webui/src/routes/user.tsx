@@ -47,7 +47,7 @@ import {
   type ArchivedFilter,
   type SearchState,
 } from "@/lib/search-params";
-import { hasIndex, isActivePhase, phaseLabel } from "@/lib/state";
+import { hasIndex, isActivePhase } from "@/lib/state";
 import { rootRoute } from "./__root";
 
 export const userRoute = createRoute({
@@ -112,8 +112,7 @@ function UserSearchPage() {
     };
   }, [filtersOpen]);
 
-  const { data, loading, refreshing, error, refresh, startSync, syncPending, transport } =
-    useUserIndex(login);
+  const { data, loading, error, refresh, startSync, syncPending, transport } = useUserIndex(login);
 
   // A 404 from the index means "not indexed yet", not "no such GitHub user";
   // only the sync POST can tell those apart (it reads the profile itself).
@@ -200,19 +199,24 @@ function UserSearchPage() {
     (options?: { full?: boolean }) => {
       void startSync(options).then((outcome) => {
         if (!outcome.ok) {
-          toast.error("Couldn't start indexing", outcome.error.message);
+          // A run started in another tab answers 409; that is a state, not a failure.
+          if (outcome.error.kind === "busy") {
+            toast.info("Already indexing", outcome.error.message);
+          } else {
+            toast.error("Couldn't start indexing", outcome.error.message);
+          }
         } else if (!outcome.started) {
-          toast.info(
-            "Nothing new to index yet",
-            `Current phase: ${phaseLabel(outcome.phase)}. Cooldowns protect the shared GitHub budget.`,
-          );
+          toast.info("Nothing new to index yet", "GitHub has no newer stars to read.");
         } else {
-          toast.success("Indexing started", "Progress shows up right here as it runs.");
+          toast.success("Indexing started");
         }
       });
     },
     [startSync, toast],
   );
+
+  /** The header's re-check button: always the cheap metadata re-list. */
+  const handleRecheck = useCallback(() => handleStartSync({ full: false }), [handleStartSync]);
 
   const state = data?.state ?? null;
   const groups = data?.groups ?? EMPTY_GROUPS;
@@ -272,7 +276,7 @@ function UserSearchPage() {
       search.q.trim()
     ) {
       retry();
-      toast.info("Index updated", "Results refreshed with newly indexed repos.");
+      toast.info("Index updated");
     }
   }, [data?.state.phase, search.q, retry, toast]);
 
@@ -350,7 +354,7 @@ function UserSearchPage() {
             icon={Database}
             titleAs="h1"
             title={`@${login} isn't in the shared index yet`}
-            body="Indexing reads the public star list first, so keyword search works within seconds. READMEs and semantic search fill in behind it."
+            body="Indexing loads the public star list first; keyword search works within seconds."
           >
             <Button
               variant="primary"
@@ -394,9 +398,8 @@ function UserSearchPage() {
             profile={data.profile}
             state={state}
             busy={syncPending}
-            refreshing={refreshing}
             onStartSync={handleStartSync}
-            onRefresh={refresh}
+            onRecheck={handleRecheck}
           />
 
           {error ? (
@@ -554,7 +557,6 @@ function UserSearchPage() {
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
         title="Filters"
-        description="Narrow the results without leaving the list."
         snapPoints={[0.88]}
         defaultSnap={0}
       >

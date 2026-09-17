@@ -139,11 +139,9 @@ export function IndexPanel({ login, state, transport, busy, onStartSync }: Index
       <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:p-5">
         <AgentProgress label={phaseLabel(state.phase)} elapsedSeconds={elapsedSeconds} />
         <TodoList title="Indexing steps" items={pipelineItems(state)} />
-        <ThinkingShimmer>Search stays usable while this runs.</ThinkingShimmer>
+        <ThinkingShimmer>Search works during indexing.</ThinkingShimmer>
         {transport === "polling" ? (
-          <p className="text-xs text-muted-foreground">
-            Live updates are paused — checking again every 5 seconds.
-          </p>
+          <p className="text-xs text-muted-foreground">Checking for updates every 5 seconds.</p>
         ) : null}
       </section>
     );
@@ -165,8 +163,7 @@ export function IndexPanel({ login, state, transport, busy, onStartSync }: Index
         }
       >
         Paused by the GitHub rate limit
-        {state.lastError ? `: ${state.lastError}` : ""}. Indexing resumes on its own once the limit
-        resets.
+        {state.lastError ? `: ${state.lastError}` : ""}. Indexing resumes when the limit resets.
       </NoticeStrip>
     );
   }
@@ -207,11 +204,11 @@ export function IndexPanel({ login, state, transport, busy, onStartSync }: Index
               disabled={busy}
               onClick={() => onStartSync({ full: false })}
             >
-              Enable semantic indexing
+              Enable semantic search
             </Button>
           }
         >
-          Semantic search finds repos by meaning. Build the vector index for @{login} to turn it on.
+          Build the vector index for @{login} to enable semantic search.
         </NoticeStrip>
       ) : null}
 

@@ -58,9 +58,9 @@ export const SORT_LABELS: Record<SearchSort, string> = {
 
 /** One sentence per sort, shown as the option hint. */
 export const SORT_HINTS: Record<SearchSort, string> = {
-  relevance: "Most relevant first — names, descriptions, topics and READMEs.",
-  pushed: "Repos their maintainers pushed most recently first.",
-  starred: "Repos you starred most recently first.",
+  relevance: "Matches names, descriptions, topics and READMEs.",
+  pushed: "Recently pushed repos first.",
+  starred: "Recently starred first.",
   stars: "Most starred repos first.",
 };
 
