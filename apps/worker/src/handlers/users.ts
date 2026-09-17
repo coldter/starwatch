@@ -41,14 +41,12 @@ export const usersGroup = (deps: WorkerDeps) =>
         Effect.gen(function* () {
           const ip = clientIp(request);
 
-          const allowed = yield* deps.syncRate
-            .limit({ key: `sync:${ip}` })
-            .pipe(
-              Effect.matchEffect({
-                onSuccess: (result) => Effect.succeed(result.success),
-                onFailure: () => Effect.succeed(true),
-              }),
-            );
+          const allowed = yield* deps.syncRate.limit({ key: `sync:${ip}` }).pipe(
+            Effect.matchEffect({
+              onSuccess: (result) => Effect.succeed(result.success),
+              onFailure: () => Effect.succeed(true),
+            }),
+          );
 
           if (!allowed) {
             return yield* new BudgetExceeded({
@@ -77,11 +75,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           const stored = yield* repos.getIndexState(login).pipe(Effect.orDie);
           const phase = stored?.phase ?? "idle";
 
-          if (
-            phase === "listing" ||
-            phase === "fetching-readmes" ||
-            phase === "embedding"
-          ) {
+          if (phase === "listing" || phase === "fetching-readmes" || phase === "embedding") {
             return yield* new SyncInProgress({ login });
           }
 
@@ -149,15 +143,12 @@ export const usersGroup = (deps: WorkerDeps) =>
           if (Exit.isFailure(created)) {
             return yield* new BudgetExceeded({
               scope: "sync",
-              message:
-                "The indexing queue could not accept this job; try again shortly.",
+              message: "The indexing queue could not accept this job; try again shortly.",
             });
           }
 
           return { started: true, phase: "listing" as const };
-        }).pipe(
-          Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github)),
-        ),
+        }).pipe(Effect.provide(Layer.mergeAll(deps.sync.storage, deps.sync.github))),
       )
       .handle("getSyncState", ({ params }) =>
         Effect.gen(function* () {
@@ -180,8 +171,7 @@ export const usersGroup = (deps: WorkerDeps) =>
           if (profile === null) return yield* new UserNotFound({ login });
 
           const initial =
-            (yield* repos.getIndexState(login).pipe(Effect.orDie)) ??
-            idleState(login);
+            (yield* repos.getIndexState(login).pipe(Effect.orDie)) ?? idleState(login);
 
           const updates = Stream.tick("1 seconds").pipe(
             // Each tick builds (and closes) its own short-lived layer, so the
@@ -191,9 +181,7 @@ export const usersGroup = (deps: WorkerDeps) =>
               Effect.gen(function* () {
                 const store = yield* RepoStore;
 
-                const state = yield* store
-                  .getIndexState(login)
-                  .pipe(Effect.orDie);
+                const state = yield* store.getIndexState(login).pipe(Effect.orDie);
 
                 return state ?? initial;
               }).pipe(Effect.provide(deps.sync.storage)),

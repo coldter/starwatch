@@ -14,6 +14,8 @@ export * from "./fusion.ts";
 
 export * from "./snippet.ts";
 
+export * from "./sort.ts";
+
 export * from "./text.ts";
 
 export * from "./vector.ts";

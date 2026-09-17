@@ -2,13 +2,25 @@
 
 Public search for GitHub stars. Enter any GitHub username and get full-text + semantic search over that user's public starred repositories — no login required.
 
-**Stack:** TypeScript · [Effect](https://effect.website) · Cloudflare Workers (Alchemy) · D1 + Vectorize + Workers AI + R2
+**Stack:** TypeScript · [Effect](https://effect.website) · Cloudflare Workers (Alchemy) · D1 + Workers AI + R2
 
 ## How it works
 
 1. **Enter a username** — the public star listing is fetched in seconds; metadata + keyword search is available immediately.
 2. **Eager-lazy indexing** — READMEs are fetched and embedded in the background; semantic results improve progressively while you search.
-3. **Search** — lexical (FTS5) + semantic (bge-m3) + hybrid RRF + rerank, with filters: language, stars, topics, dates, archived, and **groups imported from the user's public GitHub Lists**.
+3. **Search** — D1 FTS5 keyword search plus `bge-small-en-v1.5` embeddings ranked with weighted RRF, filtered by language, stars, topics, dates, archived state and **collections imported from the user's public GitHub Lists**.
+
+## Repository layout
+
+| Path                  | Contents                                                                        |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `apps/worker`         | Worker API (HttpApi), sync workflows, Alchemy stack                             |
+| `apps/webui`          | React 19 SPA — Vite, Tailwind v4, vendored beUI motion components               |
+| `apps/cli`            | Terminal client: `search`, `show`, `sync`, `status`, `groups`, `health`         |
+| `packages/core`       | Pure search and sync planning: FTS5 builder, expansion, RRF, ranking, star diff |
+| `packages/cloudflare` | D1/R2 storage, GitHub client, Workers AI embedder                               |
+| `packages/domain`     | Schema models and the static concept lexicon                                    |
+| `eval-lab`            | Local search-quality lab over a real 3,448-star corpus                          |
 
 ## Docs
 
@@ -56,6 +68,18 @@ pnpm dev          # alchemy dev: Worker (:1337, workerd) + WebUI (:5173, Vite)
 
 Standalone variants: `pnpm dev:webui` (UI only) · `pnpm --filter @starwatch/worker run dev` (API only).
 
+### CLI
+
+The terminal client speaks to the same API:
+
+```bash
+pnpm --filter @starwatch/cli run dev -- search "tui for git" -u sindresorhus
+pnpm --filter @starwatch/cli run dev -- status sindresorhus
+pnpm --filter @starwatch/cli run dev -- show sindresorhus/lazygit
+```
+
+`-u, --user` (or `STARWATCH_USER`) selects whose stars to search; `--api-url` (or `STARWATCH_API_URL`) points at a deployed Worker. `search` takes filters (`--mode`, `--lang`, `--topic`, `--min-stars`, `--license`, `--starred-after`, …) plus `--explain`, `--plain` and `--json`.
+
 ### WebUI
 
 The WebUI is a Vite + React 19 SPA styled with **Tailwind v4** and composed
@@ -81,7 +105,7 @@ must also carry text, and the electric P3 blue as `--ring` in both.
 ### Tests & search-quality lab
 
 ```bash
-pnpm -r typecheck && pnpm -r test                # 6 packages · 226 tests
+pnpm -r typecheck && pnpm -r test                # all workspace packages
 pnpm --filter @starwatch/eval-lab run eval       # measured quality lab (real corpus)
 ```
 
@@ -93,6 +117,6 @@ pnpm deploy       # builds the WebUI, then runs alchemy deploy
 
 Credentials + `GITHUB_TOKEN` from the local-dev setup apply here too.
 
-**Status:** MVP implemented — worker API + Tier-0/Tier-1 Workflows, CLI, WebUI, `alchemy dev` loop, 226 unit tests green. See [docs/19-implementation-status.md](docs/19-implementation-status.md).
+**Status:** MVP implemented — worker API + Tier-0/Tier-1 Workflows, CLI, WebUI, `alchemy dev` loop. See [docs/19-implementation-status.md](docs/19-implementation-status.md) for test counts, verification results and known gaps.
 
 **Version pin (important):** Effect `4.0.0-rc.112` + Alchemy `2.0.0-beta.77` — newer Effect RCs (≥ rc.113) break Alchemy beta.77. See [docs/02-stack-and-pipeline.md](docs/02-stack-and-pipeline.md) §1.

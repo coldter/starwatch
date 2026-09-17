@@ -20,13 +20,13 @@ Vendored files stay byte-identical to the registry except for these documented
 fixes, which must survive any `shadcn add` re-install (re-apply them after an
 update, or the bug returns):
 
-| File                                                                                                                            | Patch                                                                                                                                      |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `components/motion/bottom-sheet.tsx`, `combobox/use-active-option.ts`, `loader.tsx`, `lib/hooks/{use-row-cursor,use-slider}.ts` | undefined-safe reads for this repo's `noUncheckedIndexedAccess`; the slider also skips reporting values that did not change step           |
-| `components/motion/text-shimmer.tsx`                                                                                            | imports its helpers from `@/lib/text-shimmer` instead of itself                                                                            |
-| `components/motion/button/base.tsx`                                                                                             | disabled fill at `opacity-50` vanished into the light theme's page; raised to `opacity-70`                                                 |
-| `components/motion/select.tsx`                                                                                                  | returns focus to the trigger after a choice; upstream leaves focus on `<body>` because the closed panel is `inert`                         |
-| `components/motion/scroll-reveal.tsx`                                                                                           | unchanged, but consumers must pass `amount="some"` and a `print:` override when the content matters (see `features/search/ResultList.tsx`) |
+| File                                                                                                                            | Patch                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/motion/bottom-sheet.tsx`, `combobox/use-active-option.ts`, `loader.tsx`, `lib/hooks/{use-row-cursor,use-slider}.ts` | undefined-safe reads for this repo's `noUncheckedIndexedAccess`; the slider also skips reporting values that did not change step                                                                                                                           |
+| `components/motion/text-shimmer.tsx`                                                                                            | imports its helpers from `@/lib/text-shimmer` instead of itself                                                                                                                                                                                            |
+| `components/motion/button/base.tsx`                                                                                             | disabled fill at `opacity-50` vanished into the light theme's page; raised to `opacity-70`                                                                                                                                                                 |
+| `components/motion/select.tsx`                                                                                                  | returns focus to the trigger after a choice; upstream leaves focus on `<body>` because the closed panel is `inert`. Also accepts `ariaLabel` on `SelectTrigger`, which otherwise emits a button with no accessible name (the trigger has no visible label) |
+| `components/motion/scroll-reveal.tsx`                                                                                           | unchanged, but consumers must pass `amount="some"` and a `print:` override when the content matters (see `features/search/ResultList.tsx`)                                                                                                                 |
 
 - **Only create the files assigned to your slice.** Other agents are writing
   sibling slices in parallel; a file you were not assigned does not exist yet,
@@ -99,8 +99,8 @@ Design tokens and Tailwind live in `src/styles.css`. Read it once.
 | `@/components/agents/loading-states/agent-progress`   | `AgentProgress` — `label`, `elapsedSeconds`, `running`                                                                                                                                                                                                                                              |
 | `@/components/agents/loading-states/thinking-shimmer` | `ThinkingShimmer` — shimmering status text                                                                                                                                                                                                                                                          |
 
-Read the vendored file before using an unfamiliar prop — they are the source of
-truth, not this table.
+Read the vendored file before using an unfamiliar prop; it is the source of
+truth, and this table is a pointer.
 
 ### Shared app components (already written — import, do not duplicate)
 
@@ -119,7 +119,7 @@ truth, not this table.
 | `@/lib/state`                     | `hasIndex`, `isActivePhase`, `isTerminalPhase`, `isStale`, `isMetadataOnly`, `exceedsStarCap`, `semanticWindow`, `semanticCoverage`, `phaseProgress`, `phaseLabel`, `freshness`                                                      |
 | `@/lib/languages`                 | `LANGUAGES`, `colorForLanguage`                                                                                                                                                                                                      |
 | `@/lib/repo-images`               | `ownerAvatarUrl(owner, size?)`, `ogImageUrl(repo)` — both derived from the login/name, so no schema or index change is needed                                                                                                        |     |
-| `@/lib/search-params`             | `SearchState`, `UserSearch`, `toggleGroup`, `hasActiveFilters`, `PAGE_SIZE`, `SEARCH_LIMIT`                                                                                                                                          |
+| `@/lib/search-params`             | `SearchState`, `UserSearch`, `toggleGroup`, `hasActiveFilters`, `PAGE_SIZE`, `SEARCH_LIMIT`, `SORTS`, `SORT_LABELS`, `SORT_HINTS`, `DEFAULT_SORT`, `toSort`                                                                          |
 | `@/lib/recent`                    | `getRecentUsers()`, `rememberUser(login, name)`                                                                                                                                                                                      |
 | Data types                        | `@starwatch/domain`: `SearchHit`, `SearchResponse`, `SearchMode`, `Group`, `Repo`, `UserProfile`, `UserIndexState`, `SyncPhase`, `DegradedReason`                                                                                    |
 | API types                         | `@/api`: `ApiError`, `UserPayload`, `RepoPayload`                                                                                                                                                                                    |
@@ -137,6 +137,14 @@ Two request shapes are load-bearing and were wrong before the rebuild:
   URL keeps all three (`?archived=hide|include|only`, default `hide`) and the
   page maps them through `toArchivedQuery`; never send `archived=true` for the
   "include" case.
+- **Sort is a search key, not a filter**: `?sort=pushed|starred|stars`
+  (`relevance` is the default and is omitted from the URL). The worker
+  re-orders the match set, so the page passes it through unchanged and never
+  sorts locally — a client-side sort of one 50-hit page would silently lie.
+  Changing it resets to page 1 and replaces the history entry (it is a view
+  change, like filters). An empty query with a non-default sort is the browse
+  request (`q=&sort=…`); with the default sort an empty query must not hit the
+  API at all.
 
 ## 5. Visual direction
 
@@ -175,6 +183,19 @@ state, not an error state.
   `aria-pressed`; async status uses `aria-live`/`role="status"`; never encode
   meaning in color alone (pair the dot with the language name); text contrast
   must survive both themes.
+
+## 5b. Icons
+
+`public/favicon.svg` is the source of truth for the mark — the dark tile with one
+gold star, with a `prefers-color-scheme` rule so the tile stays visible on dark
+browser chrome. `public/favicon.ico` (16/32/48) and `public/apple-touch-icon.png`
+(180, full-bleed because iOS applies its own mask) are rasters of it:
+
+```bash
+pnpm -F @starwatch/webui icons   # needs librsvg + ImageMagick
+```
+
+Re-run that only when the mark changes; the committed rasters are what ships.
 
 ## 6. Verification
 

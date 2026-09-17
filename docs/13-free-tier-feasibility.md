@@ -1,15 +1,15 @@
 # 13 — Free-Tier Feasibility
 
 > Status: **draft for discussion** · 2026-09-13 · Every Cloudflare cap below was verified against live docs on **2026-09-13**; ⚠️ marks uncertainty, contradictions between Cloudflare pages, or numbers that must be measured at implementation time. Sources checked date by date at the end; the matrix carries the authoritative URL per row.
-> Question: can the public service ([08](08-public-service-ux.md)–[12](12-hardening.md)) run entirely inside Cloudflare free tiers at **zero spend** during a low-traffic launch, and what breaks first as it grows? This doc owns the free-plan capability matrix, per-workload breaking points, the free→paid upgrade order, and the free-tier amendments to 08/10/12.
-> **Updated 2026-09-13 (free-tier pivot):** reconciled with [14](14-abuse-protection.md) (authoritative $0 admission/abuse defaults) and [15](15-free-semantic-search.md) (free semantic = repo-level R2 blobs + in-Worker kNN, not Vectorize); envelope figures use the canonical caps — `MAX_STARS = 10,000`, newest-1,500 semantic window.
+> Question: can the public service ([08](08-public-service-ux.md)–[12](12-hardening.md)) run entirely inside Cloudflare free tiers at **zero spend** during a low-traffic launch, and what breaks first as it grows? This doc owns the capability matrix for zero-spend operation, per-workload breaking points, what to upgrade first, and the $0 amendments to 08/10/12.
+> **Updated 2026-09-13 (zero-spend pivot):** reconciled with [14](14-abuse-protection.md) (authoritative $0 admission/abuse defaults) and [15](15-free-semantic-search.md) ($0 semantic = repo-level R2 blobs + in-Worker kNN, not Vectorize); envelope figures use the canonical caps — `MAX_STARS = 10,000`, newest-1,500 semantic window.
 
 **Verdict. Yes, a pilot fits free — after one architectural pivot: on free, D1 is metadata-first and Vectorize is not the primary retrieval path.** The honest launch envelope:
 
 | Pillar           | Free-tier launch envelope                                                                                                                                                                                            | Binding quota                                                         |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | New user indexes | **≤10 weighted units/day** ([14 §4](14-abuse-protection.md); `w(u) = 1 + ceil(stars/1000)`); listing-only ~3–5/day by D1 writes; a 3.4k-star full backfill ≈2/day by neurons                                         | D1 rows written 100k/day; Workflows 3k steps/day; AI 10k neurons/day  |
-| Indexed users    | **~50–100** with full README FTS; more only with metadata-only FTS                                                                                                                                                   | D1 500 MB/DB, 5 GB + 10 DBs/account                                   |
+| Indexed users    | **~50–100** with full README FTS; beyond that, metadata-only FTS                                                                                                                                                     | D1 500 MB/DB, 5 GB + 10 DBs/account                                   |
 | Searches         | **~3–15k/day** (keyword-first; depends on FTS scan factor ⚠️)                                                                                                                                                        | D1 rows read 5M/day; Workers 100k req/day                             |
 | Semantic         | **recent lane ≈ 15–20 users/day**; free semantic = repo-level 512d R2 blobs + in-Worker kNN ([15](15-free-semantic-search.md)), window newest 1,500 repos; a full per-user Vectorize namespace **does not fit free** | Vectorize 5M stored / 30M queried dims per month (not used at launch) |
 | First paid lever | **Workers Paid $5/mo** — lifts CPU, request ceiling, subrequests, D1 queries/DB count/DB size at once                                                                                                                | —                                                                     |
@@ -54,7 +54,11 @@ One row per binding capability. "Free" means the Workers Free plan (no paid prod
 
 **Resolution: Vectorize is available on the Free plan.** The paid-only sentence is stale; every other live page, including the pricing FAQ (_"the Workers free tier will always include the ability to prototype and experiment with Vectorize for free"_), documents free availability. ⚠️ Confirm by creating an index in a free account before relying on it.
 
-**But the allocations are a prototype budget, not a serving budget.** One starwatch user is ~23.2k vectors ≈ 23.55M dims on 1024d. Free allows 5M stored dims → **0.21 users**, or 0.83 users at 256d MRL. Query billing counts the namespace on every query — `(stored vectors + queries) × dims` — so a single query over a full namespace is ~23.8M queried dims against a 30M/month allowance. Doc [10 §3.2](10-multitenant-architecture.md) flagged exactly this pessimistic reading as an open question; the pricing page's own worked examples document it. Consequences: cache search responses, keep namespaces tiny (`lite`/recent-lane: ~1k vectors @256d ≈ 256k dims/query, ~117 queries/month free), and treat per-namespace query cost (not storage) as the scaling wall. ⚠️ Confirm the query-vector count empirically in week 1. **Superseded for the free launch:** [15 §1](15-free-semantic-search.md) keeps Vectorize out of the critical path; this section governs only a future paid migration.
+**But the allocations are a prototype budget, not a serving budget.** One starwatch user is ~23.2k vectors ≈ 23.55M dims on 1024d. Free allows 5M stored dims → **0.21 users**, or 0.83 users at 256d MRL.
+
+Query billing counts the namespace on every search — `(stored vectors + searches) × dims` — so one search over a full namespace is ~23.8M queried dims against a 30M/month allowance. Doc [10 §3.2](10-multitenant-architecture.md) flagged this pessimistic reading as an open question; the pricing page's own worked examples document it.
+
+Consequences: cache search responses, keep namespaces tiny (`lite`/recent-lane: ~1k vectors @256d ≈ 256k dims per search, ~117 searches/month with no charge), and treat per-namespace query cost (not storage) as the scaling wall. ⚠️ Confirm the search-vector count empirically in week 1. **Superseded for the free launch:** [15 §1](15-free-semantic-search.md) keeps Vectorize out of the critical path; this section governs only a future paid migration.
 
 Free `5M stored dims` also has no documented over-limit behavior (upsert failure vs upgrade prompt) — another reason to stay well under it.
 
@@ -187,9 +191,9 @@ Class A: 1M/month ÷ ~7k writes/user (3.4k READMEs + ~3.4k packed embed objects)
 | 6   | **R2 storage** — 10 GB ≈ 80–300 users                                                                      | f16/MRL, lite tier, reference-count GC                                                                                                    | $0.015/GB-month (egress free)                                                                                                                                       | cents                     |
 | 7   | **WAF zone controls** — WAF rate limiting rules, Bot Fight Mode need a proxied domain                      | `ratelimits` binding + DO budgets + Turnstile                                                                                             | Domain (~$10/yr) + Pro zone (~$20/mo) only if abuse demands                                                                                                         | last                      |
 
-Order to actually pay: **(1) → (2) → (4) → (3) → (5) → (6) → (7)**. Paid Vectorize is deliberately late because its query pricing is the worst deal in the stack; earn it back with smaller namespaces and response caching first.
+Order in which to start paying: **(1) → (2) → (4) → (3) → (5) → (6) → (7)**. Paid Vectorize is deliberately late because its query pricing is the worst deal in the stack; earn it back with smaller namespaces and response caching first.
 
-**What the first $5 actually changes** (Workers Free → Workers Paid, the only lever that moves several walls at once):
+**What the first $5 buys** (Workers Free → Workers Paid, the only lever that moves several walls at once):
 
 | Ceiling                            | Free                         | Paid                                           |
 | ---------------------------------- | ---------------------------- | ---------------------------------------------- |
@@ -298,7 +302,11 @@ Free-plan facts and page update dates:
 - KV pricing (updated 2026-04-21): <https://developers.cloudflare.com/kv/platform/pricing/>
 - Durable Objects pricing (100k req/day, 13k GB-s/day, SQLite-only free) and limits (5 GB/account; updated 2026-06-01): <https://developers.cloudflare.com/durable-objects/platform/pricing/> · <https://developers.cloudflare.com/durable-objects/platform/limits/>
 - Queues pricing and limits (10k ops/day, 24 h free retention; updated 2026-04-21): <https://developers.cloudflare.com/queues/platform/pricing/> · <https://developers.cloudflare.com/queues/platform/limits/>
+
+
 - Workflows pricing (3k steps/day, 1 GB-mo; updated 2026-07-21) and limits (1,024 steps/instance, 100 concurrent, 10 ms CPU/step; updated 2026-06-15): <https://developers.cloudflare.com/workflows/reference/pricing/> · <https://developers.cloudflare.com/workflows/reference/limits/>
+
+
 - Workers AI pricing (10k neurons/day, per-model rates; updated 2026-08-28) and limits (updated 2026-08-07): <https://developers.cloudflare.com/workers-ai/platform/pricing/> · <https://developers.cloudflare.com/workers-ai/platform/limits/>
 - Vectorize pricing (5M stored / 30M queried dims free; updated 2026-04-21), limits (Free columns: 100 indexes, 1,000 namespaces; updated 2026-08-05), intro (free plan supported; updated 2026-08-25): <https://developers.cloudflare.com/vectorize/platform/pricing/> · <https://developers.cloudflare.com/vectorize/platform/limits/> · <https://developers.cloudflare.com/vectorize/get-started/intro/>
 - Turnstile plans (free tier; updated 2026-08-14): <https://developers.cloudflare.com/turnstile/plans/>

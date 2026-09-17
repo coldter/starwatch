@@ -1,6 +1,6 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { SearchMode } from "@starwatch/domain";
+import { SearchMode, SearchSort } from "@starwatch/domain";
 
 /**
  * URL search state for `/u/$login` (docs/06 §3, docs/08 §3.1).
@@ -19,6 +19,11 @@ import { SearchMode } from "@starwatch/domain";
 export const SEARCH_MODES = ["auto", "keyword", "hybrid", "semantic"] as const;
 
 export const DEFAULT_MODE: SearchMode = "auto";
+
+/** Result ordering, ordered as the picker shows it (docs/06 §3, docs/07 §4). */
+export const SORTS: ReadonlyArray<SearchSort> = ["relevance", "pushed", "starred", "stars"];
+
+export const DEFAULT_SORT: SearchSort = "relevance";
 
 export const PAGE_SIZE = 20;
 
@@ -43,10 +48,27 @@ export const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   semantic: "Semantic",
 };
 
+/** Sort labels: what the option says, and how a summary line refers to it. */
+export const SORT_LABELS: Record<SearchSort, string> = {
+  relevance: "Best match",
+  pushed: "Recently pushed",
+  starred: "Recently starred",
+  stars: "Most stars",
+};
+
+/** One sentence per sort, shown as the option hint. */
+export const SORT_HINTS: Record<SearchSort, string> = {
+  relevance: "Most relevant first — names, descriptions, topics and READMEs.",
+  pushed: "Repos their maintainers pushed most recently first.",
+  starred: "Repos you starred most recently first.",
+  stars: "Most starred repos first.",
+};
+
 /** URL-shaped search: every field optional, defaults omitted. */
 export interface UserSearch {
   q?: string;
   mode?: SearchMode;
+  sort?: SearchSort;
   lang?: string;
   group?: string[];
   /** Omitted when archived repos are hidden, which is the default. */
@@ -61,6 +83,7 @@ export interface UserSearch {
 export interface SearchState {
   q: string;
   mode: SearchMode;
+  sort: SearchSort;
   lang: string | undefined;
   group: string[];
   archived: ArchivedFilter;
@@ -72,6 +95,7 @@ export interface SearchState {
 export const EMPTY_SEARCH: SearchState = {
   q: "",
   mode: DEFAULT_MODE,
+  sort: DEFAULT_SORT,
   lang: undefined,
   group: [],
   archived: DEFAULT_ARCHIVED,
@@ -187,6 +211,13 @@ export function toArchivedQuery(filter: ArchivedFilter): boolean | undefined {
   return undefined;
 }
 
+/** One key the sort picker can carry, from URL text or typed navigation. */
+export function toSort(value: RawSearchValue | undefined): SearchSort {
+  const raw = asString(value);
+
+  return Option.getOrElse(Schema.decodeUnknownOption(SearchSort)(raw), () => DEFAULT_SORT);
+}
+
 export function toSearchMode(
   value: string | number | ReadonlyArray<string> | undefined,
 ): SearchMode {
@@ -232,6 +263,10 @@ export function parseUserSearch(raw: RawSearchBag): UserSearch {
 
   if (mode !== DEFAULT_MODE) out.mode = mode;
 
+  const sort = toSort(raw.sort);
+
+  if (sort !== DEFAULT_SORT) out.sort = sort;
+
   const lang = asString(raw.lang)?.trim();
 
   if (lang) out.lang = lang;
@@ -264,6 +299,7 @@ export function normalizeUserSearch(raw: UserSearch): SearchState {
   return {
     q: raw.q ?? "",
     mode: raw.mode ?? DEFAULT_MODE,
+    sort: raw.sort ?? DEFAULT_SORT,
     lang: raw.lang,
     group: raw.group ?? [],
     archived: raw.archived ?? DEFAULT_ARCHIVED,
@@ -280,6 +316,8 @@ export function toUrlSearch(state: SearchState): UserSearch {
   if (state.q) out.q = state.q;
 
   if (state.mode !== DEFAULT_MODE) out.mode = state.mode;
+
+  if (state.sort !== DEFAULT_SORT) out.sort = state.sort;
 
   if (state.lang) out.lang = state.lang;
 

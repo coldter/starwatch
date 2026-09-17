@@ -3,7 +3,14 @@ import * as Effect from "effect/Effect";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import { StarwatchApi } from "../api.ts";
 import { runSearch } from "../search/search-service.ts";
-import { clientIp, normalizeLogin, parseFilters, parseLimit, parseMode } from "./http.ts";
+import {
+  clientIp,
+  normalizeLogin,
+  parseFilters,
+  parseLimit,
+  parseMode,
+  parseSort,
+} from "./http.ts";
 import type { WorkerDeps } from "./types.ts";
 
 export const searchGroup = (deps: WorkerDeps) =>
@@ -30,6 +37,7 @@ export const searchGroup = (deps: WorkerDeps) =>
           login: normalizeLogin(params.login),
           query: query.q,
           mode: parseMode(query.mode),
+          sort: parseSort(query.sort),
           filters: parseFilters(query),
           limit: parseLimit(query.limit),
         }).pipe(Effect.orDie, Effect.provide(deps.searchLayer));

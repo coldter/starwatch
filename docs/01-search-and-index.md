@@ -1,4 +1,4 @@
-# 01 — Search Modes & Index Deep Dive
+# 01 — Search modes & index deep dive
 
 > ⚠️ **Pivot notice (2026-09-13):** this document predates the public multi-tenant pivot. See [08-public-service-ux.md](08-public-service-ux.md)–[12-hardening.md](12-hardening.md) for the current design and [11-assumptions-delta.md](11-assumptions-delta.md) for exactly what changed.
 
@@ -73,7 +73,7 @@ Embedding model options (Workers AI):
 - Run both legs with the same filters: FTS5 top-50 (BM25) + Vectorize top-50 (KNN).
 - Fuse with **Reciprocal Rank Fusion**: `score = Σ 1/(60 + rank)` at chunk level, then aggregate to repo level (best chunk wins; star count as tie-break).
 - Optional second stage: **rerank top 30–50 passages** with `bge-reranker-base`.
-- Why RRF over weighted score sums: no calibration between BM25 and cosine needed; robust; Cloudflare's AI Search uses `rrf` fusion too.
+- Why RRF over weighted score sums: no calibration between BM25 and cosine needed; it keeps working as either leg's score range shifts; Cloudflare's AI Search uses `rrf` fusion too.
 
 ### 3.4 Context-driven extensions (v2+)
 
@@ -202,6 +202,10 @@ Stable through ~10× usage growth. First cost that grows: Vectorize stored dimen
 
 - D1 FTS5: <https://developers.cloudflare.com/d1/sql-api/sql-statements/>
 - Vectorize limits: <https://developers.cloudflare.com/vectorize/platform/limits/> · filtering: <https://developers.cloudflare.com/vectorize/reference/metadata-filtering/> · pricing: <https://developers.cloudflare.com/vectorize/platform/pricing/>
+
+
 - Workers AI models: <https://developers.cloudflare.com/workers-ai/models> · pricing: <https://developers.cloudflare.com/workers-ai/platform/pricing> · reranker: <https://developers.cloudflare.com/workers-ai/models/bge-reranker-base>
 - AI Search: <https://developers.cloudflare.com/ai-search/> · limits/pricing: <https://developers.cloudflare.com/ai-search/platform/limits-pricing>
+
+
 - GitHub search limitation: <https://docs.github.com/en/search-github/searching-on-github/searching-for-repositories> (no `is:starred`; 1,000-result cap: <https://docs.github.com/en/rest/search/search>)

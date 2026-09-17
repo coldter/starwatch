@@ -232,7 +232,7 @@ Canonical redirects: wrong-case login → canonical; `?user=` inside `/u/` ignor
 
 ### 3.3 Single-user context (v1) vs multi-user/global (v2)
 
-**Recommend single-user context for v1.** Every ranking rule in [07](07-search-contract.md) assumes one corpus; cross-user search needs cross-corpus ranking, duplicate-repo handling, and per-user coverage accounting, and it changes the mental model from "search _their_ memory" to a repo directory. Implementation fits v1 nicely: one semantic index per indexed user — a **per-user R2 vector blob** on the free path ([15 §2](15-free-semantic-search.md)) or a **per-user namespace** (`u{user_id}`) on the paid path ([10 §3](10-multitenant-architecture.md)); D1 rows are scoped by `login` + `repo_id`. v2: a global scope across indexed users (per-user fan-out with cross-user RRF and dedupe) — experimental, never the landing default.
+**Recommend a single account per search context for v1.** Every ranking rule in [07](07-search-contract.md) assumes one corpus; searching across accounts needs cross-corpus ranking, duplicate-repo handling, and coverage accounting per corpus, and it changes the mental model from "search _their_ memory" to a repo directory. Implementation fits v1 nicely: one semantic index per login — an **R2 vector blob keyed by login** on the free path ([15 §2](15-free-semantic-search.md)) or a **namespace per login** (`u{user_id}`) on the paid path ([10 §3](10-multitenant-architecture.md)); D1 rows are scoped by `login` + `repo_id`. v2: a global scope across indexed logins (fan-out with cross-corpus RRF and dedupe) — experimental, never the landing default.
 
 ### 3.4 Search page header / freshness area
 

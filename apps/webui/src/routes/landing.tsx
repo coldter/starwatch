@@ -24,7 +24,7 @@ import { RecentUsers } from "@/features/landing/RecentUsers";
 import { UserPreviewCard, type PreviewAction } from "@/features/landing/UserPreviewCard";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useSearchShortcut } from "@/hooks/useSearchShortcut";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, plural } from "@/lib/format";
 import { parseLoginInput, SUGGESTED_USERS } from "@/lib/login";
 import { getRecentUsers, rememberUser, type RecentUser } from "@/lib/recent";
 import { exceedsStarCap, hasIndex, isActivePhase, isStale } from "@/lib/state";
@@ -224,7 +224,10 @@ function primaryAction(
   if (active) return { label: "Search what's loaded", onClick: () => onSearch(login) };
 
   if (indexed)
-    return { label: `Search ${formatNumber(stars)} stars`, onClick: () => onSearch(login) };
+    return {
+      label: `Search ${formatNumber(stars)} ${plural(stars, "star")}`,
+      onClick: () => onSearch(login),
+    };
 
   if (exceedsStarCap(state))
     return {

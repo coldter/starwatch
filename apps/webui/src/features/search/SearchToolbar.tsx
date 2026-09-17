@@ -1,21 +1,30 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
-import type { SearchMode } from "@starwatch/domain";
+import { ArrowUpDown, Search, SlidersHorizontal } from "lucide-react";
+import type { SearchMode, SearchSort } from "@starwatch/domain";
 import { Button } from "@/components/motion/button/base";
 import { Input } from "@/components/motion/input";
 import { Loader } from "@/components/motion/loader";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/motion/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { Tooltip } from "@/components/motion/tooltip";
-import { SEARCH_MODE_LABELS } from "@/lib/search-params";
+import { SEARCH_MODE_LABELS, SORT_HINTS, SORT_LABELS, SORTS } from "@/lib/search-params";
 
 export interface SearchToolbarProps {
   value: string;
   busy: boolean;
   mode: SearchMode;
+  sort: SearchSort;
   filterCount: number;
   filtersOpen: boolean;
   onSubmit: (query: string) => void;
   onMode: (mode: SearchMode) => void;
+  onSort: (sort: SearchSort) => void;
   onToggleFilters: () => void;
 }
 
@@ -48,10 +57,12 @@ export function SearchToolbar({
   value,
   busy,
   mode,
+  sort,
   filterCount,
   filtersOpen,
   onSubmit,
   onMode,
+  onSort,
   onToggleFilters,
 }: SearchToolbarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -87,6 +98,12 @@ export function SearchToolbar({
     const option = MODE_OPTIONS.find((entry) => entry.value === next);
 
     if (option !== undefined) onMode(option.value);
+  };
+
+  const onSortChange = (next: string) => {
+    const option = SORTS.find((entry) => entry === next);
+
+    if (option !== undefined) onSort(option);
   };
 
   return (
@@ -130,12 +147,12 @@ export function SearchToolbar({
         </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
+      <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           value={mode}
           onValueChange={onModeChange}
           variant="segment"
-          className="min-w-0 flex-1"
+          className="min-w-0 sm:flex-1"
         >
           <TabsList className="max-w-full overflow-x-auto bg-muted">
             {MODE_OPTIONS.map((option) => (
@@ -146,17 +163,39 @@ export function SearchToolbar({
           </TabsList>
         </Tabs>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          data-filters-trigger=""
-          className="shrink-0 lg:hidden"
-          aria-expanded={filtersOpen}
-          onClick={onToggleFilters}
-        >
-          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-          Filters{filterCount > 0 ? ` (${filterCount})` : ""}
-        </Button>
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
+          {/* Sorting is part of the search identity (URL state), not a filter:
+              it also works on its own, with no query typed. */}
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <Tooltip content={SORT_HINTS[sort]} side="bottom">
+              <Select value={sort} onValueChange={onSortChange}>
+                <SelectTrigger ariaLabel="Sort results" className="h-8 w-[11.5rem] text-xs">
+                  <SelectValue placeholder={SORT_LABELS.relevance} />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORTS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {SORT_LABELS[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Tooltip>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            data-filters-trigger=""
+            className="shrink-0 lg:hidden"
+            aria-expanded={filtersOpen}
+            onClick={onToggleFilters}
+          >
+            <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+            Filters{filterCount > 0 ? ` (${filterCount})` : ""}
+          </Button>
+        </div>
       </div>
     </form>
   );

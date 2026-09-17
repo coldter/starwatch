@@ -1,4 +1,4 @@
-import type { SearchMode, UserIndexState } from "@starwatch/domain";
+import type { SearchMode, SearchSort, UserIndexState } from "@starwatch/domain";
 import * as Option from "effect/Option";
 import * as Headers from "effect/unstable/http/Headers";
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
@@ -6,22 +6,15 @@ import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT } from "../constants.ts";
 import type { SearchQuery } from "../api.ts";
 
 /** Canonical login handling: GitHub logins are case-insensitive. */
-export const normalizeLogin = (raw: string): string =>
-  raw.trim().replace(/^@+/, "").toLowerCase();
+export const normalizeLogin = (raw: string): string => raw.trim().replace(/^@+/, "").toLowerCase();
 
 /** `cf-connecting-ip`, then the first `x-forwarded-for` hop (dev). */
-export const clientIp = (
-  request: HttpServerRequest.HttpServerRequest,
-): string => {
-  const direct = Option.getOrUndefined(
-    Headers.get(request.headers, "cf-connecting-ip"),
-  );
+export const clientIp = (request: HttpServerRequest.HttpServerRequest): string => {
+  const direct = Option.getOrUndefined(Headers.get(request.headers, "cf-connecting-ip"));
 
   if (direct !== undefined && direct.length > 0) return direct;
 
-  const forwarded = Option.getOrUndefined(
-    Headers.get(request.headers, "x-forwarded-for"),
-  );
+  const forwarded = Option.getOrUndefined(Headers.get(request.headers, "x-forwarded-for"));
 
   const first = forwarded?.split(",")[0]?.trim();
 
@@ -67,9 +60,7 @@ const parseBoolean = (value: string | undefined): boolean | undefined => {
   return undefined;
 };
 
-const splitList = (
-  value: string | undefined,
-): ReadonlyArray<string> | undefined => {
+const splitList = (value: string | undefined): ReadonlyArray<string> | undefined => {
   if (value === undefined) return undefined;
 
   const items = value
@@ -105,11 +96,18 @@ export const parseFilters = (query: SearchQuery) => ({
 export const parseMode = (value: string | undefined): SearchMode => {
   const normalized = value?.trim().toLowerCase();
 
-  return normalized === "keyword" ||
-    normalized === "hybrid" ||
-    normalized === "semantic"
+  return normalized === "keyword" || normalized === "hybrid" || normalized === "semantic"
     ? normalized
     : "auto";
+};
+
+/** Unknown sorts fall back to relevance — never an error, never a random key. */
+export const parseSort = (value: string | undefined): SearchSort => {
+  const normalized = value?.trim().toLowerCase();
+
+  return normalized === "stars" || normalized === "starred" || normalized === "pushed"
+    ? normalized
+    : "relevance";
 };
 
 export const parseLimit = (value: string | undefined): number => {

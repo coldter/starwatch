@@ -1,4 +1,4 @@
-# 03 — Sync Interaction Spec & GitHub API Rate-Limit Dossier
+# 03 — Sync interaction spec & GitHub API rate-limit dossier
 
 > ⚠️ **Pivot notice (2026-09-13):** this document predates the public multi-tenant pivot. See [08-public-service-ux.md](08-public-service-ux.md)–[12-hardening.md](12-hardening.md) for the current design and [11-assumptions-delta.md](11-assumptions-delta.md) for exactly what changed.
 
@@ -257,7 +257,7 @@ One Workflow instance per run: id `sw-sync-{run_id}` (≤100 chars; retention 30
 
 **Searchable during backfill**: yes — `index_state` is `metadata` (after phase 1), `readme` (phase 3), or `full` (phase 5). Lexical search works from phase 1; semantic recall grows until phase 5. Result cards get an "indexing" marker and `stats` shows coverage `1,203/3,448 (35%)`.
 
-**Partial failure per phase**: phase 1 page failure → step retry, terminal failure errors the run (already-fetched pages are committed; resume from cursor). Phase 3 per-repo failure → record `readme_state='error'`, continue; retried next run. Phase 4/5 batch failure → retry, then skip batch; affected chunks stay `embedded=0` and are retried next run (no corruption). Cancel = `instance.terminate()` + run state `cancelled`; retry = `create` new instance with same checkpoint cursor or `restart({ from: … })` semantics (cached step results before that step are reused).
+**Partial failure per phase**: phase 1 page failure → retry that page, terminal failure errors the run (already-fetched pages are committed; resume from cursor). Phase 3 per-repo failure → record `readme_state='error'`, continue; retried next run. Phase 4/5 batch failure → retry, then skip batch; affected chunks stay `embedded=0` and are retried next run (no corruption). Cancel = `instance.terminate()` + run state `cancelled`; retry = `create` new instance with same checkpoint cursor or `restart({ from: … })` semantics (results cached before that checkpoint are reused).
 
 **Snapshot semantics**: all stars present at run start belong to this run; stars added after the listing completes are deliberately deferred to the next run (tail-page diff makes this cheap). No mid-run re-listing.
 
@@ -382,7 +382,11 @@ CREATE TABLE sync_runs (
 - OAuth scopes (`public_repo`/`repo`): <https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps>
 - SSO authorizing PATs: <https://docs.github.com/en/authentication/authenticating-with-saml-single-sign-on/authorizing-a-personal-access-token-for-use-with-saml-single-sign-on>
 - API versions (2022-11-28 default; 2026-03-10 current): <https://docs.github.com/en/rest/about-the-rest-api/api-versions>
+
+
 - Workflows limits: <https://developers.cloudflare.com/workflows/reference/limits/> · API (`sleepUntil`, retries, restart, statuses): <https://developers.cloudflare.com/workflows/build/workers-api/> · retry defaults: <https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/>
+
+
 - Worker secrets: <https://developers.cloudflare.com/workers/configuration/secrets/>
 - Cache API (per-colo, directives, Access caveat): <https://developers.cloudflare.com/workers/runtime-apis/cache/>
 - Vectorize limits (upsert batch 1,000; 20M vectors): <https://developers.cloudflare.com/vectorize/platform/limits/>

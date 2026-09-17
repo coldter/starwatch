@@ -74,7 +74,7 @@ const MATCH_COPY: Record<
   },
   expanded: {
     label: "related",
-    title: "Matched through a related term the index expanded to",
+    title: "Matched a related term the query expanded to",
     status: "warning",
     Icon: Sparkles,
   },

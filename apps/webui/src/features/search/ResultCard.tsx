@@ -6,7 +6,7 @@ import { ArchivedBadge, CollectionChip, MatchBadge } from "@/components/common/B
 import { LanguageDot } from "@/components/common/LanguageDot";
 import { RepoPreview } from "@/components/common/RepoPreview";
 import { Button, ButtonLink } from "@/components/motion/button/base";
-import { formatCompact, formatNumber, relativeTime } from "@/lib/format";
+import { formatCompact, formatNumber, plural, relativeTime } from "@/lib/format";
 import { ownerAvatarUrl } from "@/lib/repo-images";
 
 export interface ResultCardProps {
@@ -75,7 +75,7 @@ export function ResultCard({ hit, groupNames, onOpen, index = 0 }: ResultCardPro
             ) : null}
             <span
               className="inline-flex items-center gap-1 tabular-nums"
-              title={`${formatNumber(repo.stars)} stars`}
+              title={`${formatNumber(repo.stars)} ${plural(repo.stars, "star")}`}
             >
               <Star className="size-3 text-star" aria-hidden="true" />
               {formatCompact(repo.stars)}

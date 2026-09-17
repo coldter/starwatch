@@ -1,9 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import {
-  GithubRateLimited,
-  GithubUpstream,
-  UserNotFound,
-} from "@starwatch/domain";
+import { GithubRateLimited, GithubUpstream, UserNotFound } from "@starwatch/domain";
 import { GithubClient } from "@starwatch/core/sync";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -23,9 +19,7 @@ interface StubResponse {
   readonly body?: string;
 }
 
-type StubHandler = (
-  request: HttpClientRequest.HttpClientRequest,
-) => StubResponse;
+type StubHandler = (request: HttpClientRequest.HttpClientRequest) => StubResponse;
 
 const jsonResponse = <A>(
   value: A,
@@ -68,9 +62,7 @@ const runClient = <A, E>(
   const http = HttpClient.make((request) => {
     const response = handler(request);
 
-    return Effect.succeed(
-      HttpClientResponse.fromWeb(request, webResponse(response)),
-    );
+    return Effect.succeed(HttpClientResponse.fromWeb(request, webResponse(response)));
   });
 
   const layer = Layer.provide(
@@ -87,8 +79,7 @@ const runClient = <A, E>(
 const requestHeader = (
   request: HttpClientRequest.HttpClientRequest,
   name: string,
-): string | undefined =>
-  Option.getOrUndefined(Headers.get(request.headers, name));
+): string | undefined => Option.getOrUndefined(Headers.get(request.headers, name));
 
 /** GraphQL request body the client encodes through `bodyJsonUnsafe`. */
 const GraphqlRequestBody = Schema.Struct({
@@ -105,9 +96,7 @@ const requestJsonBody = (
   if (!Predicate.isTagged(body, "Uint8Array")) return undefined;
 
   return Option.getOrUndefined(
-    Schema.decodeUnknownOption(GraphqlRequestBody)(
-      JSON.parse(new TextDecoder().decode(body.body)),
-    ),
+    Schema.decodeUnknownOption(GraphqlRequestBody)(JSON.parse(new TextDecoder().decode(body.body))),
   );
 };
 
@@ -166,9 +155,7 @@ describe("GithubClient.getUserProfile", () => {
   it("maps 404 to UserNotFound", async () => {
     const result = await runClient(
       () => textResponse("not found", 404),
-      GithubClient.use((client) => client.getUserProfile("nobody")).pipe(
-        Effect.result,
-      ),
+      GithubClient.use((client) => client.getUserProfile("nobody")).pipe(Effect.result),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -185,9 +172,7 @@ describe("GithubClient.getUserProfile", () => {
           "x-ratelimit-remaining": "0",
           "x-ratelimit-reset": "1900000000",
         }),
-      GithubClient.use((client) => client.getUserProfile("coldter")).pipe(
-        Effect.result,
-      ),
+      GithubClient.use((client) => client.getUserProfile("coldter")).pipe(Effect.result),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -198,9 +183,7 @@ describe("GithubClient.getUserProfile", () => {
       expect(failure).toBeInstanceOf(GithubRateLimited);
 
       if (Schema.is(GithubRateLimited)(failure)) {
-        expect(failure.resetAt).toBe(
-          new Date(1_900_000_000 * 1000).toISOString(),
-        );
+        expect(failure.resetAt).toBe(new Date(1_900_000_000 * 1000).toISOString());
       }
     }
   });
@@ -208,9 +191,7 @@ describe("GithubClient.getUserProfile", () => {
   it("maps other failures to GithubUpstream", async () => {
     const result = await runClient(
       () => textResponse("boom", 500),
-      GithubClient.use((client) => client.getUserProfile("coldter")).pipe(
-        Effect.result,
-      ),
+      GithubClient.use((client) => client.getUserProfile("coldter")).pipe(Effect.result),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -261,18 +242,14 @@ describe("GithubClient.listStarPage", () => {
     expect(page.etag).toBe('"abc"');
     expect(page.nextPage).toBe(2);
     expect(page.rateLimitRemaining).toBe(4321);
-    expect(page.rateLimitResetAt).toBe(
-      new Date(1_900_000_000 * 1000).toISOString(),
-    );
+    expect(page.rateLimitResetAt).toBe(new Date(1_900_000_000 * 1000).toISOString());
 
     const url = new URL(seen!.url);
     expect(url.pathname).toBe("/users/coldter/starred");
     expect(url.searchParams.get("per_page")).toBe("100");
     expect(url.searchParams.get("sort")).toBe("created");
     expect(url.searchParams.get("direction")).toBe("asc");
-    expect(requestHeader(seen!, "accept")).toBe(
-      "application/vnd.github.star+json",
-    );
+    expect(requestHeader(seen!, "accept")).toBe("application/vnd.github.star+json");
   });
 
   it("returns notModified for a free 304 and preserves the etag", async () => {
@@ -287,9 +264,7 @@ describe("GithubClient.listStarPage", () => {
           "x-ratelimit-remaining": "4999",
         });
       },
-      GithubClient.use((client) =>
-        client.listStarPage("coldter", { page: 3, etag: '"old-etag"' }),
-      ),
+      GithubClient.use((client) => client.listStarPage("coldter", { page: 3, etag: '"old-etag"' })),
     );
 
     expect(page.notModified).toBe(true);
@@ -304,9 +279,7 @@ describe("GithubClient.listStarPage", () => {
   it("maps a 404 star listing to UserNotFound", async () => {
     const result = await runClient(
       () => textResponse("not found", 404),
-      GithubClient.use((client) =>
-        client.listStarPage("gone", { page: 1 }),
-      ).pipe(Effect.result),
+      GithubClient.use((client) => client.listStarPage("gone", { page: 1 })).pipe(Effect.result),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -357,12 +330,8 @@ describe("GithubClient.getReadme", () => {
     expect(readme).toEqual({ text: "# Fallback", source: "rest" });
     expect(requests).toHaveLength(6);
     const fallback = requests[5];
-    expect(fallback?.url).toBe(
-      "https://api.github.com/repos/owner/repo/readme",
-    );
-    expect(requestHeader(fallback!, "accept")).toBe(
-      "application/vnd.github.raw",
-    );
+    expect(fallback?.url).toBe("https://api.github.com/repos/owner/repo/readme");
+    expect(requestHeader(fallback!, "accept")).toBe("application/vnd.github.raw");
   });
 
   it("returns null when the REST fallback is a 404", async () => {
@@ -485,9 +454,7 @@ describe("GithubClient.listGroups", () => {
   it("maps GraphQL errors to GithubUpstream", async () => {
     const result = await runClient(
       () => jsonResponse({ errors: [{ message: "Something exploded" }] }),
-      GithubClient.use((client) => client.listGroups("coldter")).pipe(
-        Effect.result,
-      ),
+      GithubClient.use((client) => client.listGroups("coldter")).pipe(Effect.result),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -509,14 +476,11 @@ describe("GithubClient.listGroups", () => {
         jsonResponse({
           errors: [
             {
-              message:
-                "Could not resolve to a User with the login of 'nobody'.",
+              message: "Could not resolve to a User with the login of 'nobody'.",
             },
           ],
         }),
-      GithubClient.use((client) => client.listGroups("nobody")).pipe(
-        Effect.result,
-      ),
+      GithubClient.use((client) => client.listGroups("nobody")).pipe(Effect.result),
     );
 
     expect(Result.isFailure(result)).toBe(true);

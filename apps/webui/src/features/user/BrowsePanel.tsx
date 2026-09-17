@@ -2,7 +2,7 @@ import type { Group, UserIndexState } from "@starwatch/domain";
 import { Button } from "@/components/motion/button/base";
 import { NumberTicker } from "@/components/motion/number-ticker";
 import { Tooltip } from "@/components/motion/tooltip";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, plural } from "@/lib/format";
 import { semanticCoverage } from "@/lib/state";
 
 export interface BrowsePanelProps {
@@ -36,7 +36,7 @@ export function BrowsePanel({ login, state, groups, selected, onPickGroup }: Bro
   const hasSelection = selectedNames.length > 0;
 
   const heading = !hasSelection
-    ? `Browse ${formatNumber(state.reposMetadata)} indexed repos`
+    ? `Browse ${formatNumber(state.reposMetadata)} indexed ${plural(state.reposMetadata, "repo")}`
     : selectedNames.length === 1
       ? `Search in ${firstSelected}`
       : `Search in ${selectedNames.length} collections`;
@@ -49,17 +49,17 @@ export function BrowsePanel({ login, state, groups, selected, onPickGroup }: Bro
 
   const tiles: StatTile[] = [
     {
-      label: "repos indexed",
+      label: plural(state.reposMetadata, "repo indexed", "repos indexed"),
       value: state.reposMetadata,
       hint: "Starred repos whose metadata starwatch has read.",
     },
     {
-      label: "READMEs fetched",
+      label: plural(state.readmesFetched, "README fetched", "READMEs fetched"),
       value: state.readmesFetched,
       hint: "README files pulled in so their text is searchable.",
     },
     {
-      label: "vectors embedded",
+      label: plural(state.semanticDocs, "vector embedded", "vectors embedded"),
       value: state.semanticDocs,
       hint: "Repos converted to vectors for meaning-based search.",
     },
@@ -100,6 +100,9 @@ export function BrowsePanel({ login, state, groups, selected, onPickGroup }: Bro
       {groups.length > 0 ? (
         <div className="flex flex-col gap-2.5">
           <h3 className="text-sm font-semibold tracking-tight">Collections</h3>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Imported from this user's public GitHub Lists.
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {groups.slice(0, VISIBLE_GROUPS).map((group) => {
               const active = selected.includes(group.slug);

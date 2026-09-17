@@ -16,6 +16,17 @@ export const MAX_SEARCH_LIMIT = 50;
 export const SEARCH_LEG_LIMIT = 50;
 
 /**
+ * Per-leg top-N when the user asked for an explicit sort (docs/07 §5.5).
+ * Relevance order is decided inside the fused top-50, so re-ordering that same
+ * window would only ever show "the newest of the 50 most relevant" — a repo
+ * pushed yesterday but ranked #60 would be invisible. Widening the legs makes
+ * `sort=pushed|starred|stars` a real ordering of the match set while keeping
+ * the relevance path (and its documented per-leg top-50) untouched. Only ids,
+ * ranks and scores grow; snippets and README reads stay capped by `limit`.
+ */
+export const SORT_MATCH_LIMIT = 500;
+
+/**
  * READMEs embedded in full snippets (`makeSnippet`) rather than falling back
  * to the description. Bounds the `getReadmeTexts` D1 read to one statement.
  */

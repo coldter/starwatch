@@ -1,4 +1,4 @@
-# 09 — Public-Data Indexing & Service Limits
+# 09 — Public-data indexing & service limits
 
 > Status: **draft for discussion** · 2026-09-13 · Every claim marked "verified" was checked live (read-only) against `api.github.com`, the GraphQL API and `raw.githubusercontent.com` as `coldter` on this date; ⚠️ marks low-confidence items to re-check at implementation time. Companions: [00](00-requirements.md) · [03](03-sync-and-limits.md) (own-account sync, token basics, error taxonomy) · [04](04-groups.md) (Lists semantics) · [07](07-search-contract.md)/[15](15-free-semantic-search.md) (search quality; docs 16–18 pending) · [10](10-multitenant-architecture.md) (topology) · [13](13-free-tier-feasibility.md)/[14](14-abuse-protection.md) (free quotas and admission).
 >
@@ -212,7 +212,7 @@ raw has no documented size cut-off and supports Range (`206`), so "very large RE
 - Secondary: `403/429` + "secondary rate limit" message, optional `retry-after` seconds; ≤100 concurrent (we use 5), ≤900 REST points/min, ≤2,000 GraphQL points/min, ≤90 s CPU per 60 s.
 - Missing User-Agent: `403 Request forbidden by administrative rules…` (verified) — always send `starwatch/<ver> (+https://…/starwatch)`.
 - Handling reuses [03 §1.3](03-sync-and-limits.md): pause + `sleepUntil(reset+30s)`, exponential backoff, halve concurrency on secondary hits.
-- **Public-service specifics:** one abusive visitor can burn the whole 5k/h by requesting thousands of never-seen users. Queue every index request, enforce per-IP/session quotas, cache hits for free, and return "queued, ~X min" instead of 5xx.
+- **Public-service specifics:** one abusive visitor can burn the whole 5k/h by requesting thousands of never-seen users. Queue every index request, enforce per-IP/session quotas, serve cached responses at no API cost, and return "queued, ~X min" instead of 5xx.
 
 ## 5. Cache-and-serve policy
 
@@ -290,7 +290,7 @@ Burst note: one coldter-scale backfill (35 listing pages + ~103 README fallbacks
 
 ### 6.2 Re-sync cost
 
-`U users × P pages` per TTL, and many pages return 304 for free. At 10,000 indexed users averaging 1,000 stars: **100k requests/week ≈ 600 req/h** at a 7-day TTL (~13% of budget), or ~140 req/h at 30 days. Cross-user dedupe means a repo is README-fetched and embedded **once** no matter how many users star it — this is the single biggest lever in the whole design. (10k users is the paid-scale envelope; the $0 launch caps indexed users at 50 full/warm with LRU eviction, [14 §3.6](14-abuse-protection.md).)
+`U users × P pages` per TTL, and many pages return 304 and skip the body. At 10,000 indexed users averaging 1,000 stars: **100k requests/week ≈ 600 req/h** at a 7-day TTL (~13% of budget), or ~140 req/h at 30 days. Cross-user dedupe means a repo is README-fetched and embedded **once** no matter how many users star it — this is the single biggest lever in the whole design. (10k users is the paid-scale envelope; the $0 launch caps indexed users at 50 full/warm with LRU eviction, [14 §3.6](14-abuse-protection.md).)
 
 ### 6.3 Non-API ceilings (where the real wall is)
 

@@ -1,4 +1,4 @@
-# 18 — Search Quality Eval (Local Lab)
+# 18 — Search quality eval (local lab)
 
 > Status: **measured** · 2026-09-13 · Local, zero-spend reproduction of the free-tier search design in [15](15-free-semantic-search.md): SQLite FTS5 (porter + trigram) + **one 384-d embedding per repo** + RRF k=60 + static query expansion. Corpus: coldter's live stars (**3,448 repos**). Harness: `eval-lab/` (Node 26.8.2, `node:sqlite` FTS5, `@huggingface/transformers` 3.8.1, `Xenova/bge-small-en-v1.5` fp32). No Cloudflare account, no paid API, no Vectorize. ⚠️ marks what this lab **cannot** answer.
 
@@ -86,7 +86,7 @@ rank keyword                          semantic                         hybrid   
 10   better-auth/better-fetch [0]     GeKorm/better-auth-harmony [0]   anomalyco/openauth [2]           leopoldsw/cloudflare-auth [2]
 ```
 
-Where the acceptance targets actually land:
+Where the acceptance targets land:
 
 | Target                  | keyword | semantic | hybrid | hybrid+expand |
 | ----------------------- | ------- | -------- | ------ | ------------- |
@@ -137,7 +137,7 @@ rank keyword                          semantic                         hybrid   
 10   lucia-auth/lucia [2]             supertokens/supertokens-core [2] lucia-auth/lucia [2]             apache/casbin [2]
 ```
 
-Observations: keyword and hybrid never surface keycloak, zitadel, casbin, ory/kratos, casdoor, hanko, tinyauth, pocket-id inside the top 10; `hybrid+expand` gets casbin to #10 and supertokens to #5 but still misses the Go/Java IdP cluster. This is a **popularity-prior + name-repetition** effect: these repos' READMEs are docs-heavy and their descriptions don't repeat "auth" enough, so both legs rank smaller TS repos above them; stars-based tie-breaks are too weak (cap ×1.25, better-auth 30k★ → ×1.179 vs a 24★ repo ×1.056). The best fix is the same as §4.1: expansion + boost recalibration, not chunking. (R@10 is capped at 10/24 = 0.417 by the 24 grade-2 labels; 0.333 means 8/24 found.)
+Observations: keyword and hybrid never surface keycloak, zitadel, casbin, ory/kratos, casdoor, hanko, tinyauth, pocket-id inside the top 10; `hybrid+expand` gets casbin to #10 and supertokens to #5 but still misses the Go/Java IdP cluster. This is a **popularity-prior + name-repetition** effect: these repos' READMEs are docs-heavy and their descriptions don't repeat "auth" enough, so both legs rank smaller TS repos above them; stars-based tie-breaks are too weak (cap ×1.25, better-auth 30k★ → ×1.179 vs a 24★ repo ×1.056). The best fix is the same as §4.1: expansion plus boost recalibration; chunking does not address these errors. (R@10 is capped at 10/24 = 0.417 by the 24 grade-2 labels; 0.333 means 8/24 found.)
 
 ### 4.3 `http client with retries`
 
@@ -314,16 +314,16 @@ Per-query, boosts are uneven: they help the two `auth` queries and `durable-jobs
 4. **Thin-README targets are invisible to semantic search** — `better-fetch` (323 B) and `zodios` have no retry vocabulary in their docs, so "http client with retries" cannot retrieve them at all. Expansion is the only cheap fix; a reranker can't rerank what wasn't retrieved.
 5. **Expansion is not precision-safe** — it injects RAG/blog noise when the query already has good lexical anchors (`rate limit`, `vector database`). Fix: trigger only on weak keywords / use cluster terms as _boosts to the existing legs_ rather than additional retrievers, or add negative terms.
 6. **Strict R@10 is unreachable for broad queries** — `auth` has 24 grade-2 repos; top-10 recall maxes at 10/24 = 0.417. The [07](07-search-contract.md) gate (≥0.85) is undefined for that shape; add a "core targets in top-k" metric or grade a narrower target set.
-7. **Local embedding throughput** (5.3 docs/s fp32, 1.5-kB docs) makes full-corpus re-indexing an 11-minute affair locally; not a deployment issue, but any doc-text change in eval costs ~10 min (or a model dtype change to q8).
+7. **Local embedding throughput** (5.3 docs/s fp32, 1.5-kB docs) makes full-corpus re-indexing an 11-minute affair locally; deployment is unaffected, but any doc-text change in eval costs ~10 min (or a model dtype change to q8).
 
 ## 7. What this implies for docs 07 / 15
 
 1. **Ship `hybrid+expand` as the default intent for descriptive queries; keep plain hybrid for known-item/identifier.** Concretely: route by presence of an expansion cluster and/or by keyword quality. The measured gain (overall nDCG 0.692 → 0.742, auth-ts 0.700 → 0.808, durable-jobs 0.791 → 0.949) is larger than the [07](07-search-contract.md) launch-gate margin for hybrid over keyword.
 2. **Do not wait for an LLM for expansion** ([07 §8](07-search-contract.md), [15 §8](15-free-semantic-search.md) both push it to v2). A static cluster table is deterministic, free, auditable and already pays. Design the stage as `expand(query) → {terms, cluster_id}` so the LLM can replace the implementation later without moving the pipeline slot.
-3. **Model/dims**: `bge-small-en-v1.5` at **384 d** is a viable free-tier repo-level default and is _cheaper_ than doc 15's 512-d plan (5.3 MB of f32 vectors for 3.4k repos; ~5–7 ms scalar scan in Node). It is not MRL, so the 512 → 256 fallback ladder in [15 §6.1](15-free-semantic-search.md) would not apply; if the Workers AI path stays on qwen3-embedding, run this gold set at 512/384/256 before freezing dims. ⚠️ We could not test the actual deployed models here.
-4. **Keep one vector per repo; chunking is not the bottleneck.** The failures are top-rank precision and vocabulary, not recall. Semantic R@10 (0.689) already exceeds keyword (0.604) and hybrid (0.740) is best; chunk-level indexing would multiply embedding cost ([15 §5](15-free-semantic-search.md): ~6.3×) without addressing the observed errors. Revisit only if rerank needs passages (rerank passages can still come from `repo_chunks` text without chunk _vectors_).
+3. **Model/dims**: `bge-small-en-v1.5` at **384 d** keeps the free-tier repo-level default at 5.3 MB of f32 vectors for 3.4k repos (~5–7 ms scalar scan in Node) — three-quarters of doc 15's 512-d plan. It is not MRL, so the 512 → 256 fallback ladder in [15 §6.1](15-free-semantic-search.md) would not apply; if the Workers AI path stays on qwen3-embedding, run this gold set at 512/384/256 before freezing dims. ⚠️ We could not test the actual deployed models here.
+4. **Keep one vector per repo.** The failures are top-rank precision and vocabulary, not recall. Semantic R@10 (0.689) already exceeds keyword (0.604) and hybrid (0.740) is best; chunk-level indexing would multiply embedding cost ([15 §5](15-free-semantic-search.md): ~6.3×) without addressing the observed errors. Revisit only if rerank needs passages (rerank passages can still come from `repo_chunks` text without chunk _vectors_).
 5. **Boost table needs an IDF/specificity modifier and a weaker star-prior asymmetry** — the current ×1.60/×1.45/×1.20 family makes generic tokens sticky; [07 §5.3](07-search-contract.md) should add "boosts only when the matched token is discriminative" and revisit the ×1.25 star cap (a 30k★ auth leader only gets ×1.18, which cannot compete with a 24★ exact-name match once one leg ranks it #1).
-6. **Replace zero-only OR fallback with quality-aware matching** ([07 §7.2](07-search-contract.md)) **and add an IDF stopword list**; `with`, `for` must not be mandatory. This is a cheap, high-leverage change: `tui for git` keyword goes from nDCG 0.0 / MRR n/a to (with fallback fired) at least lazygit reachable.
+6. **Replace zero-only OR fallback with quality-aware matching** ([07 §7.2](07-search-contract.md)) **and add an IDF stopword list**; `with`, `for` must not be mandatory. This is a cheap, effective change: `tui for git` keyword goes from nDCG 0.0 / MRR n/a to (with fallback fired) at least lazygit reachable.
 7. **Filters are validated**: SQL pre-filtering by language produced 1,235 candidates for the TS query with precision 1.000 and sub-2 ms filter time; topic AND semantics and star ranges are the right shape for the free design ([15 §2.1](15-free-semantic-search.md)). No need for Vectorize metadata indexes.
 8. **Rerank remains the unproven lever.** Ranking failures concentrate in top-5 precision, which is exactly what `bge-reranker-base` over top-30 ([07 §5.4](07-search-contract.md)) is for; this lab cannot measure it (no Workers AI). The eval plan should test rerank before committing to chunk-level or larger models.
 9. **Metric fix**: R@10 needs a query-shape guard (broad multi-target queries) or a companion "core-target hit rate"; otherwise [07 §3.2](07-search-contract.md) gates will be both unreachable and meaningless for `auth`-style queries.

@@ -14,9 +14,7 @@ import { SyncPhase } from "@starwatch/domain";
 
 /** `snake_case` → `camelCase`; used as `transformResultNames`. */
 export const camelize = (name: string): string =>
-  name.replace(/_([a-z0-9])/gi, (_match: string, char: string) =>
-    char.toUpperCase(),
-  );
+  name.replace(/_([a-z0-9])/gi, (_match: string, char: string) => char.toUpperCase());
 
 /** Single ISO-8601 timestamp source for every `*_at` column. */
 export const nowIso = (): string => new Date().toISOString();
@@ -55,13 +53,7 @@ export const parseTopicsJson = (topicsJson: string): ReadonlyArray<string> => {
 };
 
 /** README lifecycle states written by the sync pipeline (docs/03). */
-export const ReadmeState = Schema.Literals([
-  "unknown",
-  "present",
-  "missing",
-  "too_big",
-  "error",
-]);
+export const ReadmeState = Schema.Literals(["unknown", "present", "missing", "too_big", "error"]);
 
 export type ReadmeState = typeof ReadmeState.Type;
 

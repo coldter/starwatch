@@ -5,7 +5,7 @@ import { FreshnessBadge } from "@/components/common/Badges";
 import { AnimatedBadge } from "@/components/motion/animated-badge";
 import { AnimatedNumber } from "@/components/motion/animated-number";
 import { Button } from "@/components/motion/button/base";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, plural } from "@/lib/format";
 import { exceedsStarCap, isMetadataOnly } from "@/lib/state";
 
 export interface PreviewAction {
@@ -59,7 +59,8 @@ export function UserPreviewCard({ data, busy, primary, secondary }: UserPreviewC
         <p className="text-sm text-muted-foreground">
           <span className="text-foreground">@{profile.login}</span>
           <span aria-hidden="true"> · </span>
-          <AnimatedNumber value={stars} className="text-foreground" /> public stars
+          <AnimatedNumber value={stars} className="text-foreground" /> public{" "}
+          {plural(stars, "star")}
         </p>
 
         {profile.bio ? (

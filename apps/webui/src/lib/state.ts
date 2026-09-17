@@ -1,5 +1,5 @@
 import { MAX_STARS, SEMANTIC_WINDOW, type SyncPhase, type UserIndexState } from "@starwatch/domain";
-import { coveragePercent, formatNumber, percent, relativeTime } from "./format";
+import { coveragePercent, formatNumber, percent, plural, relativeTime } from "./format";
 
 /** Phases where work is happening and the UI should follow progress. */
 export const ACTIVE_PHASES: ReadonlyArray<SyncPhase> = ["listing", "fetching-readmes", "embedding"];
@@ -156,7 +156,7 @@ export function freshness(
       return {
         tone: stale ? "stale" : "fresh",
         label: `Indexed ${relativeTime(state.lastSyncedAt, now)}`,
-        detail: `${formatNumber(state.starsTotal)} stars · semantic ${coveragePercent(semanticCoverage(state))}%${stale ? " — may be missing recent stars" : ""}`,
+        detail: `${formatNumber(state.starsTotal)} ${plural(state.starsTotal, "star")} · semantic ${coveragePercent(semanticCoverage(state))}%${stale ? " — may be missing recent stars" : ""}`,
       };
     }
   }

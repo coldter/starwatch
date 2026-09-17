@@ -8,6 +8,7 @@ import {
   UserIndexState,
   UserProfile,
   type SearchMode,
+  type SearchSort,
 } from "@starwatch/domain";
 
 /**
@@ -260,6 +261,7 @@ export async function fetchUser(login: string, signal?: AbortSignal): Promise<Us
 export interface SearchQuery {
   q: string;
   mode?: SearchMode;
+  sort?: SearchSort;
   lang?: string;
   groups?: ReadonlyArray<string>;
   /** Worker semantics: `true` = only archived, `false` = exclude, omitted = any. */
@@ -275,6 +277,8 @@ export function searchUrl(login: string, query: SearchQuery): string {
   params.set("q", query.q);
 
   if (query.mode && query.mode !== "auto") params.set("mode", query.mode);
+
+  if (query.sort !== undefined && query.sort !== "relevance") params.set("sort", query.sort);
 
   if (query.lang) params.set("lang", query.lang);
 

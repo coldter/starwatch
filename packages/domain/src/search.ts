@@ -7,6 +7,15 @@ export const SearchMode = Schema.Literals(["auto", "keyword", "hybrid", "semanti
 
 export type SearchMode = typeof SearchMode.Type;
 
+/**
+ * Result ordering (docs/07 §4). `relevance` is the default and keeps the fused
+ * ranking; the others re-order the match set by stars or by a starred/pushed
+ * date (docs/07 §5.5 tie-breakers).
+ */
+export const SearchSort = Schema.Literals(["relevance", "stars", "starred", "pushed"]);
+
+export type SearchSort = typeof SearchSort.Type;
+
 /** Structured filters, composable with every search mode. All hard constraints. */
 export const SearchFilters = Schema.Struct({
   language: Schema.optional(Schema.String),
@@ -25,6 +34,7 @@ export type SearchFilters = typeof SearchFilters.Type;
 export const SearchRequest = Schema.Struct({
   query: Schema.String,
   mode: Schema.optional(SearchMode),
+  sort: Schema.optional(SearchSort),
   filters: Schema.optional(SearchFilters),
   limit: Schema.optional(Schema.Number),
 });

@@ -97,9 +97,7 @@ export const repoEmbeddingText = (
   const description = repo.description?.replace(WHITESPACE, " ").trim() ?? "";
 
   const lines: string[] =
-    description.length > 0
-      ? [`${repo.fullName} — ${description}`]
-      : [repo.fullName];
+    description.length > 0 ? [`${repo.fullName} — ${description}`] : [repo.fullName];
 
   if (repo.topics.length > 0) {
     lines.push(`Topics: ${repo.topics.join(", ")}`);
@@ -137,15 +135,9 @@ export const makeWorkersAiEmbedder = (
   binding: WorkersAiBinding,
   options: WorkersAiEmbedderOptions = {},
 ): EmbedderService => {
-  const batchSize = validateDimension(
-    options.batchSize ?? DEFAULT_BATCH_SIZE,
-    "batchSize",
-  );
+  const batchSize = validateDimension(options.batchSize ?? DEFAULT_BATCH_SIZE, "batchSize");
 
-  const concurrency = validateDimension(
-    options.concurrency ?? DEFAULT_CONCURRENCY,
-    "concurrency",
-  );
+  const concurrency = validateDimension(options.concurrency ?? DEFAULT_CONCURRENCY, "concurrency");
 
   const runBatch = (
     batch: ReadonlyArray<string>,

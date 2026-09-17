@@ -147,7 +147,7 @@ Run `eval --fail-on-regression` before every change that touches retrieval, fusi
 4. Filter precision < 1.000 on any browse/mixed query.
 5. Any orphaned target or index drift > 1% without `--allow-drift` (in that case the run reports metrics but refuses to fail: incomparable baselines).
 
-Baseline updates require `--update-baseline` in the same commit as the change, with the eval diff pasted into the commit body. A baseline "refresh" without a retrieval change is itself a reviewable event, not routine.
+Baseline updates require `--update-baseline` in the same commit as the change, with the eval diff pasted into the commit body. A baseline "refresh" without a retrieval change deserves its own review.
 
 ## 4. Filter taxonomy
 
@@ -269,6 +269,8 @@ Boosts are intentionally small except the name family (×1.10–1.60). Anything 
 ### 5.5 Tie-breakers
 
 In order: (1) rerank score desc (when enabled), (2) fused `score` desc, (3) exact-name match rank (exact > prefix > token), (4) stars desc, (5) starred_at desc, (6) `repo_id` asc (stable, deterministic). Browse mode replaces 1–4 with the explicit sort key, then applies 5–6.
+
+**Explicit sorts are a pure re-ordering of the match set** (`sort=pushed|starred|stars`, worker `SORT_MATCH_LIMIT`). Relevance order is decided inside each leg's top-50, so re-ordering that same window would show only "the newest of the 50 most relevant" — a repo pushed yesterday but ranked #60 would be unreachable. Legs therefore widen to 500 for non-relevance keys, and the fused set is re-ordered by the key (then 5–6). Nothing is re-scored: `score` and `matchedBy` still describe relevance, and `sort=relevance` is byte-identical to a search without a sort. A query-less request with an explicit key is the browse path: the filtered candidates ordered by the key, no legs and no embeddings.
 
 ### 5.6 `--explain` output shape
 

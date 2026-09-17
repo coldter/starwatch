@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoute } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import { Database, SearchX } from "lucide-react";
-import type { Group, SearchHit, SearchMode, SyncPhase } from "@starwatch/domain";
+import type { Group, SearchHit, SearchMode, SearchSort, SyncPhase } from "@starwatch/domain";
 import { Button } from "@/components/motion/button/base";
 import { BottomSheet } from "@/components/motion/bottom-sheet";
 import { ErrorPanel, NoticeStrip, StatePanel } from "@/components/common/StatePanel";
@@ -32,13 +32,15 @@ import { useModalSurface } from "@/hooks/useModalSurface";
 import { useSearchShortcut } from "@/hooks/useSearchShortcut";
 import { useUserIndex } from "@/hooks/useUserIndex";
 import { useToast } from "@/app/toast";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, plural } from "@/lib/format";
 import {
   decodeRawSearchBag,
   DEFAULT_ARCHIVED,
+  DEFAULT_SORT,
   normalizeUserSearch,
   PAGE_SIZE,
   parseUserSearch,
+  SORT_LABELS,
   toArchivedQuery,
   toUrlSearch,
   toggleGroup,
@@ -120,6 +122,7 @@ function UserSearchPage() {
   const query: SearchQueryState = {
     q: search.q,
     mode: search.mode,
+    sort: search.sort,
     lang: search.lang,
     groups: search.group,
     archived: toArchivedQuery(search.archived),
@@ -150,6 +153,8 @@ function UserSearchPage() {
 
   const onSubmitQuery = useCallback((q: string) => applyPatch({ q, page: 1 }, false), [applyPatch]);
   const onMode = useCallback((mode: SearchMode) => applyFilters({ mode }), [applyFilters]);
+
+  const onSort = useCallback((sort: SearchSort) => applyFilters({ sort }), [applyFilters]);
 
   const onLanguage = useCallback(
     (lang: string | undefined) => applyFilters({ lang }),
@@ -213,11 +218,11 @@ function UserSearchPage() {
   const groups = data?.groups ?? EMPTY_GROUPS;
   const hits = response?.hits ?? EMPTY_HITS;
 
+  const pageStars = data ? data.state.starsTotal || data.state.reposMetadata : 0;
+
   useDocumentTitle(
     data
-      ? `@${data.profile.login}'s stars — search ${formatNumber(
-          data.state.starsTotal || data.state.reposMetadata,
-        )} repos · starwatch`
+      ? `@${data.profile.login}'s stars — search ${formatNumber(pageStars)} ${plural(pageStars, "repo")} · starwatch`
       : `@${login} · starwatch`,
   );
 
@@ -309,6 +314,11 @@ function UserSearchPage() {
   const semanticDocs = state?.semanticDocs ?? 0;
   const indexPreparing = state !== null && (!hasIndex(state) || isActivePhase(state.phase));
   const searching = search.q.trim() !== "";
+  // An explicit sort with no query is the browse path: the worker returns the
+  // filtered candidates ordered by that key, so the page shows a result list
+  // instead of the browse panel (docs/07 §Q6).
+  const browsing = !searching && search.sort !== DEFAULT_SORT;
+  const browsingEmpty = browsing && response !== null && response.hits.length === 0;
 
   return (
     <div className="page-shell flex flex-col gap-6 py-6 sm:py-8">
@@ -414,10 +424,12 @@ function UserSearchPage() {
             value={search.q}
             busy={status === "loading" || status === "refreshing"}
             mode={search.mode}
+            sort={search.sort}
             filterCount={countActiveFilters(search)}
             filtersOpen={filtersOpen}
             onSubmit={onSubmitQuery}
             onMode={onMode}
+            onSort={onSort}
             onToggleFilters={() => setFiltersOpen((open) => !open)}
           />
 
@@ -453,10 +465,19 @@ function UserSearchPage() {
               <h2 id="results-heading" className="sr-only">
                 Search results for {search.q}
               </h2>
+            ) : browsing ? (
+              <h2 id="results-heading" className="sr-only">
+                Starred repos, {SORT_LABELS[search.sort].toLowerCase()}
+              </h2>
             ) : null}
 
             {response ? (
-              <ResultSummary response={response} status={status} semanticDocs={semanticDocs} />
+              <ResultSummary
+                response={response}
+                status={status}
+                semanticDocs={semanticDocs}
+                sort={search.sort}
+              />
             ) : null}
 
             {searchError && response ? (
@@ -474,14 +495,16 @@ function UserSearchPage() {
 
             {status === "loading" ? <ResultSkeletonList /> : null}
 
-            {status === "idle" && state ? (
-              <BrowsePanel
-                login={login}
-                state={state}
-                groups={groups}
-                selected={search.group}
-                onPickGroup={onToggleGroup}
-              />
+            {status === "idle" || browsingEmpty ? (
+              state ? (
+                <BrowsePanel
+                  login={login}
+                  state={state}
+                  groups={groups}
+                  selected={search.group}
+                  onPickGroup={onToggleGroup}
+                />
+              ) : null
             ) : null}
 
             {status === "error" && !response ? (
@@ -497,7 +520,7 @@ function UserSearchPage() {
               ) : null
             ) : null}
 
-            {status === "ready" && response && response.hits.length === 0 ? (
+            {searching && status === "ready" && response && response.hits.length === 0 ? (
               <NoResultsPanel
                 query={search.q}
                 hasLanguageFilter={search.lang !== undefined}

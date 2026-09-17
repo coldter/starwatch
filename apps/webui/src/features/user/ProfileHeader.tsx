@@ -5,7 +5,7 @@ import { AnimatedNumber } from "@/components/motion/animated-number";
 import { Button } from "@/components/motion/button/base";
 import { Avatar } from "@/components/common/Avatar";
 import { FreshnessBadge } from "@/components/common/Badges";
-import { formatCompact, formatNumber } from "@/lib/format";
+import { formatCompact, formatNumber, plural } from "@/lib/format";
 import { exceedsStarCap, hasIndex, isActivePhase, isMetadataOnly, isStale } from "@/lib/state";
 
 export interface ProfileHeaderProps {
@@ -117,10 +117,10 @@ export function ProfileHeader({
                 format={formatNumber}
                 className="font-medium text-foreground"
               />
-              <span className="text-muted-foreground">stars</span>
+              <span className="text-muted-foreground">{plural(stars, "star")}</span>
             </div>
-            <Stat label="followers" value={profile.followers} />
-            <Stat label="public repos" value={profile.publicRepos} />
+            <Stat label={plural(profile.followers, "follower")} value={profile.followers} />
+            <Stat label={plural(profile.publicRepos, "public repo")} value={profile.publicRepos} />
             {profile.location ? <Meta icon={MapPin} text={profile.location} /> : null}
             {profile.company ? <Meta icon={Building2} text={profile.company} /> : null}
           </div>

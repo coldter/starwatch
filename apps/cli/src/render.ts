@@ -26,18 +26,15 @@ export interface ColorEnv {
 }
 
 /** Any `NO_COLOR` value (including empty) disables ANSI; color also needs a TTY. */
-export const shouldUseColor = (
-  target: TerminalTarget,
-  env: ColorEnv,
-): boolean => target.isTTY === true && env.NO_COLOR === undefined;
+export const shouldUseColor = (target: TerminalTarget, env: ColorEnv): boolean =>
+  target.isTTY === true && env.NO_COLOR === undefined;
 
 /** `$COLUMNS` fallback when the stream has no `columns`; capped at 120, floor 40. */
 export const resolveWidth = (
   columns: number | undefined,
   envColumns: string | undefined,
 ): number => {
-  const fromEnv =
-    envColumns === undefined ? Number.NaN : Number.parseInt(envColumns, 10);
+  const fromEnv = envColumns === undefined ? Number.NaN : Number.parseInt(envColumns, 10);
 
   const candidate = columns ?? (Number.isFinite(fromEnv) ? fromEnv : undefined);
 
@@ -56,13 +53,11 @@ export const dim = (text: string, color: boolean): string =>
 
 /** `12345` → `12.3k`, `950` → `950`, `1_000_000` → `1M`. */
 export const formatStars = (stars: number): string => {
-  const trimZero = (value: string): string =>
-    value.endsWith(".0") ? value.slice(0, -2) : value;
+  const trimZero = (value: string): string => (value.endsWith(".0") ? value.slice(0, -2) : value);
 
   const absolute = Math.abs(stars);
 
-  if (absolute >= 1_000_000)
-    return `${trimZero((stars / 1_000_000).toFixed(1))}M`;
+  if (absolute >= 1_000_000) return `${trimZero((stars / 1_000_000).toFixed(1))}M`;
 
   if (absolute >= 1_000) return `${trimZero((stars / 1_000).toFixed(1))}k`;
 
@@ -74,8 +69,7 @@ export const formatCount = (value: number): string =>
   String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 /** Collapses newlines/tabs so snippet text stays on one terminal line. */
-export const oneLine = (text: string): string =>
-  text.replace(/\s+/g, " ").trim();
+export const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 /** Truncates to `max` columns using a single `…` when needed. */
 export const truncate = (text: string, max: number): string => {
@@ -89,9 +83,7 @@ export const truncate = (text: string, max: number): string => {
 };
 
 /** ISO timestamps render as their UTC date (`2026-09-13T03:00:00Z` → `2026-09-13`). */
-export const formatDate = (
-  value: string | null | undefined,
-): string | undefined => {
+export const formatDate = (value: string | null | undefined): string | undefined => {
   if (value === null || value === undefined || value === "") return undefined;
 
   return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : value;
@@ -104,26 +96,18 @@ const LEG_LABELS: Readonly<Record<MatchSource, string>> = {
   name: "name",
 };
 
-const LEG_ORDER: ReadonlyArray<MatchSource> = [
-  "keyword",
-  "expanded",
-  "semantic",
-  "name",
-];
+const LEG_ORDER: ReadonlyArray<MatchSource> = ["keyword", "expanded", "semantic", "name"];
 
 /**
  * `--explain` line. The public `SearchResponse` contract exposes `matchedBy`
  * but no per-leg ranks, so we show which legs matched plus the fused score.
  */
-export const formatExplain = (
-  matchedBy: ReadonlyArray<MatchSource>,
-  score: number,
-): string => {
+export const formatExplain = (matchedBy: ReadonlyArray<MatchSource>, score: number): string => {
   const present = new Set(matchedBy);
 
-  const legs = LEG_ORDER.map(
-    (leg) => `${LEG_LABELS[leg]}:${present.has(leg) ? "+" : "-"}`,
-  ).join(" ");
+  const legs = LEG_ORDER.map((leg) => `${LEG_LABELS[leg]}:${present.has(leg) ? "+" : "-"}`).join(
+    " ",
+  );
 
   return `${legs} · score ${score.toFixed(4)}`;
 };
@@ -134,39 +118,28 @@ export interface RenderSearchOptions {
   readonly explain?: boolean | undefined;
 }
 
-export const renderSearchHit = (
-  hit: SearchHit,
-  options: RenderSearchOptions,
-): string => {
+export const renderSearchHit = (hit: SearchHit, options: RenderSearchOptions): string => {
   const header = [hit.repo.fullName, `★${formatStars(hit.repo.stars)}`];
 
-  if (hit.repo.language !== null && hit.repo.language !== "")
-    header.push(hit.repo.language);
+  if (hit.repo.language !== null && hit.repo.language !== "") header.push(hit.repo.language);
 
   if (hit.groups.length > 0) header.push(`[${hit.groups.join(", ")}]`);
   const lines = [bold(header.join("  "), options.color)];
   const snippet = oneLine(hit.snippet);
 
   if (snippet !== "") {
-    lines.push(
-      `  ${dim(truncate(snippet, Math.max(20, options.width - 2)), options.color)}`,
-    );
+    lines.push(`  ${dim(truncate(snippet, Math.max(20, options.width - 2)), options.color)}`);
   }
 
   if (options.explain === true) {
-    lines.push(
-      `  ${dim(formatExplain(hit.matchedBy, hit.score), options.color)}`,
-    );
+    lines.push(`  ${dim(formatExplain(hit.matchedBy, hit.score), options.color)}`);
   }
 
   return lines.join("\n");
 };
 
 /** Human search results: one block per hit, separated by a blank line. */
-export const renderSearch = (
-  response: SearchResponse,
-  options: RenderSearchOptions,
-): string =>
+export const renderSearch = (response: SearchResponse, options: RenderSearchOptions): string =>
   response.hits.map((hit) => renderSearchHit(hit, options)).join("\n\n");
 
 /** `--plain`: one canonical `owner/name` per line, no ANSI, no blank lines. */
@@ -174,8 +147,7 @@ export const renderSearchPlain = (response: SearchResponse): string =>
   response.hits.map((hit) => hit.repo.fullName).join("\n");
 
 /** `--json`: the raw decoded response, pretty-printed. */
-export const renderJson = <A>(value: A): string =>
-  JSON.stringify(value, null, 2);
+export const renderJson = <A>(value: A): string => JSON.stringify(value, null, 2);
 
 /** `semanticCoverage` may arrive as a 0–1 fraction or a 0–100 percentage. */
 export const formatCoverage = (value: number): number => {
@@ -197,8 +169,7 @@ export const renderSearchSummary = (response: SearchResponse): string => {
 
   if (coverage < 100) parts.push(`semantic ${coverage}%`);
 
-  if (response.degraded !== undefined)
-    parts.push(`degraded: ${response.degraded}`);
+  if (response.degraded !== undefined) parts.push(`degraded: ${response.degraded}`);
 
   return parts.join(" · ");
 };
@@ -223,20 +194,15 @@ export const renderRepoPage = (
 ): string => {
   const { repo, groups } = page;
 
-  const header = [
-    bold(repo.fullName, options.color),
-    `★${formatStars(repo.stars)}`,
-  ];
+  const header = [bold(repo.fullName, options.color), `★${formatStars(repo.stars)}`];
 
-  if (repo.language !== null && repo.language !== "")
-    header.push(repo.language);
+  if (repo.language !== null && repo.language !== "") header.push(repo.language);
 
   if (repo.license !== null && repo.license !== "") header.push(repo.license);
   header.push(repo.archived ? "archived" : "not archived");
   const lines = [header.join("  ")];
 
-  if (repo.description !== null && repo.description !== "")
-    lines.push(repo.description);
+  if (repo.description !== null && repo.description !== "") lines.push(repo.description);
 
   const meta: Array<string> = [];
   const starred = formatDate(repo.starredAt);
@@ -246,18 +212,14 @@ export const renderRepoPage = (
 
   if (pushed !== undefined) meta.push(`Pushed ${pushed}`);
 
-  if (groups.length > 0)
-    meta.push(`Groups: ${groups.map((group) => group.slug).join(", ")}`);
+  if (groups.length > 0) meta.push(`Groups: ${groups.map((group) => group.slug).join(", ")}`);
 
   if (meta.length > 0) lines.push(meta.join(" · "));
 
-  const topics =
-    repo.topics.length > 0 ? `Topics: ${repo.topics.join(", ")}` : undefined;
+  const topics = repo.topics.length > 0 ? `Topics: ${repo.topics.join(", ")}` : undefined;
 
   lines.push(
-    [topics, repo.htmlUrl]
-      .filter((part): part is string => part !== undefined)
-      .join(" · "),
+    [topics, repo.htmlUrl].filter((part): part is string => part !== undefined).join(" · "),
   );
 
   return lines.join("\n");
@@ -285,8 +247,7 @@ const phaseSymbol = (phase: SyncPhase): string => {
 };
 
 const identityLine = (profile: UserProfile, color: boolean): string => {
-  const name =
-    profile.name === null || profile.name === "" ? "" : `  ${profile.name}`;
+  const name = profile.name === null || profile.name === "" ? "" : `  ${profile.name}`;
 
   return `${bold(`@${profile.login}`, color)}${name}`;
 };
@@ -305,15 +266,10 @@ export const renderStatusPage = (
   page: UserPageInput,
   options: { readonly color: boolean },
 ): string => {
-  const lines = [
-    identityLine(page.profile, options.color),
-    indexStateLine(page.state),
-  ];
+  const lines = [identityLine(page.profile, options.color), indexStateLine(page.state)];
 
   const synced = formatDate(page.state.lastSyncedAt);
-  lines.push(
-    synced === undefined ? "Never synced" : `Last synced ${synced} UTC`,
-  );
+  lines.push(synced === undefined ? "Never synced" : `Last synced ${synced} UTC`);
 
   if (page.state.lastError !== null && page.state.lastError !== "") {
     lines.push(`Last error: ${page.state.lastError}`);
@@ -361,9 +317,7 @@ export const renderSyncState = (state: UserIndexState): string => {
   if (state.login !== "") lines.push(`@${state.login}`);
   lines.push(indexStateLine(state));
   const synced = formatDate(state.lastSyncedAt);
-  lines.push(
-    synced === undefined ? "Never synced" : `Last synced ${synced} UTC`,
-  );
+  lines.push(synced === undefined ? "Never synced" : `Last synced ${synced} UTC`);
 
   if (state.lastError !== null && state.lastError !== "")
     lines.push(`Last error: ${state.lastError}`);
@@ -389,8 +343,7 @@ export interface ErrorLike {
 export const renderError = (error: ErrorLike): string => {
   const lines = [`✗ ${error.message}`];
 
-  if (error.hint !== undefined && error.hint !== "")
-    lines.push(`  ${error.hint}`);
+  if (error.hint !== undefined && error.hint !== "") lines.push(`  ${error.hint}`);
 
   return lines.join("\n");
 };

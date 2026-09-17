@@ -74,9 +74,7 @@ interface Candidate {
 
 const FTS_WEIGHTS = "8.0, 3.0, 3.0, 1.0"; // name, description, topics, readme
 
-const TopicsJson = Schema.fromJsonString(
-  Schema.mutable(Schema.Array(Schema.String)),
-);
+const TopicsJson = Schema.fromJsonString(Schema.mutable(Schema.Array(Schema.String)));
 
 /** Parse a `topics_json` column; malformed data degrades to "no topics". */
 export function parseTopics(json: string): string[] {
@@ -135,15 +133,10 @@ export class LabIndex {
     if (this.vectors) return this.vectors;
     const map = new Map<number, Float32Array>();
 
-    for (const r of this.db
-      .prepare("SELECT repo_id, vector FROM embeddings")
-      .all()) {
+    for (const r of this.db.prepare("SELECT repo_id, vector FROM embeddings").all()) {
       const row = Schema.decodeUnknownSync(EmbeddingRowSchema)(r);
       const bytes = row.vector.slice();
-      map.set(
-        row.repo_id,
-        new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
-      );
+      map.set(row.repo_id, new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4));
     }
 
     this.vectors = map;
@@ -166,9 +159,7 @@ export class LabIndex {
     const { where, params } = filterSql(f);
     const set = new Set<number>();
 
-    for (const r of this.db
-      .prepare(`SELECT id FROM repos WHERE 1=1${where}`)
-      .all(...params)) {
+    for (const r of this.db.prepare(`SELECT id FROM repos WHERE 1=1${where}`).all(...params)) {
       set.add(Schema.decodeUnknownSync(RepoIdRow)(r).id);
     }
 
@@ -180,30 +171,19 @@ export class LabIndex {
   }
 
   /** Porter bm25 keyword leg with AND→OR fallback and a trigram rescue for identifiers. */
-  keyword(
-    terms: string[],
-    filterIds: Set<number> | null,
-    useExpansion: boolean,
-  ): KeywordLeg {
-    if (terms.length === 0)
-      return { list: [], fallback: null, primaryCount: 0 };
+  keyword(terms: string[], filterIds: Set<number> | null, useExpansion: boolean): KeywordLeg {
+    if (terms.length === 0) return { list: [], fallback: null, primaryCount: 0 };
 
-    if (filterIds && filterIds.size === 0)
-      return { list: [], fallback: null, primaryCount: 0 };
+    if (filterIds && filterIds.size === 0) return { list: [], fallback: null, primaryCount: 0 };
     const filterWhere = filterIds ? this.inClause(filterIds) : "";
 
-    const run = (
-      table: "repos_fts" | "repos_tri",
-      match: string,
-    ): KeywordRow[] => {
+    const run = (table: "repos_fts" | "repos_tri", match: string): KeywordRow[] => {
       const sql = `SELECT f.rowid AS id, bm25(${table}, ${FTS_WEIGHTS}) AS score
                    FROM ${table} f JOIN repos r ON r.id = f.rowid
                    WHERE ${table} MATCH ?${filterWhere}
                    ORDER BY score LIMIT 50`;
 
-      return Schema.decodeUnknownSync(KeywordRows)(
-        this.db.prepare(sql).all(match),
-      );
+      return Schema.decodeUnknownSync(KeywordRows)(this.db.prepare(sql).all(match));
     };
 
     const rank = (rows: KeywordRow[]): Ranked[] =>
@@ -229,10 +209,7 @@ export class LabIndex {
 
         for (const l of [list, expanded]) {
           for (const item of l)
-            merged.set(
-              item.id,
-              (merged.get(item.id) ?? 0) + 1 / (60 + item.rank),
-            );
+            merged.set(item.id, (merged.get(item.id) ?? 0) + 1 / (60 + item.rank));
         }
 
         list = [...merged.entries()]
@@ -281,16 +258,11 @@ export class LabIndex {
 
     scored.sort((a, b) => b.score - a.score);
 
-    return scored
-      .slice(0, 50)
-      .map((item, i) => ({ id: item.id, rank: i + 1, score: item.score }));
+    return scored.slice(0, 50).map((item, i) => ({ id: item.id, rank: i + 1, score: item.score }));
   }
 }
 
-export async function runSearch(
-  index: LabIndex,
-  opts: SearchOptions,
-): Promise<SearchOutput> {
+export async function runSearch(index: LabIndex, opts: SearchOptions): Promise<SearchOutput> {
   const tStart = performance.now();
   const mode = opts.mode;
   const limit = opts.limit ?? 10;
@@ -376,9 +348,7 @@ export async function runSearch(
     }
   }
 
-  candidates.sort(
-    (a, b) => b.base * b.boost - a.base * a.boost || b.base - a.base,
-  );
+  candidates.sort((a, b) => b.base * b.boost - a.base * a.boost || b.base - a.base);
 
   const hits: Hit[] = candidates.slice(0, limit).map((c, i) => {
     const row = index.repo(c.id)!;
@@ -392,8 +362,7 @@ export async function runSearch(
           )
           .get(c.id);
 
-        if (row !== undefined)
-          snippet = Schema.decodeUnknownSync(SnippetRow)(row).s;
+        if (row !== undefined) snippet = Schema.decodeUnknownSync(SnippetRow)(row).s;
       } catch {
         /* no snippet */
       }

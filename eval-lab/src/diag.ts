@@ -16,8 +16,7 @@ function metrics(hits: Hit[], rel: Record<string, number>) {
 
   const top = hits.slice(0, 10);
 
-  const p5g2 =
-    top.slice(0, 5).filter((h) => grade(h.full_name) === 2).length / 5;
+  const p5g2 = top.slice(0, 5).filter((h) => grade(h.full_name) === 2).length / 5;
 
   const r10 = g2.length
     ? g2.filter((n) => top.some((h) => h.full_name === n)).length / g2.length
@@ -31,10 +30,7 @@ function metrics(hits: Hit[], rel: Record<string, number>) {
       break;
     }
 
-  const dcg = top.reduce(
-    (a, h, i) => a + (2 ** grade(h.full_name) - 1) / Math.log2(i + 2),
-    0,
-  );
+  const dcg = top.reduce((a, h, i) => a + (2 ** grade(h.full_name) - 1) / Math.log2(i + 2), 0);
 
   const idcg = Object.values(rel)
     .sort((a, b) => b - a)
@@ -52,9 +48,7 @@ async function main(): Promise<void> {
   );
 
   const index = LabIndex.open();
-  console.log(
-    "query                mode          boost   P@5g2  R@10  MRR   nDCG@10",
-  );
+  console.log("query                mode          boost   P@5g2  R@10  MRR   nDCG@10");
 
   for (const q of golden.queries) {
     for (const mode of MODES) {
@@ -72,10 +66,7 @@ async function main(): Promise<void> {
           const bad = out.hits.filter((h) => {
             const row = index.repo(h.repo_id)!;
 
-            return (
-              (row.language ?? "unknown").toLowerCase() !==
-              q.filters.language!.toLowerCase()
-            );
+            return (row.language ?? "unknown").toLowerCase() !== q.filters.language!.toLowerCase();
           });
 
           if (bad.length > 0)

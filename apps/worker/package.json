@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
     "plan": "node scripts/preflight.mjs && alchemy plan",
     "deploy": "node scripts/preflight.mjs && alchemy deploy",
     "dev": "node scripts/preflight.mjs && alchemy dev",
@@ -21,7 +22,9 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
+    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

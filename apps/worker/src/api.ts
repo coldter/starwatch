@@ -73,6 +73,7 @@ export const RepoDetail = Schema.Struct({
 export const SearchQuery = Schema.Struct({
   q: Schema.String,
   mode: Schema.optional(Schema.String),
+  sort: Schema.optional(Schema.String),
   lang: Schema.optional(Schema.String),
   topic: Schema.optional(Schema.String),
   group: Schema.optional(Schema.String),

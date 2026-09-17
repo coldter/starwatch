@@ -1,4 +1,10 @@
-import type { SearchFilters, SearchHit, SearchMode, SearchResponse } from "@starwatch/domain";
+import type {
+  SearchFilters,
+  SearchHit,
+  SearchMode,
+  SearchResponse,
+  SearchSort,
+} from "@starwatch/domain";
 import {
   buildMatchExpression,
   chooseMatchStrategy,
@@ -10,15 +16,22 @@ import {
   makeSnippet,
   normalizeQuery,
   rankByScore,
+  sortHits,
   tokenize,
   topK,
+  type FusedHit,
   type Ranked,
 } from "@starwatch/core/search";
 import { Embedder } from "@starwatch/core/sync";
 import { RepoStore, UserFts, VectorBlobStore } from "@starwatch/cloudflare/storage";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import * as Effect from "effect/Effect";
-import { MAX_FTS_CANDIDATE_IDS, SEARCH_LEG_LIMIT, SNIPPET_HITS } from "../constants.ts";
+import {
+  MAX_FTS_CANDIDATE_IDS,
+  SEARCH_LEG_LIMIT,
+  SNIPPET_HITS,
+  SORT_MATCH_LIMIT,
+} from "../constants.ts";
 import { vectorIdsKey, VectorBlobFiles } from "../adapters/vector-bucket.ts";
 
 /**
@@ -35,6 +48,14 @@ import { vectorIdsKey, VectorBlobFiles } from "../adapters/vector-bucket.ts";
  *
  * A requested-but-unavailable semantic leg degrades to keyword-only with
  * `degraded: "keyword-only"` instead of failing (docs/08 §3.4).
+ *
+ * `sort` (docs/07 §4) is applied *after* fusion, over the fused match set:
+ *   * `relevance` — untouched RRF/boost order, per-leg top-50.
+ *   * anything else — pure re-ordering (docs/07 §5.5 tie-breakers) over legs
+ *     widened to `SORT_MATCH_LIMIT`, so the ordering covers the match set
+ *     rather than only its most relevant slice.
+ *   * an empty query with a sort becomes the browse path (docs/07 §Q6): the
+ *     filtered candidates ordered by the key, no legs, no embeddings.
  */
 
 /** BM25 column weights for `(full_name, description, topics, readme)`. */
@@ -44,6 +65,7 @@ export interface SearchInput {
   readonly login: string;
   readonly query: string;
   readonly mode: SearchMode;
+  readonly sort: SearchSort;
   readonly filters: SearchFilters;
   readonly limit: number;
 }
@@ -81,8 +103,13 @@ export const runSearch = (
     const vectorFiles = yield* VectorBlobFiles;
 
     const query = normalizeQuery(input.query);
-    const semanticRequested = input.mode !== "keyword";
-    const hybridRequested = input.mode === "auto" || input.mode === "hybrid";
+
+    // Browse (docs/07 §Q6): no text + an explicit key = a sorted listing of the
+    // filtered candidates. No legs, no embeddings, no relevance claim.
+    const browse = input.query.trim().length === 0 && input.sort !== "relevance";
+
+    const semanticRequested = !browse && input.mode !== "keyword";
+    const hybridRequested = !browse && (input.mode === "auto" || input.mode === "hybrid");
 
     // Hard filters become the candidate set first: every leg is constrained to
     // it, so a filter can never leak a row into the response (docs/17 §3.4).
@@ -101,20 +128,26 @@ export const runSearch = (
     const tokens = tokenize(query);
 
     // A query with no indexable tokens (empty or punctuation-only) has
-    // nothing to retrieve — skip the AI call and all legs.
-    if (tokens.length === 0) {
+    // nothing to retrieve — skip the AI call and all legs. Browse is the one
+    // case that still has results without tokens.
+    if (!browse && tokens.length === 0) {
       return emptyResponse(query, startedAt);
     }
 
     const queryKind = classifyQuery(query);
     const expansion = expandQuery(query);
 
-    const searchOptions = { limit: SEARCH_LEG_LIMIT, candidateIds, weights: FTS_WEIGHTS };
+    // Legs widen only for explicit sorts: the relevance contract (docs/17 §3)
+    // stays per-leg top-50, while a new-again repo ranked below that window
+    // must still be orderable by its push date.
+    const legLimit = input.sort === "relevance" ? SEARCH_LEG_LIMIT : SORT_MATCH_LIMIT;
+
+    const searchOptions = { limit: legLimit, candidateIds, weights: FTS_WEIGHTS };
 
     // ---- keyword leg -------------------------------------------------------
     let keywordRanks: ReadonlyArray<Ranked> = [];
 
-    if (tokens.length > 0) {
+    if (!browse && tokens.length > 0) {
       const andExpression = buildMatchExpression(tokens, "and");
 
       if (andExpression.length > 0) {
@@ -183,7 +216,7 @@ export const runSearch = (
             });
 
             semanticRanks = rankByScore(
-              topK(queryVector, entries, SEARCH_LEG_LIMIT).map(({ id, score }) => ({
+              topK(queryVector, entries, legLimit).map(({ id, score }) => ({
                 repoId: id,
                 score,
               })),
@@ -214,21 +247,29 @@ export const runSearch = (
       }),
     );
 
-    const fused = fuse(
-      {
-        keyword: keywordRanks,
-        expanded: expandedRanks,
-        semantic: semanticRanks,
-        repos: repoMap,
-      },
-      {
-        queryTokens: tokens,
-        conceptTerms: expansion.terms,
-        nameStats,
-      },
-    );
+    const fused = browse
+      ? candidates.map((repo): FusedHit => ({
+          repo,
+          score: 0,
+          matchedBy: [],
+          legRanks: {},
+          groups: [],
+        }))
+      : fuse(
+          {
+            keyword: keywordRanks,
+            expanded: expandedRanks,
+            semantic: semanticRanks,
+            repos: repoMap,
+          },
+          {
+            queryTokens: tokens,
+            conceptTerms: expansion.terms,
+            nameStats,
+          },
+        );
 
-    const selected = fused.slice(0, input.limit);
+    const selected = sortHits(fused, input.sort).slice(0, input.limit);
     const resultIds = selected.map((hit) => hit.repo.id);
     const snippetIds = resultIds.slice(0, SNIPPET_HITS);
 
@@ -237,7 +278,7 @@ export const runSearch = (
       { concurrency: 2 },
     );
 
-    const snippetTerms = evidenceTerms(tokens, expansion.terms);
+    const snippetTerms = browse ? [] : evidenceTerms(tokens, expansion.terms);
 
     const hits: Array<SearchHit> = selected.map((hit, index) => ({
       repo: hit.repo,

@@ -1,4 +1,4 @@
-# 12 — Hardening: Abuse, Quota Governance & Cost Guardrails
+# 12 — Hardening: abuse, quota governance & cost guardrails
 
 > ⚠️ **Superseded for the $0 launch by [14-abuse-protection.md](14-abuse-protection.md)** — free-primitive budgets, DO governors, quota-unit alarms, degradation ladder. Where this doc and [14] conflict before a paid upgrade, **[14] wins**; this doc remains the reference for the paid topology (Workers Paid CPU, paid Analytics Engine/Logs, zone-level WAF/Bot Fight Mode, Flagship, dollar budgets). Free-launch deltas: §0.0.
 
@@ -70,14 +70,14 @@ Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.0
 - **Admission control (authoritative).** `POST /api/sync` only writes a row to `sync_requests` and enqueues to the `sync-queue` Queue. A single `SyncScheduler` DO consumes admission: if `daily_new_indexes < cap` and `queued < max_queued` and `active < 2`, it starts the per-user Workflow; otherwise the request stays queued or is rejected with `503 + Retry-After` when the queue is over cap.
 - **Dedupe + cooldown.** `sync_requests.login` is `PRIMARY KEY`; a pending/in-flight row returns `202 {run_id, state, position}` instead of starting a second job. Re-index allowed only after 24 h (`last_success_at`) or when the user's data is stale by > 7 days; evicted users may re-trigger once.
 - **Queue caps.** Own cap `max_queued = 200` (Queue hard limit is 25 GB backlog, ~200k messages) — enforce ours well below it and alert at 10% of the Queue backlog metric (`queuesBacklogAdaptiveGroups`, `messages`).
-- **UI when saturated:** the trigger page shows `position`, `ETA` (from rolling throughput), and if over cap a 503 page: “starwatch is at indexing capacity today — try again after 03:00 UTC”. The API returns `Retry-After: 3600`.
+- **UI when saturated:** the trigger page shows `position`, `ETA` (from rolling throughput), and if over cap a 503 page: "starwatch is at indexing capacity today — try again after 03:00 UTC". The API returns `Retry-After: 3600`.
 
 ### 1.2 V2 — Huge-star accounts
 
 - Listing is `GET /users/{login}/starred?per_page=100&sort=created&direction=desc` (public; **not** affected by the 2026-06-30 stargazers restriction, which covers `/repos/{o}/{r}/stargazers` — never call that). 100k stars = 1,000 listing pages = 20% of an hourly window before a single README.
 - **Caps (proposed defaults, configurable):** `MAX_LIST_PAGES = 50` (5,000 stars) → 50 requests; `MAX_README_FETCHES = 1,500` (newest-first by `starred_at`); beyond that the user is `index_state = 'metadata'`; README truncation at 1 MB; `MAX_CHUNKS_PER_REPO = 40`; `MAX_VECTORS_PER_USER = 25,000`. **Free-mode caps are authoritative in [14 §3.6](14-abuse-protection.md):** `MAX_STARS = 10,000`, semantic window newest 1,500, 64 KB/repo + 20 MB/user FTS, 50 full/warm users; the values in this bullet are paid-topology defaults.
 - **Cost of a capped index:** 50 listing + 1,500 README + ~200 embed/upsert calls ≈ 1,750 requests (~35% of one window) and ~~3M embedding tokens (~~$0.04). At `active_jobs ≤ 2` and `daily_new_indexes ≤ 25`, GitHub budget and AI spend stay bounded.
-- The UI marks capped users: “metadata-only index for accounts with > 5,000 stars”.
+- The UI marks capped users: "metadata-only index for accounts with > 5,000 stars".
 - Cooldown for capped users is longer (7 days) because a re-check still costs 50 listing requests.
 
 ### 1.3 V3 — Query flooding
@@ -154,8 +154,7 @@ Cost anchors used below: bge-m3 $0.012/M tokens (1,075 neurons/M); reranker $0.0
 // per-request gate (Effect: wrap in Effect.tryPromise in the cloudflare package)
 const key = await saltedIpHash(req); // rotate salt daily; never store raw IP
 const { success } = await env.SEMANTIC_BURST.limit({ key }); // 6/60s per colo
-if (!success)
-  return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
+if (!success) return new Response(null, { status: 429, headers: { "Retry-After": "60" } });
 
 // authoritative global budget (single DO)
 const budget = env.SEARCH_BUDGET.get(env.SEARCH_BUDGET.idFromName("global"));
@@ -168,21 +167,17 @@ if (!gate.ok) return degradedKeyword(req, { reason: "budget" });
 
 ```ts
 // Turnstile: mandatory server-side validation before enqueueing a sync
-const r = await fetch(
-  "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-  {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      secret: env.TURNSTILE_SECRET,
-      response: token,
-      remoteip: ip,
-    }),
-  },
-);
+const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    secret: env.TURNSTILE_SECRET,
+    response: token,
+    remoteip: ip,
+  }),
+});
 const v = await r.json();
-if (!v.success || v.action !== "sync" || v.hostname !== PUBLIC_HOST)
-  return badRequest();
+if (!v.success || v.action !== "sync" || v.hostname !== PUBLIC_HOST) return badRequest();
 ```
 
 ## 2. Global GitHub quota governance
@@ -195,11 +190,11 @@ All GitHub calls made on behalf of any user go through a single Durable Object i
 - **Secondary pacing:** token bucket 700 req/min (below the documented 900 pts/min) + concurrency semaphore `max_in_flight = 5`; on `403/429` with `retry-after`, the DO sets a global pause until that time and halves the refill for 10 min ([03 §1.3](03-sync-and-limits.md)).
 - **Persistent concurrency slots:** jobs run in Workflow steps, each potentially a separate invocation, so slots are leased from the DO (lease TTL 60 s, renewed per batch) rather than process-local.
 - **`acquire(n, klass)`** returns `{ok, waitMs}`; callers `Effect.sleep`/`step.sleepUntil` and retry. `observe(headers)` is called after every GitHub response.
-- **Quota exhaustion:** DO sets `paused_until = reset + 30s`; in-flight steps checkpoint and sleep (`paused_rate_limit` state, [03 §4.4](03-sync-and-limits.md)); no retry storms. UI shows “paused — resumes 11:23 UTC”. DO alarm re-opens the budget even if no job is awake.
+- **Quota exhaustion:** DO sets `paused_until = reset + 30s`; in-flight steps checkpoint and sleep (`paused_rate_limit` state, [03 §4.4](03-sync-and-limits.md)); no retry storms. UI shows "paused — resumes 11:23 UTC". DO alarm re-opens the budget even if no job is awake.
 
 ### 2.2 Fairness
 
-**Decision: strict FCFS + aging, not popularity priority.** Star count is attacker-controlled (A6) and popular accounts are the most expensive (V2), so “priority to popular” is precisely backwards. Concretely:
+**Decision: strict FCFS + aging, not popularity priority.** Star count is attacker-controlled (A6) and popular accounts are the most expensive (V2), so "priority to popular" is precisely backwards. Concretely:
 
 1. Public jobs FCFS from the `sync-queue`, one active + one queued per user.
 2. **Aging:** after 15 min queued, a job is promoted to the interactive lane (small max slots) so large backfills cannot starve small users.
@@ -246,7 +241,7 @@ Enter **keyword-only** when any of:
 3. monthly AI spend ledger ≥ **50%** of the soft budget (rerank off) or ≥ **80%** (semantic off) — the same thresholds as §4.3;
 4. p95 semantic latency > 1.5 s over the last 5 min (rolling, computed from Analytics Engine events) ⚠️ optional auto-trigger, default on.
 
-Exit when the trigger is clear for 60 s (hysteresis). Responses carry `X-Starwatch-Mode: keyword; degraded=<reason>`; the WebUI shows the slim banner from [06 §3](06-webui.md); an explicit `--mode semantic` request returns `503` with the reason instead of silently degrading.
+Exit when the trigger is clear for 60 s (hysteresis). Responses carry `X-Starwatch-Mode: keyword; degraded=<reason>`; the WebUI shows the slim banner from [06 §3](06-webui.md); an explicit `--mode semantic` request returns `503` with the reason rather than degrading without explanation.
 
 ### 3.3 Response caching
 
@@ -327,7 +322,7 @@ Index only public repos: `/users/{login}/starred` returns public stars for any u
 - `robots.txt` + `sitemap.xml` generated as static assets; `X-Robots-Tag: noindex` on API.
 - **README is untrusted.** Server never renders stored README HTML; the WebUI uses `react-markdown` + `remark-gfm` + `rehype-sanitize` (GitHub schema), `skipHtml`, external links `rel="noopener noreferrer"`, remote images opt-in ([06 §4](06-webui.md)). If we ever server-render for social cards/bots, sanitize with the same schema before output. Snippets are pre-escaped with only `<mark>` ([07 §6](07-search-contract.md)).
 - **CSP/security headers** via `_headers` on the static assets ([06 §8.1](06-webui.md)): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://raw.githubusercontent.com data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` minimal, HSTS. Escape all user-facing strings (repo descriptions, topics) — they are third-party content.
-- **Attribution:** footer + about page: “Search over public GitHub stars. Data from GitHub. starwatch is not affiliated with or endorsed by GitHub.” Link the source repo and the GitHub ToS. No “GitHub” in the product name/logo; no implying partnership; star counts and metadata carry `source: github` in the JSON.
+- **Attribution:** footer + about page: "Search over public GitHub stars. Data from GitHub. starwatch is not affiliated with or endorsed by GitHub." Link the source repo and the GitHub ToS. No "GitHub" in the product name/logo; no implying partnership; star counts and metadata carry `source: github` in the JSON.
 
 ### 5.5 Flow-down from GitHub changes
 
@@ -352,9 +347,9 @@ Every event carries `route`, `outcome`, `ms`, `mode`, `ip_hash` (never raw IP), 
 ### 6.2 Runbooks
 
 1. **GitHub token exhausted / secondary limit.** Confirm via `GET /rate_limit` (≤1/5 min) and headers; DO is already pausing. Check for a runaway job (`active_jobs`, recent `sync_runs`); cancel it (`instance.terminate()`), verify `reserve` floor held, let `paused_rate_limit` resume at reset. If repeated, lower per-window caps and raise the reserve.
-2. **Vectorize/D1 degradation.** Vectorize errors/timeouts → semantic off automatically (§3.2); verify Cloudflare status page, keep keyword/browse serving from cache. D1 “overloaded”/slow → shed writes first (defer sync checkpoints), then disable browse facets; read replicas are a later fix. Both: post the site banner; never return empty results silently.
+2. **Vectorize/D1 degradation.** Vectorize errors/timeouts → semantic off automatically (§3.2); verify Cloudflare status page, keep keyword/browse serving from cache. D1 "overloaded"/slow → shed writes first (defer sync checkpoints), then disable browse facets; read replicas are a later fix. Both: post the site banner; never return empty results silently.
 3. **Abuse spike.** Pull AE by ASN/UA/route; identify the cheapest effective tightening (429 profile → Turnstile escalation → `public_sync=false` for trigger abuse → `semantic=false` for query abuse). If a zone exists, add a WAF rule; if not, deploy new binding limits. Record the incident in the repo issue; add a regression test/eval note.
-4. **Cost spike.** Check ledger by user/route and AI Gateway analytics. Freeze `rerank`, then `semantic`, then `public_sync`. Find the user responsible (ledger, AE) and demote/evict. Raise alarms earlier for next time. Never “wait and see” past the hard cap.
+4. **Cost spike.** Check ledger by user/route and AI Gateway analytics. Freeze `rerank`, then `semantic`, then `public_sync`. Find the user responsible (ledger, AE) and demote/evict. Raise alarms earlier for next time. Never "wait and see" past the hard cap.
 5. **Index corruption.** Symptoms: repo/vector count mismatch, FTS errors, golden-set regression ([07 §3.5](07-search-contract.md)) without a code change. Triage: compare `repos`/`chunks`/Vectorize counts; D1 Time Travel restore to a known point (30 days paid) for DB-side corruption; re-chunk + re-embed from R2 (no GitHub refetch) for vector-side corruption; re-upsert in batches by `repo_id`. Gate recovery with the golden set before re-enabling semantic.
 
 ## 7. v1 minimum hardening checklist (ship-blocking) vs later
@@ -398,7 +393,11 @@ Every event carries `route`, `outcome`, `ms`, `mode`, `ip_hash` (never raw IP), 
 - Cache API headers/limits: <https://developers.cloudflare.com/workers/runtime-apis/cache/> · limits: <https://developers.cloudflare.com/workers/platform/limits/>
 - Workers pricing (10M req + 30M CPU-ms included): <https://developers.cloudflare.com/workers/platform/pricing/>
 - Workers AI pricing (10k neurons/day; bge-m3, bge-reranker rates) + limits (embeddings 3,000 req/min): <https://developers.cloudflare.com/workers-ai/platform/pricing/> · <https://developers.cloudflare.com/workers-ai/platform/limits/>
+
+
 - AI Gateway rate limiting + caching + Workers binding (`gateway` options, `aiGatewayLogId`) + observability/costs: <https://developers.cloudflare.com/ai-gateway/features/rate-limiting/> · <https://developers.cloudflare.com/ai-gateway/features/caching/> · <https://developers.cloudflare.com/ai-gateway/usage/worker-binding-methods/> · <https://developers.cloudflare.com/ai-gateway/observability/>
+
+
 - Durable Objects pricing (requests/duration/SQLite): <https://developers.cloudflare.com/durable-objects/platform/pricing/>
 - Queues pricing + limits (25 GB backlog, 14-day retention, batch 100) + backlog metrics: <https://developers.cloudflare.com/queues/platform/pricing/> · <https://developers.cloudflare.com/queues/platform/limits/> · <https://developers.cloudflare.com/queues/observability/metrics/>
 - Analytics Engine overview/pricing: <https://developers.cloudflare.com/analytics/analytics-engine/> · <https://developers.cloudflare.com/analytics/analytics-engine/pricing/>

@@ -28,8 +28,7 @@ const repo = (id: number, overrides: Partial<Repo> = {}): Repo => ({
   ...overrides,
 });
 
-const at = (day: number): string =>
-  `2026-01-${String(day).padStart(2, "0")}T00:00:00Z`;
+const at = (day: number): string => `2026-01-${String(day).padStart(2, "0")}T00:00:00Z`;
 
 const state = (
   repoId: number,
@@ -87,9 +86,7 @@ describe("planReadmeWork", () => {
       [4, state(4, "d", "ok")],
     ]);
 
-    expect(
-      planReadmeWork(repos, stateMap, { batchSize: 25, semanticWindow: 100 }),
-    ).toEqual([]);
+    expect(planReadmeWork(repos, stateMap, { batchSize: 25, semanticWindow: 100 })).toEqual([]);
   });
 
   it("rechecks missing/unavailable repos when pushed_at moves", () => {

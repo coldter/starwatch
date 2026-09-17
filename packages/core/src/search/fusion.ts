@@ -117,12 +117,7 @@ export const NAME_BOOST_MAX = 1.6;
 const EMPTY_GROUPS: ReadonlyArray<string> = Object.freeze([]);
 
 /** Match-source emission order (must stay a subset of the domain MatchSource order). */
-const MATCH_SOURCE_ORDER: ReadonlyArray<MatchSource> = [
-  "keyword",
-  "expanded",
-  "semantic",
-  "name",
-];
+const MATCH_SOURCE_ORDER: ReadonlyArray<MatchSource> = ["keyword", "expanded", "semantic", "name"];
 
 /** Lowercase + strip everything that is not a letter/digit: `better-auth` → `betterauth`. */
 export const normalizeName = (value: string): string =>
@@ -133,17 +128,14 @@ export const normalizeName = (value: string): string =>
 
 export const toRanked = (
   rows: ReadonlyArray<{ readonly repoId: number; readonly rank: number }>,
-): ReadonlyArray<Ranked> =>
-  rows.map((row) => ({ repoId: row.repoId, rank: row.rank }));
+): ReadonlyArray<Ranked> => rows.map((row) => ({ repoId: row.repoId, rank: row.rank }));
 
 /**
  * Convert raw per-leg scores (e.g. semantic cosine 0..1) into deterministic
  * rank order. Ties break by repoId ascending so fusion never depends on input
  * array order.
  */
-export const rankByScore = (
-  rows: ReadonlyArray<Scored>,
-): ReadonlyArray<Ranked> =>
+export const rankByScore = (rows: ReadonlyArray<Scored>): ReadonlyArray<Ranked> =>
   [...rows]
     .sort((a, b) => b.score - a.score || a.repoId - b.repoId)
     .map((row, index) => ({ repoId: row.repoId, rank: index + 1 }));
@@ -152,9 +144,7 @@ export const rankByScore = (
  * Document frequency of name tokens across the corpus (docs/17 §3.3, docs/18 §6.1).
  * Each repo contributes at most once per token.
  */
-export const computeNameStats = (
-  repos: ReadonlyArray<Repo>,
-): Map<string, number> => {
+export const computeNameStats = (repos: ReadonlyArray<Repo>): Map<string, number> => {
   const stats = new Map<string, number>();
   const seen = new Set<string>();
 
@@ -175,10 +165,7 @@ export const computeNameStats = (
  * Specificity of a term against {@link computeNameStats}. Multi-token terms
  * use the most common constituent token's df (the most generic reading).
  */
-export const termSpecificity = (
-  term: string,
-  nameStats: ReadonlyMap<string, number>,
-): number => {
+export const termSpecificity = (term: string, nameStats: ReadonlyMap<string, number>): number => {
   let df = 0;
 
   for (const token of tokenize(term)) {
@@ -236,10 +223,7 @@ export const nameBoost = (
 
     if (normalized === repoName) {
       tier = NAME_EXACT_FACTOR;
-    } else if (
-      normalized.length >= NAME_PREFIX_MIN_CHARS &&
-      repoName.startsWith(normalized)
-    ) {
+    } else if (normalized.length >= NAME_PREFIX_MIN_CHARS && repoName.startsWith(normalized)) {
       tier = NAME_PREFIX_FACTOR;
     } else if (nameTokens.has(normalized)) {
       tier = NAME_TOKEN_FACTOR;
@@ -280,10 +264,7 @@ const containsTokenSequence = (
   return false;
 };
 
-const countFieldMatches = (
-  terms: ReadonlyArray<string>,
-  field: string,
-): number => {
+const countFieldMatches = (terms: ReadonlyArray<string>, field: string): number => {
   if (field.length === 0) return 0;
   const fieldTokens = tokenize(field);
   let matches = 0;
@@ -296,26 +277,17 @@ const countFieldMatches = (
 };
 
 /** Additive whole-token overlap bonus; see the constants' doc comment. */
-export const overlapBonus = (
-  repo: Repo,
-  terms: ReadonlyArray<string>,
-): number => {
+export const overlapBonus = (repo: Repo, terms: ReadonlyArray<string>): number => {
   if (terms.length === 0) return 0;
 
-  const topicMatches = Math.min(
-    countFieldMatches(terms, repo.topics.join(" ")),
-    TOPIC_OVERLAP_CAP,
-  );
+  const topicMatches = Math.min(countFieldMatches(terms, repo.topics.join(" ")), TOPIC_OVERLAP_CAP);
 
   const descriptionMatches = Math.min(
     countFieldMatches(terms, repo.description ?? ""),
     DESCRIPTION_OVERLAP_CAP,
   );
 
-  return (
-    topicMatches * TOPIC_OVERLAP_PER_TERM +
-    descriptionMatches * DESCRIPTION_OVERLAP_PER_TERM
-  );
+  return topicMatches * TOPIC_OVERLAP_PER_TERM + descriptionMatches * DESCRIPTION_OVERLAP_PER_TERM;
 };
 
 export interface FuseInput {
@@ -379,8 +351,7 @@ const addLeg = (
     if (!Number.isFinite(row.rank) || row.rank < 1) continue;
     const current = bestRankByRepo.get(row.repoId);
 
-    if (current === undefined || row.rank < current)
-      bestRankByRepo.set(row.repoId, row.rank);
+    if (current === undefined || row.rank < current) bestRankByRepo.set(row.repoId, row.rank);
   }
 
   for (const [repoId, rank] of bestRankByRepo) {
@@ -415,9 +386,7 @@ const applyDuplicatePenalties = (hits: ReadonlyArray<Accumulator>): void => {
     const nameKey = normalizeName(hit.repo.name);
     const ownerPrior = ownerCounts.get(ownerKey) ?? 0;
     const namePrior = nameCounts.get(nameKey) ?? 0;
-    hit.score *=
-      OWNER_DUPLICATE_PENALTY ** ownerPrior *
-      NAME_DUPLICATE_PENALTY ** namePrior;
+    hit.score *= OWNER_DUPLICATE_PENALTY ** ownerPrior * NAME_DUPLICATE_PENALTY ** namePrior;
     ownerCounts.set(ownerKey, ownerPrior + 1);
     nameCounts.set(nameKey, namePrior + 1);
   }
@@ -428,10 +397,7 @@ const applyDuplicatePenalties = (hits: ReadonlyArray<Accumulator>): void => {
  * {@link FuseInput.repos} (i.e. filtered out) are dropped even if a leg ranked
  * them — filters are constraints, not boosts (docs/07 §2).
  */
-export const fuse = (
-  input: FuseInput,
-  options: FuseOptions = {},
-): ReadonlyArray<FusedHit> => {
+export const fuse = (input: FuseInput, options: FuseOptions = {}): ReadonlyArray<FusedHit> => {
   const weights: LegWeights = {
     keyword: options.weights?.keyword ?? DEFAULT_LEG_WEIGHTS.keyword,
     expanded: options.weights?.expanded ?? DEFAULT_LEG_WEIGHTS.expanded,

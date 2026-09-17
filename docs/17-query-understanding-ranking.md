@@ -1,8 +1,11 @@
-# 17 — Query Understanding & Ranking
+# 17 — Query understanding & ranking
 
 > Status: **draft for discussion** · 2026-09-13 · ⚠️ marks low-confidence items to re-check at implementation time.
+>
 > Scope: how a raw query becomes ranked repos in the free-tier design. This doc owns **(1)** the query taxonomy refresh, **(2)** query expansion (static concept lexicon v1; LLM rewriting deferred), **(3)** the ranking/fusion/boost/diversification details that [07 §5](07-search-contract.md) sketched, **(4)** why-matched UX, and **(5)** the checkpoints handed to the eval lab. It does not restate accuracy targets ([07 §3](07-search-contract.md)), vector storage/query mechanics ([15](15-free-semantic-search.md)), or eval harness mechanics (doc 18, in progress under `eval-lab/`).
+>
 > Precedence: where this doc and [07 §2/§5](07-search-contract.md) disagree on expansion or scoring detail, this doc wins (later, testable); [07](07-search-contract.md) still wins on filter semantics and accuracy targets; [15](15-free-semantic-search.md) wins on how the semantic leg is computed. Every numeric multiplier here is a tuning knob — doc 18 must justify changes with evidence (§5).
+>
 > Grounding: read-only sample of the 3,448-repo reference corpus on 2026-09-13 (117 auth-family repos, 68 TypeScript, 20 with a better-auth link) plus local FTS5 experiments on SQLite 3.53.4 (§2.3). Companion to [16 — Search Quality Teardown](16-search-quality-teardown.md), which motivates the name-token boost, field weighting, the single-token routing fix and the static intent map; this doc specifies them. ⚠️ D1's FTS5 build may differ; re-run the stem checks before locking the lexicon.
 
 ## 1. Query taxonomy refresh
@@ -108,22 +111,9 @@ One versioned file in the repo (`packages/core/src/concepts/clusters.json`), loa
           "idp",
           "social login",
         ],
-        "tokens-sessions": [
-          "jwt",
-          "session",
-          "refresh token",
-          "bearer token",
-          "api key",
-          "cookie",
-        ],
+        "tokens-sessions": ["jwt", "session", "refresh token", "bearer token", "api key", "cookie"],
         "identity": ["user management", "multi-tenancy", "tenant", "scim"],
-        "ui-sdk": [
-          "auth ui",
-          "auth middleware",
-          "auth guard",
-          "next-auth",
-          "authjs",
-        ],
+        "ui-sdk": ["auth ui", "auth middleware", "auth guard", "next-auth", "authjs"],
       },
       "must_not_expand_to": ["author", "authoring", "authority"],
       "leg_cap": 24,
@@ -310,7 +300,7 @@ Multiplicative, on `base`. Name-family factors dominate (explicit user intent); 
 
 ### 3.4 Hard filters
 
-Language (and every other explicit filter) is a **hard constraint on every leg**, and on the semantic leg it is a pre-filter, not a post-filter: [15 §2.1](15-free-semantic-search.md)'s D1 `repo_id` pre-filter/flag bits make this exact. Filter precision must be 1.000 ([07 §3.1](07-search-contract.md)): a `--lang typescript` response never contains a Go/Java row, and `unknown`-language repos (4.7% of the corpus) are excluded unless requested. The acceptance case is a filter test first and a relevance test second.
+Language, and every other explicit facet, is a **hard constraint on every leg**; on the semantic leg it is a pre-condition, applied before ranking rather than after: [15 §2.1](15-free-semantic-search.md)'s D1 `repo_id` pre-filter/flag bits make this exact. Facet precision must be 1.000 ([07 §3.1](07-search-contract.md)): a `--lang typescript` response never contains a Go/Java row, and `unknown`-language repos (4.7% of the corpus) are excluded unless requested. The acceptance case is a facet test first and a relevance test second.
 
 ### 3.5 Near-duplicate diversification
 
@@ -349,9 +339,9 @@ What the walkthrough demonstrates:
 
 - **Hard filter first**: zero Go/Java rows; `casbin`, `spicedb`, `cerbos`, `hanko`, `kratos`, `zitadel`, `keycloak`, `supertokens` never appear. All seven authz/auth servers in the corpus are filter-excluded by design.
 - **Leg coverage beats boosts**: `better-auth` wins because it is rank 1–2 in _every_ configured leg; `melody-auth` reaches #2 on four-leg coverage (name token + topics + description) despite 637 stars; `logto`, `zenstack`, `hexclave`, `permix`, `nango` are expansion+semantic-only and cluster at base 0.46–0.55 — the honest cost of "no `auth` token anywhere".
-- **Canaries for doc 18**: (i) `melody-auth` at #2 over the 14.5k-star `logto` — generic name-token + evidence boosts may be too strong for thin repos; if graders split these the other way, lower the generic name boost to ×1.15 or extend the thin-evidence clamp to `sem rank > 15`. (ii) `nuxflare/auth` at #4 via name evidence with `sem` rank 40 — the clamp works but is doing heavy lifting; consider requiring any non-name leg in the top 25 for the full name boost. (iii) five results carry **no original-token match** (logto, zenstack, hexclave, permix, nango) — why-matched must say "related concept + similar meaning", not "matched auth" (§4). (iv) `lucia` (archived, 10.4k stars) at #11: archived penalty works without hiding a genuinely relevant repo.
+- **Canaries for doc 18**: (i) `melody-auth` at #2 over the 14.5k-star `logto` — generic name-token + evidence boosts may be too strong for thin repos; if graders split these the other way, lower the generic name boost to ×1.15 or extend the thin-evidence clamp to `sem rank > 15`. (ii) `nuxflare/auth` at #4 via name evidence with `sem` rank 40 — the clamp works but is doing heavy lifting; consider requiring any non-name leg in the top 25 for the full name boost. (iii) five results carry **no original-token match** (logto, zenstack, hexclave, permix, nango) — why-matched must say "related concept + similar meaning" for these (§4). (iv) `lucia` (archived, 10.4k stars) at #11: archived penalty works without hiding a genuinely relevant repo.
 - **Family suppression works**: `better-auth-ui`, `better-auth-cloudflare`, `better-fetch`, `better-hub`, `better-auth/awesome` are deferred by the owner/name-root caps; one family member (`better-auth/better-auth`) remains, exactly the intent.
-- **Semantic-window caveat**: the free tier embeds only the newest **1,500** repos ([15 §2.1](15-free-semantic-search.md), [14 §3.6](14-abuse-protection.md)). The `sem` ranks above assume the repo is inside that window; a target outside it must be recovered by `lex`/`exp`/`tri` alone. Doc 18 must record each graded auth target's window position — if a canonical answer is out-of-window and only findable semantically, the window policy is the bug, not the ranker.
+- **Semantic-window caveat**: the free tier embeds only the newest **1,500** repos ([15 §2.1](15-free-semantic-search.md), [14 §3.6](14-abuse-protection.md)). The `sem` ranks above assume the repo is inside that window; a target outside it must be recovered by `lex`/`exp`/`tri` alone. Doc 18 must record each graded auth target's window position — if a canonical answer is out-of-window and only findable semantically, fix the window policy before the ranker.
 
 ## 4. Why-matched UX
 

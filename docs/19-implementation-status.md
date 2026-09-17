@@ -15,11 +15,11 @@
 | Worker API           | `apps/worker/src`                 | HttpApi: health/users/sync (+SSE)/groups/search/repos; per-IP rate limits; Alchemy stack                                                     |
 | Sync workflows       | `apps/worker/src/sync`            | `StarListingWorkflow` (Tier 0, ETag-aware pages, unstar diff), `StarRefreshWorkflow` (Tier 1, READMEs → embeddings → R2 parts → merged blob) |
 | CLI                  | `apps/cli`                        | `search/show/sync/status/groups/health`, `--json`/`--plain`/`--explain`, exit codes                                                          |
-| WebUI                | `apps/webui`                      | Landing + `/u/$login` search (URL-state filters, groups chips, sync SSE banner, repo drawer, a11y)                                           |
+| WebUI                | `apps/webui`                      | Landing + `/u/$login` search (URL-state filters and sort, groups chips, sync SSE banner, repo drawer, a11y)                                  |
 | Search-quality lab   | `eval-lab`                        | Local FTS5 + embeddings eval over the real 3,448-star corpus                                                                                 |
 | Design docs          | `docs/00–18`                      | Research, pivots, free-tier feasibility, hardening, ranking, eval                                                                            |
 
-**Test counts:** core 116 · cloudflare 67 · cli 43 = **226 passing**; all 6 packages typecheck; WebUI builds (`apps/webui/dist`).
+**Test counts:** core 124 · cloudflare 67 · cli 43 · worker search e2e 8 = **242 passing**; all 6 packages typecheck; WebUI builds (`apps/webui/dist`).
 
 ## The docs/18 quality fixes are in the code
 

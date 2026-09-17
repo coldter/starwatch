@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SearchMode, SearchResponse } from "@starwatch/domain";
+import type { SearchMode, SearchResponse, SearchSort } from "@starwatch/domain";
 import { ApiError, asApiError, fetchSearch, isAbortError, type SearchQuery } from "../api";
-import { SEARCH_LIMIT } from "../lib/search-params";
+import { DEFAULT_SORT, SEARCH_LIMIT } from "../lib/search-params";
 
 export type SearchStatus = "idle" | "loading" | "refreshing" | "ready" | "error";
 
 export interface SearchQueryState {
   q: string;
   mode: SearchMode;
+  /** Explicit result ordering; `relevance` is the default and the browse gate. */
+  sort: SearchSort;
   lang?: string;
   groups: string[];
   /** Worker semantics: `false` excludes archived, `true` is only archived. */
@@ -26,6 +28,7 @@ interface FetchKey {
   login: string;
   query: string;
   mode: SearchMode;
+  sort: SearchSort;
   lang: string | undefined;
   groupKey: string;
   archived: boolean | undefined;
@@ -34,10 +37,12 @@ interface FetchKey {
 
 /**
  * One request per distinct query/filter tuple, always aborting the previous
- * in-flight call. Empty queries never hit the API (browse state instead).
+ * in-flight call. An empty query is the browse state, except when an explicit
+ * sort is active: the worker then answers with the filtered candidates ordered
+ * by that key (docs/07 §Q6), which is how "recently pushed" works without text.
  */
 export function useSearch(login: string, query: SearchQueryState): SearchResult {
-  const { q, mode, lang, archived, minStars } = query;
+  const { q, mode, sort, lang, archived, minStars } = query;
   const groupKey = query.groups.join(",");
 
   const [response, setResponse] = useState<SearchResponse | null>(null);
@@ -48,9 +53,11 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
   const abortRef = useRef<AbortController | null>(null);
 
   const trimmed = q.trim();
+  const browsing = trimmed === "" && sort !== DEFAULT_SORT;
+  const active = trimmed !== "" || browsing;
 
   useEffect(() => {
-    if (!trimmed) {
+    if (!active) {
       abortRef.current?.abort();
       abortRef.current = null;
       setPending(false);
@@ -68,6 +75,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
     const params: SearchQuery = {
       q: trimmed,
       mode,
+      sort,
       lang,
       groups: groupKey ? groupKey.split(",") : [],
       archived,
@@ -79,7 +87,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
       .then((next) => {
         if (abortRef.current !== controller) return;
         setResponse(next);
-        setLastKey({ login, query: trimmed, mode, lang, groupKey, archived, minStars });
+        setLastKey({ login, query: trimmed, mode, sort, lang, groupKey, archived, minStars });
       })
       .catch((cause) => {
         if (isAbortError(cause) || abortRef.current !== controller) return;
@@ -95,7 +103,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
     return () => {
       controller.abort();
     };
-  }, [login, trimmed, mode, lang, groupKey, archived, minStars, attempt]);
+  }, [login, trimmed, mode, sort, lang, groupKey, archived, minStars, attempt, active]);
 
   // Never show results for a different user, query, or filter set.
   const keyMatches =
@@ -103,6 +111,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
     lastKey.login === login &&
     lastKey.query === trimmed &&
     lastKey.mode === mode &&
+    lastKey.sort === sort &&
     lastKey.lang === lang &&
     lastKey.groupKey === groupKey &&
     lastKey.archived === archived &&
@@ -113,18 +122,17 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
   // The effect that sets `pending` runs after paint, so a changed key is also
   // treated as loading: otherwise one frame renders "ready" with no response
   // and the results area collapses on every submit.
-  const status: SearchStatus =
-    trimmed === ""
-      ? "idle"
-      : fresh !== null
-        ? pending
-          ? "refreshing"
-          : error !== null
-            ? "error"
-            : "ready"
-        : !pending && error !== null
+  const status: SearchStatus = !active
+    ? "idle"
+    : fresh !== null
+      ? pending
+        ? "refreshing"
+        : error !== null
           ? "error"
-          : "loading";
+          : "ready"
+      : !pending && error !== null
+        ? "error"
+        : "loading";
 
   const retry = useCallback(() => {
     setAttempt((value) => value + 1);

@@ -1,4 +1,4 @@
-# 06 — WebUI Interaction Spec
+# 06 — WebUI interaction spec
 
 > ⚠️ **Pivot notice (2026-09-13):** this document predates the public multi-tenant pivot. See [08-public-service-ux.md](08-public-service-ux.md)–[12-hardening.md](12-hardening.md) for the current design and [11-assumptions-delta.md](11-assumptions-delta.md) for exactly what changed.
 
@@ -57,7 +57,7 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
 │  ● TypeScript │ ┌────────────────────────────────────────────────────────┐ │
 │  ● Rust  318  │ │ ▸ ratatui/ratatui   ● Rust   ★ 12.4k   pushed 3d ago   │ │
 │  ● Go    201  │ │   Rust library for building terminal UIs…              │ │
-│  ● Python 96  │ │   “a [tui] for [git] with side-by-side diffs”  #cli    │ │
+│  ● Python 96  │ │   "a [tui] for [git] with side-by-side diffs"  #cli    │ │
 │ Stars         │ │   [keyword] [semantic]  similar ↗  open ↗  ★           │ │
 │  ▁▃▅▇▅▃▁      │ ├────────────────────────────────────────────────────────┤ │
 │  [100───5000] │ │ ▸ extrawurst/gitui  ● Rust  ★ 18.2k  pushed 1w ago     │ │
@@ -67,7 +67,7 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
 │ Topics        │                                                            │
 │  [ rust ▾ ]   │   Empty query → Recent stars + top groups + stats card     │
 │ Starred       │   No results  → keep filters, suggest mode/filter changes  │
-│  [2024-01-01] │   Error       → message + Retry + “search keyword-only”     │
+│  [2024-01-01] │   Error       → message + Retry + "search keyword-only"     │
 │ ☐ archived    │                                                            │
 └───────────────┴────────────────────────────────────────────────────────────┘
 ```
@@ -75,15 +75,15 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
 - **Search bar**: always visible and focused on `/`; `Cmd/Ctrl+K` focuses it from anywhere. Debounce 200 ms, cancel in-flight query on new keystroke (AbortController via Effect interruption). Show a subtle spinner in the bar while querying.
 - **Mode toggle**: `auto` (default — server's identifier-routing heuristic from docs/01 §7.6) / `keyword` / `semantic` / `hybrid`. Always expose it: when `auto` picked a mode, label the result meta (`hybrid → keyword (identifier)`) so the choice is explainable.
 - **Filter rail** (left, live facet counts computed server-side for the current query with each facet's own selection removed):
-  - Language: top-N chips (N=8) + “more…” popover; language dot uses bundled Linguist colors.
+  - Language: top-N chips (N=8) + "more…" popover; language dot uses bundled Linguist colors.
   - Stars: histogram (log buckets) + dual-thumb range slider + numeric inputs; URL encodes `min-max`.
   - Groups: chips (emoji + color), multi-select; **repeated groups = OR (union)** with a `group-all` (AND) toggle when 2+ are selected — mirrors docs/04 §5.2; smart groups selectable too.
   - Topics: tag input with autocomplete from a `topics` extract (typeahead via `GET /api/suggest/topics`).
   - Starred date: after/before range, presets (This year / 30 days / custom).
   - Archived: tri-state toggle — hide (default) / include / only.
-  - Each active filter renders as a removable chip above the results; “Clear all” and **“Save search as group”** (persists the current `{q, filters}` as a smart group — docs/04 §3.3).
+  - Each active filter renders as a removable chip above the results; "Clear all" and **"Save search as group"** (persists the current `{q, filters}` as a smart group — docs/04 §3.3).
 - **Result cards**: `owner/name` (link), description (2 lines), language dot + name, stars (formatted), `pushed_at` relative, group chips (emoji + color, docs/04 §5.5), snippet (~200 chars) with `<mark>` highlights, and a **matched-by badge** rendered from the `matchedBy[]` array (`keyword` / `semantic` / both — docs/05 §4.4). Actions: open detail, `similar ↗`, open on GitHub, add-to-group.
-- **Pagination over infinite scroll.** Result sets are small (hybrid legs cap at top-50 each; ~100 candidates), and pages preserve the URL, Back behavior, and `j/k` navigation. A `load more` button is acceptable, but classic `◀ 1/5 ▶` is the recommendation.
+- **Use paged results.** Result sets are small (hybrid legs cap at top-50 each; ~100 candidates), and pages preserve the URL, Back behavior, and `j/k` navigation. A `load more` button is acceptable, but classic `◀ 1/5 ▶` is the recommendation.
 - **URL state = the source of truth** (validated with the contracts schemas on every route change):
 
   ```
@@ -106,7 +106,7 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
   | `s`                   | Open `similar` for selected repo                           |
   | `Esc`                 | Blur search → clear draft → close popovers (in that order) |
 
-- **States**: (1) skeleton cards while loading (never a blank flash); (2) _empty query_ — recent stars, top groups, corpus stats (`3,277 repos · 23k chunks · last sync 2h`); (3) _no results_ — keep filters visible, offer “switch to semantic”, “remove language filter” (the single most likely culprit), and a link to GitHub search; (4) _error_ — human message, `Retry`, and “search keyword-only” recovery when the semantic leg is down; (5) _degraded_ — a slim banner “vector leg unavailable — showing keyword results” without hiding results.
+- **States**: (1) skeleton cards while loading (never a blank flash); (2) _empty query_ — recent stars, top groups, corpus stats (`3,277 repos · 23k chunks · last sync 2h`); (3) _no results_ — keep filters visible, offer "switch to semantic", "remove language filter" (the single most likely culprit), and a link to GitHub search; (4) _error_ — human message, `Retry`, and "search keyword-only" recovery when the semantic leg is down; (5) _degraded_ — a slim banner "vector leg unavailable — showing keyword results" without hiding results.
 
 ## 4. Repo detail (`/repo/:owner/:name`)
 
@@ -131,10 +131,10 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
 
 - **README rendering must be treated as untrusted input.** Render with `react-markdown` + `remark-gfm` + `rehype-sanitize` (GitHub schema), raw HTML disabled (`skipHtml`) — never `dangerouslySetInnerHTML` with stored README bytes. Rewrite relative links to `https://github.com/{owner}/{repo}/blob/{default_branch}/…` and images to `raw.githubusercontent.com`; external links get `rel="noopener noreferrer"`; remote images are **opt-in per page** with `referrerPolicy="no-referrer"` (README badges are third-party trackers). GitHub's own `Accept: application/vnd.github.html+json` output is already sanitized, but it costs an extra API call and won't render our archived copy — not used.
 - Metadata block: stars, forks, license, topics, default branch, `created_at`, `pushed_at`, `starred_at`, size, archived. Everything links to the GitHub page it came from.
-- **Group membership editor**: chips + “Edit” popover listing groups with checkboxes, plus “create group from this repo” and a write to the docs/04 §6.1 bulk membership routes (`POST`/`DELETE /api/groups/:slug/members`, accepts `full_name`); the mutation's `reactivityKeys` refreshes the detail, group counts, and any open search results.
+- **Group membership editor**: chips + "Edit" popover listing groups with checkboxes, plus "create group from this repo" and a write to the docs/04 §6.1 bulk membership routes (`POST`/`DELETE /api/groups/:slug/members`, accepts `full_name`); the mutation's `reactivityKeys` refreshes the detail, group counts, and any open search results.
 - **`similar` section**: top 10 by summary-vector similarity, from the same endpoint the CLI uses (`similar <repo>`); each row links to its detail page.
 - **Copy clone URL**: HTTPS/SSH toggle, copy button with toast; `git clone` convenience.
-- **Unstar warning**: when `is_starred = 0`, a yellow banner — “No longer starred on GitHub (removed 3 d ago). Kept for 90 days, until 2026-12-12.” — plus “Remove now”. Tapping it doesn’t unstar anything on GitHub; starwatch never writes to GitHub in v1.
+- **Unstar warning**: when `is_starred = 0`, a yellow banner — "No longer starred on GitHub (removed 3 d ago). Kept for 90 days, until 2026-12-12." — plus "Remove now". Tapping it doesn't unstar anything on GitHub; starwatch never writes to GitHub in v1.
 
 ## 5. Groups manager (`/groups`)
 
@@ -144,21 +144,21 @@ AppShell (header: logo · search · sync chip · theme · ⚙)
 ├────────────────────────────────────────────────────────────────────────────┤
 │ ⠿ #infra     ● blue   manual   42 repos   ✎ ✕     ← drag / Alt+↑↓ to reorder│
 │ ⠿ #reading   ● amber  manual   17 repos   ✎ ✕                             │
-│ ⠿ #rust-ts   ● slate  smart    “lang=rust AND stars>500 AND unarchived”     │
-│ ⠿ #later     ● green  manual    0 repos   “Assign repos from search”        │
+│ ⠿ #rust-ts   ● slate  smart    "lang=rust AND stars>500 AND unarchived"     │
+│ ⠿ #later     ● green  manual    0 repos   "Assign repos from search"        │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ Smart rules (form, AND-composed):                                          │
-│  Language [Rust ▾]  Stars [500 – ∞]  Topic [ contains “http” ]             │
+│  Language [Rust ▾]  Stars [500 – ∞]  Topic [ contains "http" ]             │
 │  Starred after [2024-01-01]  ☐ include archived        [Save] [Cancel]      │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Model note:** the group model is specified in [04-groups.md](04-groups.md) — manual membership + smart `rules_json`, flat, slug-keyed, local-first; this spec only consumes it. The API mounts docs/04 §6.1 routes under `/api/*` (e.g. `GET /api/groups`) so the client route `/groups` and the API route never collide.
 - Create/rename/delete (delete confirms with repo count; slug stays stable on rename), color palette token/hex + emoji icon (docs/04 §3.4), **reorder by drag-and-drop with a keyboard alternative** (`Alt+↑/↓` moves the focused row); persist order via one `PUT /api/groups/reorder`.
-- **Assignment**: multi-select mode in search results (`x` key or checkbox) reveals a bulk bar — “Add to group…” / “Remove from group…” — which is the primary path for large-scale cleanup; the repo-detail editor handles one-offs. Drag-from-results is a stretch goal; the multi-select path must stay keyboard-complete.
-- **Smart-rule editor**: form-based AND builder whose fields/operators are exactly the search-filter vocabulary, serialized to the versioned `rules_json` of docs/04 §4.2 (`match: "all"` only in v1); “Save search as group” in the search bar reuses the same serializer with the current `q`.
-- `/groups/:slug` opens the search page with a locked group filter chip; smart groups additionally render their rule as editable chips that can be “unlocked” into ad-hoc filters. The rail lists the top groups with counts (`docs/04 §6.3`); the full manager lives at `/groups`.
-- Empty states: no groups yet → explain manual vs smart with two example recipes; empty manual group → “Find repos” CTA that pre-fills the assign flow.
+- **Assignment**: multi-select mode in search results (`x` key or checkbox) reveals a bulk bar with "Add to group…" / "Remove from group…" for large-scale cleanup; use the repo-detail editor for a single repo. Drag-from-results is a stretch goal; the multi-select path must stay keyboard-complete.
+- **Smart-rule editor**: form-based AND builder whose fields/operators are exactly the search-filter vocabulary, serialized to the versioned `rules_json` of docs/04 §4.2 (`match: "all"` only in v1); "Save search as group" in the search bar reuses the same serializer with the current `q`.
+- `/groups/:slug` opens the search page with a locked group filter chip; smart groups additionally render their rule as editable chips that can be "unlocked" into ad-hoc filters. The rail lists the top groups with counts (`docs/04 §6.3`); the full manager lives at `/groups`.
+- Empty states: no groups yet → explain manual vs smart with two example recipes; empty manual group → "Find repos" CTA that pre-fills the assign flow.
 
 ## 6. Sync UI
 
@@ -173,7 +173,7 @@ Banner/chip in the header (always visible), expanded page at `/sync`:
 
 ```
 ┌ Sync ──────────────────────────────────────────────────────────────────────┐
-│ Status: syncing · phase “embedding changed chunks”   [Sync now (disabled)] │
+│ Status: syncing · phase "embedding changed chunks"   [Sync now (disabled)] │
 │ ████████████████████░░░░░░░░  1,240 / 3,277    ETA ~4 min                  │
 │ +12 new · −2 unstarred · 31 READMEs changed · 47 chunks embedded           │
 │ ──────────────────────────────────────────────────────────────────────────  │
@@ -187,7 +187,7 @@ Banner/chip in the header (always visible), expanded page at `/sync`:
 - **Transport: SSE**, not polling. Effect `rc.112` ships the whole pipe: `HttpApiSchema.StreamSse({ data: SyncEvent })` on the endpoint, typed `Stream<SyncEvent>` on the generated client (verified in `effect/unstable/httpapi`), and `Atom.pull(...)` to expose the stream as an atom for `useAtomValue`. Cloudflare Workers impose **no wall-clock limit on HTTP invocations while the client is connected** (Workers limits, updated 2026-09-05), so a long-lived sync stream is supported; our `HttpPlatform` stub already does not compress responses, so events flush immediately. Ping event every 15 s.
 - Events: `{_tag:"phase", name, done, total}` · `{_tag:"counts", added, removed, changed, chunks}` · `{_tag:"done", runId, summary}` · `{_tag:"error", message, retryable}` · `{_tag:"ping"}`. Reconnect with backoff; on reconnect refetch `GET /api/sync/status` before resuming the stream. Polling fallback (`GET /api/sync/status` every 3 s) if SSE fails twice.
 - **Sync now** triggers `POST /api/sync` (idempotent: 409 with current run id if already running); disabled while running; optimistic header chip.
-- **Rate-limit paused**: server stores `rate_limit_reset_at` from GitHub headers; the panel shows a live countdown and a “resume at” time instead of an error — it's a normal state, not a failure.
+- **Rate-limit paused**: server stores `rate_limit_reset_at` from GitHub headers; the panel shows a live countdown and a "resume at" time instead of an error — it's a normal state, not a failure.
 - **Error banner** with the last error message + `Retry` and a link to `wrangler tail` guidance; failed README fetches that were retried successfully are shown as a count, not an error.
 - CLI parity: `starwatch sync` consumes the same `StreamSse` endpoint for progress output.
 
@@ -196,9 +196,9 @@ Banner/chip in the header (always visible), expanded page at `/sync`:
 | Tab         | Contents                                                                                                                                                                      |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | General     | Theme (dark / light / system), density (comfortable/compact), reduce motion, default search mode, rerank flag                                                                 |
-| Index       | `GET /api/stats` — repos / chunks / vectors / last sync / unstars pending cleanup; **Rebuild index** (confirm + SSE progress, reuses the sync UI); “prune soft-deleted repos” |
-| Sync        | Schedule display (from Alchemy config; read-only in v1), link to `/sync`, “sync on app open if stale > 24 h” toggle                                                           |
-| Access      | Signed-in identity when available (`ctx.access` — ⚠️ may be `undefined` behind the static-assets router, see §8.5), endpoint URL, “Sign out” (Access logout URL)              |
+| Index       | `GET /api/stats` — repos / chunks / vectors / last sync / unstars pending cleanup; **Rebuild index** (confirm + SSE progress, reuses the sync UI); "prune soft-deleted repos" |
+| Sync        | Schedule display (from Alchemy config; read-only in v1), link to `/sync`, "sync on app open if stale > 24 h" toggle                                                           |
+| Access      | Signed-in identity when available (`ctx.access` — ⚠️ may be `undefined` behind the static-assets router, see §8.5), endpoint URL, "Sign out" (Access logout URL)              |
 | Danger zone | Clear local prefs (localStorage), full re-embed, remove all non-starred repos — each behind a typed confirmation                                                              |
 
 ## 8. Technology decisions
@@ -232,7 +232,7 @@ One deploy, one origin (no CORS, no second URL, cookies work for Access/SSE). `r
 **Recommend `@effect/atom-react@4.0.0-rc.112` + `AtomHttpApi`** (verified: the package's peers are `effect ^4.0.0-rc.112`, `react >=19 <20`, `scheduler` — add `scheduler` explicitly under pnpm ⚠️). Rationale:
 
 - The typed client is _derived from the same `HttpApi` spec_ the Worker implements (`packages/contracts`) — queries, params, errors, and stream responses are compile-checked end-to-end; TanStack Query would need hand-written types/parsers duplicating the schemas.
-- `AtomHttpApi.Service` gives `query()` atoms with caching/`timeToLive` and `mutation()` `AtomResultFn`s with `reactivityKeys`, so “assign group → invalidate repo + facet atoms” is declarative.
+- `AtomHttpApi.Service` gives `query()` atoms with caching/`timeToLive` and `mutation()` `AtomResultFn`s with `reactivityKeys`, so "assign group → invalidate repo + facet atoms" is declarative.
 - `AsyncResult` maps 1:1 onto the UI states (Initial / Success / Failure) for skeletons and error surfaces without a second result abstraction.
 - It's the same Effect runtime as Worker/CLI — typed errors cross the wire instead of becoming `unknown`.
 - Cost: smaller ecosystem and no devtools as polished as TanStack Query's; SSR hydration is unused (SPA). TanStack Query 5.102.8 remains the fallback if the atom API chafes — cheap to swap because components consume hooks, not the client ⚠️ rc API may shift.
@@ -254,7 +254,13 @@ SSE beats polling for a 1–40 min backfill (instant phase changes, no wasted re
 
 ### 8.5 Auth: Cloudflare Access (GitHub IdP)
 
-**Recommend Access**, wired via Alchemy's `access` prop (verified in beta.77: `policies`, `sessionDuration`, `allowedIdps`, `autoRedirectToIdentity`, `previews`). Zero Trust + a GitHub OAuth app as IdP (documented flow), one allow policy for the owner's GitHub account/email. Why not a bearer token in localStorage: it must be injected into `fetch` wrappers, breaks `EventSource` (no headers), leaks under XSS, and needs rotation — all to protect a single-user app Access already gates at the edge, including static assets and SSE. Notes: worker-level Access doesn't support WebSockets (irrelevant: SSE is plain HTTP); `ctx.access` is **not forwarded to the user Worker when static assets are attached** (documented 2026-08-18) — so don't depend on identity in v1; if needed later, expose identity under a `runWorkerFirst` path. Local dev: simulate with `dev: { access: { aud, identity } }`. **Reconciling with docs/05 §6.2 (CLI token model):** the `sw_…` bearer remains the _application-level_ credential for CLI/scripts, but because Access sits in front of the whole Worker, machine clients must also present Cloudflare **Access service-token headers** (or hit an explicitly bypassed path) — otherwise they get the Access login page instead of JSON. Browser + Access session cookie + SSE stays the simplest path for the WebUI. The CLI/MCP surface should plan for service tokens in v2 ⚠️ and docs/05 §6.3's `/auth/exchange` needs an Access-aware call path.
+**Recommend Cloudflare Access**, wired via Alchemy's `access` prop (verified in beta.77: `policies`, `sessionDuration`, `allowedIdps`, `autoRedirectToIdentity`, `previews`). Zero Trust plus a GitHub OAuth app as IdP (documented flow), with one allow policy for the owner's GitHub account/email.
+
+The alternative is a bearer token in localStorage: it must be injected into `fetch` wrappers, breaks `EventSource` (no headers), leaks under XSS, and needs rotation — all to protect a single-user app that the edge already gates, static assets and SSE included.
+
+Two caveats. Worker-level Access does not support WebSockets (irrelevant: SSE is plain HTTP). And `ctx.access` is **not forwarded to the user Worker when static assets are attached** (documented 2026-08-18) — so don't depend on identity in v1; if needed later, expose identity under a `runWorkerFirst` path. Local dev: simulate with `dev: { access: { aud, identity } }`.
+
+**Reconciling with docs/05 §6.2 (CLI token model):** the `sw_…` bearer remains the _application-level_ credential for CLI/scripts, but machine clients must also present Cloudflare **service-token headers** (or hit an explicitly bypassed path) — otherwise they get the login page instead of JSON. Browser sessions plus SSE stay the simplest path for the WebUI. The CLI/MCP surface should plan for service tokens in v2 ⚠️ and docs/05 §6.3's `/auth/exchange` needs a gate-aware call path.
 
 ### 8.6 Avatars
 
@@ -268,7 +274,7 @@ Use `https://avatars.githubusercontent.com/u/{id}?s=64&v=4` directly: verified `
 
 ## 9. Prior art (patterns worth borrowing)
 
-**GithubStarsManager** (AI-star-manager, Electron/web) proves that a category sidebar with colors, drag-reorder, and _locking_ (so AI/sync never overwrites user organization) is the workhorse of star management — plus a per-card “Find similar” action and a Settings panel that warns “rebuild the index after changing embedding models”. **Starcat** (macOS) shows the three-column shell done well, FTS5 + embeddings with RRF and chunk-level citations (`⇧⌘K` RAG workspace), smart collections (“Needs review”, “No tags”), and a clean separation between the public star and the private knowledge base. **Astral** is the minimal ancestor: tags, drag-to-tag, bulk assign, and a very legible list UI. **Sourcegraph's search UI** is the best model for our search page: filters as first-class chips that can be clicked from results (“interactive filters”), language/repo metadata shown inline, keyboard-first navigation, and streaming results with a result-count header. starwatch should steal: lockable user categories, click-to-filter facets, selection-first bulk assignment, and chunk-reason snippets — while skipping their AI-summary surface in v1.
+**GithubStarsManager** (AI-star-manager, Electron/web) proves that a category sidebar with colors, drag-reorder, and _locking_ (so AI/sync never overwrites user organization) is the workhorse of star management — plus a per-card "Find similar" action and a Settings panel that warns "rebuild the index after changing embedding models". **Starcat** (macOS) shows the three-column shell done well, FTS5 + embeddings with RRF and chunk-level citations (`⇧⌘K` RAG workspace), smart collections ("Needs review", "No tags"), and a clean separation between the public star and the private knowledge base. **Astral** is the minimal ancestor: tags, drag-to-tag, bulk assign, and a very legible list UI. **Sourcegraph's search UI** is the best model for our search page: filters as first-class chips that can be clicked from results ("interactive filters"), language/repo metadata shown inline, keyboard-first navigation, and streaming results with a result-count header. starwatch should steal: lockable user categories, click-to-filter facets, selection-first bulk assignment, and chunk-reason snippets — while skipping their AI-summary surface in v1.
 
 ## 10. Component inventory
 
@@ -279,7 +285,7 @@ Use `https://avatars.githubusercontent.com/u/{id}?s=64&v=4` directly: verified `
 | `SyncChip`                                     | Compact sync state in the header (synced / syncing% / paused / failed) |
 | `SearchBar`                                    | Combobox input, debounce, scope label, `⌘K` handling                   |
 | `SearchModeToggle`                             | auto/keyword/semantic/hybrid segmented control                         |
-| `FilterRail`                                   | Container for facets + “clear all” + active-filter chips               |
+| `FilterRail`                                   | Container for facets + "clear all" + active-filter chips               |
 | `FacetGroup`                                   | Collapsible facet section with live counts                             |
 | `LanguageFacet` / `LanguageDot`                | Top-N language chips; Linguist-colored dot                             |
 | `StarsHistogram` / `StarsRange`                | Bucketed histogram + dual-thumb range/number inputs                    |
@@ -319,11 +325,11 @@ Use `https://avatars.githubusercontent.com/u/{id}?s=64&v=4` directly: verified `
 ## 11. Open questions
 
 1. **Cross-doc deltas from the parallel drafts** — (a) docs/04 §6.1 lists routes without the `/api` prefix; this spec mounts them under `/api/*` (and the search/response shapes follow docs/05 §4.4 `--json` envelope incl. `matchedBy[]`). (b) docs/05 §6.2's CLI `sw_…` token still needs an Access service-token path to reach the Access-protected Worker. Confirm both before implementation.
-2. **Facet counts cost** — computing “count if I add this filter” semantics means several `GROUP BY`s per query against D1. Trivial at 3.3k rows, but confirm latency budget within R7 (<500 ms).
+2. **Facet counts cost** — computing "count if I add this filter" semantics means several `GROUP BY`s per query against D1. Trivial at 3.3k rows, but confirm latency budget within R7 (<500 ms).
 3. **Auto-mode explainability** — do we surface which mode `auto` picked on every result page, or only on hover?
 4. **SSE back-pressure** — one worker instance streams to one browser; no fan-out. Confirm behavior when the user closes the tab mid-sync (Workflow continues; stream just ends).
 5. **Sync schedule editing** — Alchemy owns cron in config; should Settings be read-only or write a `settings` row that the cron reads?
-6. **README images** — default off (privacy) or on (fidelity)? Proposal: off with a per-repo “show images”.
+6. **README images** — default off (privacy) or on (fidelity)? Proposal: off with a per-repo "show images".
 7. **Router** — TanStack Router vs React Router 8: pick at implementation; URL schema in `packages/contracts` makes either swappable.
 8. **Access + previews** — protect Workers preview URLs too (`previews: true`, default) so no unauthenticated staging; confirm against `alchemy dev` workflow.
 9. **`/api` prefix migration** — decide the migration for the existing `/health`/`/db/time` stubs (move under `/api/` vs. add to `runWorkerFirst`), and whether docs/04's route table gets an explicit `/api` prefix.

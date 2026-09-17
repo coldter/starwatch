@@ -40,6 +40,13 @@ export function formatNumber(value: number): string {
   return numberFormatter.format(Math.round(value));
 }
 
+/** Pick the singular form for exactly one: `plural(1, "star") → "star"`. */
+export function plural(value: number, singular: string, pluralForm?: string): string {
+  if (Math.round(value) !== 1) return pluralForm ?? `${singular}s`;
+
+  return singular;
+}
+
 /** ISO timestamp → `3h ago` / `2d ago` / `never`. Tolerates future clocks. */
 export function relativeTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "never";

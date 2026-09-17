@@ -71,8 +71,7 @@ const rustTools: Group = {
 const hit: SearchHit = {
   repo,
   score: 0.0325,
-  snippet:
-    "…retries, timers and durable background jobs with deterministic replay…",
+  snippet: "…retries, timers and durable background jobs with deterministic replay…",
   matchedBy: ["keyword", "semantic"],
   groups: ["inbox", "work"],
 };
@@ -192,9 +191,7 @@ describe("search output", () => {
       explain: true,
     });
 
-    expect(output.split("\n")[2]).toBe(
-      "  kw:+ exp:- sem:+ name:- · score 0.0325",
-    );
+    expect(output.split("\n")[2]).toBe("  kw:+ exp:- sem:+ name:- · score 0.0325");
   });
 
   it("keeps every rendered line within the width cap", () => {
@@ -213,12 +210,10 @@ describe("search output", () => {
   });
 
   it("renders the summary and the empty-result hint", () => {
-    expect(renderSearchSummary(response)).toBe(
-      "1 result · 128 ms · mode hybrid · semantic 42%",
+    expect(renderSearchSummary(response)).toBe("1 result · 128 ms · mode hybrid · semantic 42%");
+    expect(renderSearchSummary({ ...response, hits: [], semanticCoverage: 1 })).toBe(
+      "0 results · 128 ms · mode hybrid",
     );
-    expect(
-      renderSearchSummary({ ...response, hits: [], semanticCoverage: 1 }),
-    ).toBe("0 results · 128 ms · mode hybrid");
     const hint = renderEmptyHint("quantum toaster", "hybrid");
     expect(hint).toContain('No results for "quantum toaster" in hybrid mode.');
     expect(hint).toContain("--mode semantic");
@@ -232,10 +227,7 @@ describe("search output", () => {
 
 describe("repo, status and groups output", () => {
   it("renders a repo page", () => {
-    const output = renderRepoPage(
-      { repo, groups: [inbox, rustTools] },
-      { color: false },
-    );
+    const output = renderRepoPage({ repo, groups: [inbox, rustTools] }, { color: false });
 
     expect(output).toBe(
       [
@@ -248,10 +240,7 @@ describe("repo, status and groups output", () => {
   });
 
   it("renders status with coverage counters", () => {
-    const output = renderStatusPage(
-      { profile, state, groups: [] },
-      { color: false },
-    );
+    const output = renderStatusPage({ profile, state, groups: [] }, { color: false });
 
     expect(output).toBe(
       [
@@ -296,27 +285,20 @@ describe("sync and health output", () => {
     expect(renderSyncStart({ started: false, phase: "embedding" })).toBe(
       "Sync already running · phase embedding",
     );
-    expect(renderSyncProgress(state)).toBe(
-      "● ready · 3,448/3,448 metadata · semantic 1,500",
-    );
+    expect(renderSyncProgress(state)).toBe("● ready · 3,448/3,448 metadata · semantic 1,500");
     expect(renderSyncState(state).split("\n")[0]).toBe("@alice");
   });
 
   it("renders health with the target URL", () => {
     expect(
-      renderHealth(
-        { ok: true, service: "starwatch", version: "1.2.3" },
-        "http://127.0.0.1:8787",
-      ),
+      renderHealth({ ok: true, service: "starwatch", version: "1.2.3" }, "http://127.0.0.1:8787"),
     ).toBe("starwatch 1.2.3 · ok · http://127.0.0.1:8787");
   });
 
   it("renders errors as one line plus a named fix", () => {
-    expect(renderError({ message: "Could not reach the API." })).toBe(
-      "✗ Could not reach the API.",
+    expect(renderError({ message: "Could not reach the API." })).toBe("✗ Could not reach the API.");
+    expect(renderError({ message: "Missing --user.", hint: "Pass --user alice." })).toBe(
+      "✗ Missing --user.\n  Pass --user alice.",
     );
-    expect(
-      renderError({ message: "Missing --user.", hint: "Pass --user alice." }),
-    ).toBe("✗ Missing --user.\n  Pass --user alice.");
   });
 });

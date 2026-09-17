@@ -1,4 +1,4 @@
-# 02 — Stack (Effect + Cloudflare) & Ingestion Pipeline
+# 02 — Stack (Effect + Cloudflare) & ingestion pipeline
 
 > ⚠️ **Pivot notice (2026-09-13):** this document predates the public multi-tenant pivot. See [08-public-service-ux.md](08-public-service-ux.md)–[12-hardening.md](12-hardening.md) for the current design and [11-assumptions-delta.md](11-assumptions-delta.md) for exactly what changed.
 

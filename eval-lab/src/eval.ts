@@ -3,13 +3,7 @@
 import { Schema } from "effect";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  LabIndex,
-  runSearch,
-  type Hit,
-  type Mode,
-  type SearchOutput,
-} from "./engine.ts";
+import { LabIndex, runSearch, type Hit, type Mode, type SearchOutput } from "./engine.ts";
 import { DATA_DIR, GoldQueriesFile, LAB_DIR, type Filters } from "./lib.ts";
 
 interface Metrics {
@@ -54,8 +48,7 @@ function computeMetrics(hits: Hit[], rel: Record<string, number>): Metrics {
   const top = hits.slice(0, 10);
   const p5 = top.slice(0, 5).filter((h) => grade(h.full_name) >= 1).length / 5;
 
-  const p5g2 =
-    top.slice(0, 5).filter((h) => grade(h.full_name) === 2).length / 5;
+  const p5g2 = top.slice(0, 5).filter((h) => grade(h.full_name) === 2).length / 5;
 
   const r10 =
     g2.length === 0
@@ -71,10 +64,7 @@ function computeMetrics(hits: Hit[], rel: Record<string, number>): Metrics {
     }
   }
 
-  const dcg = top.reduce(
-    (a, h, i) => a + (2 ** grade(h.full_name) - 1) / Math.log2(i + 2),
-    0,
-  );
+  const dcg = top.reduce((a, h, i) => a + (2 ** grade(h.full_name) - 1) / Math.log2(i + 2), 0);
 
   const idcg = Object.values(rel)
     .sort((a, b) => b - a)
@@ -83,9 +73,7 @@ function computeMetrics(hits: Hit[], rel: Record<string, number>): Metrics {
 
   const ndcg10 = idcg === 0 ? null : dcg / idcg;
 
-  const success3 = top.slice(0, 3).some((h) => grade(h.full_name) === 2)
-    ? 1
-    : 0;
+  const success3 = top.slice(0, 3).some((h) => grade(h.full_name) === 2) ? 1 : 0;
 
   return { p5, p5g2, r10, mrr, ndcg10, success3 };
 }
@@ -102,17 +90,13 @@ function printQueryResult(qr: QueryResult): void {
     .filter(Boolean)
     .join(" ");
 
-  console.log(
-    `\n## ${qr.id} — "${qr.query}"${filterStr ? `  [${filterStr}]` : ""}  (${qr.class})`,
-  );
+  console.log(`\n## ${qr.id} — "${qr.query}"${filterStr ? `  [${filterStr}]` : ""}  (${qr.class})`);
 
   if (qr.orphanedGold.length)
     console.log(`   ⚠ gold repos not in corpus: ${qr.orphanedGold.join(", ")}`);
   console.log("");
 
-  const header = ["metric", ...MODES].map((m, i) =>
-    i === 0 ? m.padEnd(12) : m.padStart(14),
-  );
+  const header = ["metric", ...MODES].map((m, i) => (i === 0 ? m.padEnd(12) : m.padStart(14)));
 
   console.log(header.join(""));
 
@@ -127,10 +111,7 @@ function printQueryResult(qr: QueryResult): void {
 
   for (const [label, get] of rows) {
     console.log(
-      [
-        label.padEnd(12),
-        ...MODES.map((m) => fmt(get(qr.modes[m].metrics)).padStart(14)),
-      ].join(""),
+      [label.padEnd(12), ...MODES.map((m) => fmt(get(qr.modes[m].metrics)).padStart(14))].join(""),
     );
   }
 
@@ -143,9 +124,7 @@ function printQueryResult(qr: QueryResult): void {
   console.log("");
   const w = 44;
   console.log(
-    ["rank", ...MODES.map((m) => m.padEnd(w))]
-      .map((s, i) => (i === 0 ? s.padEnd(5) : s))
-      .join(""),
+    ["rank", ...MODES.map((m) => m.padEnd(w))].map((s, i) => (i === 0 ? s.padEnd(5) : s)).join(""),
   );
 
   for (let r = 0; r < 10; r++) {
@@ -182,9 +161,7 @@ async function main(): Promise<void> {
 
   for (const q of golden.queries) {
     const orphans = Object.keys(q.relevance).filter((n) => {
-      const found = index.db
-        .prepare("SELECT 1 AS x FROM repos WHERE full_name = ?")
-        .get(n);
+      const found = index.db.prepare("SELECT 1 AS x FROM repos WHERE full_name = ?").get(n);
 
       return !found;
     });
@@ -218,9 +195,7 @@ async function main(): Promise<void> {
   console.log("\n# Overall (mean over queries; n/a skipped)");
   console.log("");
   console.log(
-    ["metric", ...MODES]
-      .map((m, i) => (i === 0 ? m.padEnd(12) : m.padStart(14)))
-      .join(""),
+    ["metric", ...MODES].map((m, i) => (i === 0 ? m.padEnd(12) : m.padStart(14))).join(""),
   );
 
   const rows: [string, (qr: QueryResult, m: Mode) => number | null][] = [
@@ -233,9 +208,7 @@ async function main(): Promise<void> {
   ];
 
   for (const [label, get] of rows) {
-    const cells = MODES.map((m) =>
-      fmt(avg(results.map((qr) => get(qr, m)))).padStart(14),
-    );
+    const cells = MODES.map((m) => fmt(avg(results.map((qr) => get(qr, m)))).padStart(14));
 
     console.log([label.padEnd(12), ...cells].join(""));
   }
@@ -243,9 +216,7 @@ async function main(): Promise<void> {
   console.log("\n# By class (nDCG@10 mean)");
   const classes = [...new Set(results.map((r) => r.class))];
   console.log(
-    ["class", ...MODES]
-      .map((m, i) => (i === 0 ? m.padEnd(14) : m.padStart(14)))
-      .join(""),
+    ["class", ...MODES].map((m, i) => (i === 0 ? m.padEnd(14) : m.padStart(14))).join(""),
   );
 
   for (const c of classes) {
@@ -253,9 +224,7 @@ async function main(): Promise<void> {
     console.log(
       [
         c.padEnd(14),
-        ...MODES.map((m) =>
-          fmt(avg(rs.map((r) => r.modes[m].metrics.ndcg10))).padStart(14),
-        ),
+        ...MODES.map((m) => fmt(avg(rs.map((r) => r.modes[m].metrics.ndcg10))).padStart(14)),
       ].join(""),
     );
   }
@@ -269,19 +238,13 @@ async function main(): Promise<void> {
       MODES.map((m) => [
         m,
         Object.fromEntries(
-          rows.map(([label, get]) => [
-            label,
-            avg(results.map((qr) => get(qr, m))),
-          ]),
+          rows.map(([label, get]) => [label, avg(results.map((qr) => get(qr, m)))]),
         ),
       ]),
     ),
   };
 
-  writeFileSync(
-    path.join(DATA_DIR, "eval-results.json"),
-    JSON.stringify(payload, null, 2) + "\n",
-  );
+  writeFileSync(path.join(DATA_DIR, "eval-results.json"), JSON.stringify(payload, null, 2) + "\n");
   console.log("\nresults → data/eval-results.json");
 }
 
