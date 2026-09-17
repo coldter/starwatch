@@ -38,6 +38,7 @@ export const resolveWidth = (
 ): number => {
   const fromEnv =
     envColumns === undefined ? Number.NaN : Number.parseInt(envColumns, 10);
+
   const candidate = columns ?? (Number.isFinite(fromEnv) ? fromEnv : undefined);
 
   if (candidate === undefined || !Number.isFinite(candidate)) return 80;
@@ -119,6 +120,7 @@ export const formatExplain = (
   score: number,
 ): string => {
   const present = new Set(matchedBy);
+
   const legs = LEG_ORDER.map(
     (leg) => `${LEG_LABELS[leg]}:${present.has(leg) ? "+" : "-"}`,
   ).join(" ");
@@ -220,6 +222,7 @@ export const renderRepoPage = (
   options: { readonly color: boolean },
 ): string => {
   const { repo, groups } = page;
+
   const header = [
     bold(repo.fullName, options.color),
     `★${formatStars(repo.stars)}`,
@@ -250,6 +253,7 @@ export const renderRepoPage = (
 
   const topics =
     repo.topics.length > 0 ? `Topics: ${repo.topics.join(", ")}` : undefined;
+
   lines.push(
     [topics, repo.htmlUrl]
       .filter((part): part is string => part !== undefined)
@@ -305,6 +309,7 @@ export const renderStatusPage = (
     identityLine(page.profile, options.color),
     indexStateLine(page.state),
   ];
+
   const synced = formatDate(page.state.lastSyncedAt);
   lines.push(
     synced === undefined ? "Never synced" : `Last synced ${synced} UTC`,

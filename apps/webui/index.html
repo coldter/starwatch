@@ -4,13 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1117" />
-    <title>starwatch — search any GitHub user's stars</title>
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fefdfb" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b0e17" />
+    <title>starwatch — search anyone's GitHub stars</title>
     <meta
       name="description"
-      content="Full-text and semantic search over any GitHub user's public starred repositories."
+      content="Full-text and semantic search over any GitHub user's public starred repositories. No account, no token, no sign-in."
     />
+    <script>
+      // Paint the stored theme before React mounts. next-themes re-applies it on
+      // hydration; without this inline pass the first frame would flash light
+      // for dark-mode visitors. Storage key must match the ThemeProvider.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("starwatch-theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = stored === "dark" || ((stored === null || stored === "system") && prefersDark);
+
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (error) {
+          // Private-mode storage failures fall back to the light theme.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

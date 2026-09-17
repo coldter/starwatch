@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, createRoute, useNavigate } from "@tanstack/react-router";
+/**
+ * DRAFT — parent-owned. Copied into src/routes/landing.tsx once every feature
+ * slice lands. Kept outside src/ so the parallel workers' typecheck stays clean.
+ */
+import { useCallback, useRef, useState } from "react";
+import { createRoute, useNavigate } from "@tanstack/react-router";
+import { Database } from "lucide-react";
 import { MAX_STARS } from "@starwatch/domain";
 import {
   asApiError,
@@ -8,17 +13,21 @@ import {
   startUserSync,
   type ApiError,
   type UserPayload,
-} from "../api";
-import { Avatar } from "../components/Avatar";
-import { FreshnessChip } from "../components/FreshnessChip";
-import { SearchBar } from "../components/SearchBar";
-import { SkeletonCard } from "../components/SkeletonCard";
-import { ErrorState } from "../components/StateViews";
-import { useToast } from "../hooks/useToasts";
-import { formatNumber } from "../lib/format";
-import { parseLoginInput, SUGGESTED_USERS } from "../lib/login";
-import { getRecentUsers, rememberUser, type RecentUser } from "../lib/recent";
-import { exceedsStarCap, hasIndex, isActivePhase, isMetadataOnly, isStale } from "../lib/state";
+} from "@/api";
+import { useToast } from "@/app/toast";
+import { Button } from "@/components/motion/button/base";
+import { ErrorPanel, NoticeStrip, StatePanel } from "@/components/common/StatePanel";
+import { HeroSkeleton } from "@/components/common/Skeletons";
+import { HowItWorks } from "@/features/landing/HowItWorks";
+import { LandingHero } from "@/features/landing/LandingHero";
+import { RecentUsers } from "@/features/landing/RecentUsers";
+import { UserPreviewCard, type PreviewAction } from "@/features/landing/UserPreviewCard";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useSearchShortcut } from "@/hooks/useSearchShortcut";
+import { formatNumber } from "@/lib/format";
+import { parseLoginInput, SUGGESTED_USERS } from "@/lib/login";
+import { getRecentUsers, rememberUser, type RecentUser } from "@/lib/recent";
+import { exceedsStarCap, hasIndex, isActivePhase, isStale } from "@/lib/state";
 import { rootRoute } from "./__root";
 
 export const landingRoute = createRoute({
@@ -44,9 +53,8 @@ function LandingPage() {
   const [missingUser, setMissingUser] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    document.title = "starwatch — search any GitHub user's stars";
-  }, []);
+  useDocumentTitle("starwatch — search anyone's GitHub stars");
+  useSearchShortcut();
 
   const goSearch = useCallback(
     (login: string) => {
@@ -60,11 +68,10 @@ function LandingPage() {
       const login = parseLoginInput(raw);
 
       if (!login) {
-        toast({
-          title: "That doesn't look like a GitHub username",
-          body: "Try alice, @alice, or github.com/alice.",
-          tone: "error",
-        });
+        toast.error(
+          "That doesn't look like a GitHub username",
+          "Try alice, @alice, or github.com/alice.",
+        );
 
         return;
       }
@@ -97,10 +104,10 @@ function LandingPage() {
         const result = await startUserSync(login, { full });
 
         if (!result.started) {
-          toast({
-            title: "Index up to date",
-            body: "We checked just now — nothing new to fetch yet.",
-          });
+          toast.info(
+            "Nothing new to index yet",
+            "We checked just now — GitHub has no newer stars to read.",
+          );
         }
 
         goSearch(login);
@@ -108,16 +115,15 @@ function LandingPage() {
         const error = asApiError(cause);
 
         if (error.kind === "not-found") {
-          // The sync endpoint fetches the GitHub profile itself, so a 404 here
+          // The sync endpoint reads the GitHub profile itself, so a 404 here
           // means the username really does not exist.
           setMissingUser(login);
-          toast({
-            title: `No GitHub user named @${login}`,
-            body: "Check the spelling — usernames use letters, numbers and single hyphens.",
-            tone: "error",
-          });
+          toast.error(
+            `No GitHub user named @${login}`,
+            "Check the spelling — usernames use letters, numbers and single hyphens.",
+          );
         } else {
-          toast({ title: "Couldn't start indexing", body: error.message, tone: "error" });
+          toast.error("Couldn't start indexing", error.message);
         }
       } finally {
         setStarting(false);
@@ -126,89 +132,61 @@ function LandingPage() {
     [goSearch, toast],
   );
 
-  return (
-    <div className="container landing">
-      <section className="hero">
-        <h1 className="hero__title">Search anyone&apos;s GitHub stars.</h1>
-        <p className="hero__subtitle">
-          Full-text and semantic search over public starred repos. No account, no GitHub token.
-        </p>
-        <SearchBar
-          value={query}
-          onSubmit={(value) => {
-            setQuery(value);
-            void submit(value);
-          }}
-          busy={preview.status === "loading"}
-          autoFocus
-          placeholder="@username, github.com/username, or a profile URL"
-        />
-        <p className="hero__try">
-          Try{" "}
-          {SUGGESTED_USERS.map((login, index) => (
-            <span key={login}>
-              {index > 0 ? " · " : ""}
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => {
-                  setQuery(`@${login}`);
-                  void submit(`@${login}`);
-                }}
-              >
-                @{login}
-              </button>
-            </span>
-          ))}
-        </p>
-      </section>
+  const pickSuggestion = useCallback(
+    (login: string) => {
+      setQuery(`@${login}`);
+      void submit(`@${login}`);
+    },
+    [submit],
+  );
 
-      {preview.status === "loading" ? (
-        <div className="preview-card preview-card--loading">
-          <SkeletonCard />
-        </div>
-      ) : null}
+  const previewUser = preview.status === "ready" ? preview.data : null;
+
+  return (
+    <div className="page-shell flex flex-col gap-10 py-10 sm:gap-14 sm:py-16">
+      <LandingHero
+        value={query}
+        busy={preview.status === "loading"}
+        suggestions={SUGGESTED_USERS}
+        onChange={setQuery}
+        onSubmit={(value) => {
+          setQuery(value);
+          void submit(value);
+        }}
+        onPickSuggestion={pickSuggestion}
+      />
+
+      {preview.status === "loading" ? <HeroSkeleton /> : null}
 
       {preview.status === "error" && preview.error.kind === "not-found" ? (
         missingUser !== null ? (
-          <section className="preview-card" aria-live="polite">
-            <div className="preview-card__body">
-              <p className="preview-card__name">
-                We couldn&apos;t find a GitHub user named “@{missingUser}”
-              </p>
-              <p className="preview-card__meta">
-                Check the spelling — usernames use letters, numbers and single hyphens.
-              </p>
-            </div>
-          </section>
+          <NoticeStrip tone="error" icon={Database}>
+            We couldn&apos;t find a GitHub user named &ldquo;@{missingUser}&rdquo;. Check the
+            spelling — usernames use letters, numbers and single hyphens.
+          </NoticeStrip>
         ) : (
-          <section className="preview-card" aria-live="polite">
-            <div className="preview-card__body">
-              <p className="preview-card__name">@{lastLogin ?? query} isn&apos;t indexed yet</p>
-              <p className="preview-card__meta">
-                Indexing reads the public star list first (searchable in seconds), then fills in
-                READMEs and semantic search in the background.
-              </p>
-            </div>
-            <div className="preview-card__actions">
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={starting || lastLogin === null}
-                onClick={() => {
-                  if (lastLogin !== null) void startIndex(lastLogin, false);
-                }}
-              >
-                {starting ? "Starting…" : "Index & search"}
-              </button>
-            </div>
-          </section>
+          <StatePanel
+            icon={Database}
+            title={`@${lastLogin ?? query} isn't in the shared index yet`}
+            body="Indexing reads the public star list first, so keyword search works within seconds. READMEs and semantic search fill in behind it."
+          >
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={starting || lastLogin === null}
+              onClick={() => {
+                if (lastLogin !== null) void startIndex(lastLogin, false);
+              }}
+            >
+              {starting ? "Starting…" : "Index and search"}
+            </Button>
+          </StatePanel>
         )
       ) : null}
 
       {preview.status === "error" && preview.error.kind !== "not-found" ? (
-        <ErrorState
-          title="Couldn't look up that user"
+        <ErrorPanel
+          title="Couldn't look that user up"
           error={preview.error}
           onRetry={() => {
             void submit(query);
@@ -216,112 +194,66 @@ function LandingPage() {
         />
       ) : null}
 
-      {preview.status === "ready" ? (
-        <PreviewCard
-          data={preview.data}
+      {previewUser ? (
+        <UserPreviewCard
+          data={previewUser}
           busy={starting}
-          onSearch={() => goSearch(preview.data.profile.login)}
-          onIndex={(full) => {
-            void startIndex(preview.data.profile.login, full);
-          }}
+          primary={primaryAction(previewUser, goSearch, startIndex)}
+          secondary={secondaryAction(previewUser, startIndex)}
         />
       ) : null}
 
-      {recents.length > 0 ? (
-        <section className="recents" aria-label="Recently searched users">
-          <h2 className="recents__title">Recent</h2>
-          <div className="chip-row">
-            {recents.map((user) => (
-              <Link
-                key={user.login}
-                className="chip"
-                to="/u/$login"
-                params={{ login: user.login }}
-                search={{}}
-              >
-                @{user.login}
-              </Link>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="explainer">
-        <h2 className="explainer__title">How it works</h2>
-        <ul className="explainer__list">
-          <li>Type any GitHub username — the shared community index is free to search.</li>
-          <li>
-            Metadata search works in ~10 seconds; semantic search fills in over the next few
-            minutes.
-          </li>
-          <li>
-            Collections come from the user&apos;s public GitHub Lists plus auto-generated ones.
-          </li>
-          <li>Public stars only. Private stars are never fetched or stored.</li>
-        </ul>
-      </section>
+      <RecentUsers users={recents} onPick={goSearch} />
+      <HowItWorks />
     </div>
   );
 }
 
-function PreviewCard({
-  data,
-  busy,
-  onSearch,
-  onIndex,
-}: {
-  data: UserPayload;
-  busy: boolean;
-  onSearch: () => void;
-  onIndex: (full: boolean) => void;
-}) {
-  const { profile, state } = data;
+/** The one action worth taking for the user that was just looked up. */
+function primaryAction(
+  data: UserPayload,
+  onSearch: (login: string) => void,
+  onIndex: (login: string, full: boolean) => void,
+): PreviewAction {
+  const { login } = data.profile;
+  const { state } = data;
   const indexed = hasIndex(state);
   const active = isActivePhase(state.phase);
-  const stale = indexed && isStale(state);
-  const capped = exceedsStarCap(state);
   const stars = state.starsTotal || state.reposMetadata;
 
-  const primary = active
-    ? { label: "Search what's loaded", run: onSearch }
-    : indexed
-      ? { label: `Search ${formatNumber(stars)} stars`, run: onSearch }
-      : {
-          label: capped ? `Index newest ${formatNumber(MAX_STARS)}` : "Index & search",
-          run: () => onIndex(false),
-        };
+  if (active) return { label: "Search what's loaded", onClick: () => onSearch(login) };
 
-  const secondary = stale
-    ? { label: "Refresh now", run: () => onIndex(true) }
-    : state.phase === "failed" && indexed
-      ? { label: "Retry indexing", run: () => onIndex(true) }
-      : null;
+  if (indexed)
+    return { label: `Search ${formatNumber(stars)} stars`, onClick: () => onSearch(login) };
 
-  return (
-    <section className="preview-card" aria-live="polite">
-      <Avatar login={profile.login} name={profile.name} src={profile.avatarUrl} size={48} />
-      <div className="preview-card__body">
-        <p className="preview-card__name">{profile.name ?? `@${profile.login}`}</p>
-        <p className="preview-card__meta">
-          @{profile.login}
-          {stars > 0 ? ` · ${formatNumber(stars)} public stars` : ""}
-          {profile.bio ? ` · ${profile.bio}` : ""}
-        </p>
-        <p className="preview-card__state">
-          <FreshnessChip state={state} />
-          {isMetadataOnly(state) ? <span className="badge">◦ metadata only</span> : null}
-        </p>
-      </div>
-      <div className="preview-card__actions">
-        <button type="button" className="btn btn--primary" onClick={primary.run} disabled={busy}>
-          {busy ? "Starting…" : primary.label}
-        </button>
-        {secondary ? (
-          <button type="button" className="btn" onClick={secondary.run} disabled={busy}>
-            {secondary.label}
-          </button>
-        ) : null}
-      </div>
-    </section>
-  );
+  if (exceedsStarCap(state))
+    return {
+      label: `Index newest ${formatNumber(MAX_STARS)}`,
+      onClick: () => onIndex(login, false),
+    };
+
+  return { label: "Index and search", onClick: () => onIndex(login, false) };
+}
+
+/** Refresh or retry, only when the index state actually asks for it. */
+function secondaryAction(
+  data: UserPayload,
+  onIndex: (login: string, full: boolean) => void,
+): PreviewAction | null {
+  const { login } = data.profile;
+  const { state } = data;
+
+  if (hasIndex(state) && isStale(state))
+    return {
+      label: "Refresh now",
+      onClick: () => onIndex(login, true),
+    };
+
+  if (hasIndex(state) && state.phase === "failed")
+    return {
+      label: "Retry indexing",
+      onClick: () => onIndex(login, true),
+    };
+
+  return null;
 }

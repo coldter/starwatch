@@ -18,9 +18,11 @@ export const clientIp = (
   );
 
   if (direct !== undefined && direct.length > 0) return direct;
+
   const forwarded = Option.getOrUndefined(
     Headers.get(request.headers, "x-forwarded-for"),
   );
+
   const first = forwarded?.split(",")[0]?.trim();
 
   return first !== undefined && first.length > 0 ? first : "unknown";

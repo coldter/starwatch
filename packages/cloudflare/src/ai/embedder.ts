@@ -141,6 +141,7 @@ export const makeWorkersAiEmbedder = (
     options.batchSize ?? DEFAULT_BATCH_SIZE,
     "batchSize",
   );
+
   const concurrency = validateDimension(
     options.concurrency ?? DEFAULT_CONCURRENCY,
     "concurrency",

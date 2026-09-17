@@ -301,6 +301,7 @@ export const overlapBonus = (
   terms: ReadonlyArray<string>,
 ): number => {
   if (terms.length === 0) return 0;
+
   const topicMatches = Math.min(
     countFieldMatches(terms, repo.topics.join(" ")),
     TOPIC_OVERLAP_CAP,

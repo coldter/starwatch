@@ -1,4 +1,20 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": [".agents/**", ".claude/**", "dist/**", ".astro/**", "public/**", "tools/**"]
+  "ignorePatterns": [
+    ".agents/**",
+    ".claude/**",
+    "dist/**",
+    ".astro/**",
+    "public/**",
+    "tools/**",
+    "apps/webui/src/components/motion/**",
+    "apps/webui/src/components/agents/**",
+    "apps/webui/src/lib/ease.ts",
+    "apps/webui/src/lib/utils.ts",
+    "apps/webui/src/lib/touch.ts",
+    "apps/webui/src/lib/text-shimmer.ts",
+    "apps/webui/src/lib/command-search.ts",
+    "apps/webui/src/lib/presence-gate.tsx",
+    "apps/webui/src/lib/hooks/**"
+  ]
 }

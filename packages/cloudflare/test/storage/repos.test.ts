@@ -74,6 +74,7 @@ describe("RepoStore", () => {
         phase: "listing",
         starsTotal: 3448,
       });
+
       yield* store.upsertIndexState(state);
       expect(yield* store.getIndexState(LOGIN)).toEqual(state);
 
@@ -300,9 +301,11 @@ describe("RepoStore", () => {
         state: "present",
         checkedAt: null,
       });
+
       const rows = yield* sql<{
         len: number;
       }>`SELECT length(readme_text) AS len FROM repos WHERE id = 2`;
+
       expect(rows[0]?.len).toBe(64 * 1024);
       expect((yield* store.countStats(LOGIN)).readmesFetched).toBe(2);
     }).pipe(Effect.provide(testLive())),
@@ -320,6 +323,7 @@ describe("RepoStore", () => {
         position: 0,
         repoIds: [1, 2],
       };
+
       const tools: Group = {
         id: "UL_2",
         name: "Tools",
@@ -327,6 +331,7 @@ describe("RepoStore", () => {
         position: 1,
         repoIds: [2, 3],
       };
+
       yield* store.replaceGroups(LOGIN, [inbox, tools]);
       expect(yield* store.listGroups(LOGIN)).toEqual([inbox, tools]);
 
@@ -344,6 +349,7 @@ describe("RepoStore", () => {
         position: 5,
         repoIds: [3],
       };
+
       yield* store.replaceGroups(LOGIN, [cli]);
       expect(yield* store.listGroups(LOGIN)).toEqual([cli]);
       expect((yield* store.groupsForRepos(LOGIN, [1])).size).toBe(0);
@@ -356,6 +362,7 @@ describe("RepoStore", () => {
         position: 0,
         repoIds: [1],
       };
+
       yield* store.replaceGroups("someone-else", [other]);
       expect(yield* store.listGroups("someone-else")).toEqual([other]);
       expect(yield* store.listGroups(LOGIN)).toEqual([cli]);

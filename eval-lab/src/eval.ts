@@ -46,17 +46,22 @@ const MODES: Mode[] = ["keyword", "semantic", "hybrid", "hybrid+expand"];
 
 function computeMetrics(hits: Hit[], rel: Record<string, number>): Metrics {
   const grade = (name: string): number => rel[name] ?? 0;
+
   const g2 = Object.entries(rel)
     .filter(([, g]) => g === 2)
     .map(([n]) => n);
+
   const top = hits.slice(0, 10);
   const p5 = top.slice(0, 5).filter((h) => grade(h.full_name) >= 1).length / 5;
+
   const p5g2 =
     top.slice(0, 5).filter((h) => grade(h.full_name) === 2).length / 5;
+
   const r10 =
     g2.length === 0
       ? null
       : g2.filter((n) => top.some((h) => h.full_name === n)).length / g2.length;
+
   let mrr: number | null = null;
 
   for (let i = 0; i < top.length; i++) {
@@ -77,6 +82,7 @@ function computeMetrics(hits: Hit[], rel: Record<string, number>): Metrics {
     .reduce((a, g, i) => a + (2 ** g - 1) / Math.log2(i + 2), 0);
 
   const ndcg10 = idcg === 0 ? null : dcg / idcg;
+
   const success3 = top.slice(0, 3).some((h) => grade(h.full_name) === 2)
     ? 1
     : 0;
@@ -103,9 +109,11 @@ function printQueryResult(qr: QueryResult): void {
   if (qr.orphanedGold.length)
     console.log(`   ⚠ gold repos not in corpus: ${qr.orphanedGold.join(", ")}`);
   console.log("");
+
   const header = ["metric", ...MODES].map((m, i) =>
     i === 0 ? m.padEnd(12) : m.padStart(14),
   );
+
   console.log(header.join(""));
 
   const rows: [string, (m: Metrics) => number | null][] = [
@@ -130,6 +138,7 @@ function printQueryResult(qr: QueryResult): void {
     (m) =>
       `${m}:kw=${qr.modes[m].legs.keyword},sem=${qr.modes[m].legs.semantic}${qr.modes[m].legs.filtered_universe !== null ? `,uni=${qr.modes[m].legs.filtered_universe}` : ""}`,
   ).join("  ");
+
   console.log(`leg sizes: ${legInfo}`);
   console.log("");
   const w = 44;
@@ -163,6 +172,7 @@ async function main(): Promise<void> {
   const golden = Schema.decodeUnknownSync(GoldQueriesFile)(
     readFileSync(path.join(LAB_DIR, "gold", "queries.json"), "utf8"),
   );
+
   const index = LabIndex.open();
   console.log(`# starwatch eval-lab — search quality run`);
   console.log(
@@ -189,6 +199,7 @@ async function main(): Promise<void> {
         limit: 10,
         boost: true,
       });
+
       modes[mode] = {
         metrics: computeMetrics(out.hits, q.relevance),
         hits: out.hits,
@@ -225,6 +236,7 @@ async function main(): Promise<void> {
     const cells = MODES.map((m) =>
       fmt(avg(results.map((qr) => get(qr, m)))).padStart(14),
     );
+
     console.log([label.padEnd(12), ...cells].join(""));
   }
 

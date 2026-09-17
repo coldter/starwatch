@@ -81,6 +81,7 @@ async function main(): Promise<void> {
   const insFts = db.prepare(
     "INSERT INTO repos_fts(rowid, name, description, topics, readme) VALUES (?,?,?,?,?)",
   );
+
   const insTri = db.prepare(
     "INSERT INTO repos_tri(rowid, name, description, topics, readme) VALUES (?,?,?,?,?)",
   );
@@ -121,9 +122,11 @@ async function main(): Promise<void> {
     // READMEs in every batch otherwise dominate the cost (5 docs/s → 30+ docs/s).
     ids.sort((a, b) => docs.get(a)!.length - docs.get(b)!.length);
     const texts = ids.map((id) => docs.get(id)!);
+
     const insEmb = db.prepare(
       "INSERT INTO embeddings(repo_id, dims, vector, doc) VALUES (?,?,?,?)",
     );
+
     const BATCH = 256; // embedding calls are 32-wide; commit every 256 to bound WAL growth
     let embedded = 0;
 

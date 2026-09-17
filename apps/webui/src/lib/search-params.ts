@@ -24,13 +24,33 @@ export const PAGE_SIZE = 20;
 
 export const SEARCH_LIMIT = 50;
 
+/**
+ * How archived repositories are treated. The worker accepts `archived=false`
+ * (exclude) / `archived=true` (only) / absent (any), so the UI keeps all three
+ * states and hides archived repos by default (docs/06 §3).
+ */
+export type ArchivedFilter = "hide" | "include" | "only";
+
+export const ARCHIVED_FILTERS: ReadonlyArray<ArchivedFilter> = ["hide", "include", "only"];
+
+export const DEFAULT_ARCHIVED: ArchivedFilter = "hide";
+
+/** Readable names for the retrieval modes, shared by the toolbar and summaries. */
+export const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
+  auto: "Smart",
+  keyword: "Keyword",
+  hybrid: "Hybrid",
+  semantic: "Semantic",
+};
+
 /** URL-shaped search: every field optional, defaults omitted. */
 export interface UserSearch {
   q?: string;
   mode?: SearchMode;
   lang?: string;
   group?: string[];
-  archived?: boolean;
+  /** Omitted when archived repos are hidden, which is the default. */
+  archived?: ArchivedFilter;
   minStars?: number;
   page?: number;
   /** `owner/name` — opens the repo detail drawer when present. */
@@ -43,7 +63,7 @@ export interface SearchState {
   mode: SearchMode;
   lang: string | undefined;
   group: string[];
-  archived: boolean;
+  archived: ArchivedFilter;
   minStars: number | undefined;
   page: number;
   repo: string | undefined;
@@ -54,7 +74,7 @@ export const EMPTY_SEARCH: SearchState = {
   mode: DEFAULT_MODE,
   lang: undefined,
   group: [],
-  archived: false,
+  archived: DEFAULT_ARCHIVED,
   minStars: undefined,
   page: 1,
   repo: undefined,
@@ -74,8 +94,21 @@ const RawSearchValue = Schema.Union([
 
 export type RawSearchValue = typeof RawSearchValue.Type;
 
-/** `?archived`: booleans from navigation, `"true"`/`"1"` from the URL. */
-const RawFlag = Schema.Union([Schema.Boolean, Schema.Literal("true"), Schema.Literal("1")]);
+/**
+ * `?archived`: the tri-state words, plus the boolean flags older links carry
+ * (`true`/`1` meant "only archived" against the API, `false`/`0` will land on
+ * the default "hide").
+ */
+const RawArchived = Schema.Union([
+  Schema.Literal("hide"),
+  Schema.Literal("include"),
+  Schema.Literal("only"),
+  Schema.Literal("true"),
+  Schema.Literal("false"),
+  Schema.Literal("1"),
+  Schema.Literal("0"),
+  Schema.Boolean,
+]);
 
 /** `?group`: one value per key occurrence, or a list from typed navigation. */
 const RawGroupList = Schema.ArrayEnsure(Schema.String);
@@ -117,6 +150,41 @@ function asPositiveInt(value: RawSearchValue | undefined): number | undefined {
   if (!Number.isFinite(parsed) || parsed < 0) return undefined;
 
   return parsed;
+}
+
+/**
+ * Normalize every accepted `?archived` spelling into the tri-state. Booleans
+ * come from typed navigation, strings from the URL; anything unrecognized
+ * falls back to the default.
+ */
+export function toArchivedFilter(value: RawSearchValue | undefined): ArchivedFilter {
+  const decoded = Schema.decodeUnknownOption(RawArchived)(value);
+
+  if (Option.isNone(decoded)) return DEFAULT_ARCHIVED;
+
+  switch (decoded.value) {
+    case "include":
+      return "include";
+    case "only":
+    case "true":
+    case "1":
+    case true:
+      return "only";
+    default:
+      return "hide";
+  }
+}
+
+/**
+ * The worker's archived flag: `false` excludes archived repos, `true` returns
+ * only them, and omitting the flag returns both.
+ */
+export function toArchivedQuery(filter: ArchivedFilter): boolean | undefined {
+  if (filter === "hide") return false;
+
+  if (filter === "only") return true;
+
+  return undefined;
 }
 
 export function toSearchMode(
@@ -172,7 +240,9 @@ export function parseUserSearch(raw: RawSearchBag): UserSearch {
 
   if (group.length > 0) out.group = group;
 
-  if (Option.isSome(Schema.decodeUnknownOption(RawFlag)(raw.archived))) out.archived = true;
+  const archived = toArchivedFilter(raw.archived);
+
+  if (archived !== DEFAULT_ARCHIVED) out.archived = archived;
 
   const minStars = asPositiveInt(raw.minStars);
 
@@ -196,7 +266,7 @@ export function normalizeUserSearch(raw: UserSearch): SearchState {
     mode: raw.mode ?? DEFAULT_MODE,
     lang: raw.lang,
     group: raw.group ?? [],
-    archived: raw.archived ?? false,
+    archived: raw.archived ?? DEFAULT_ARCHIVED,
     minStars: raw.minStars,
     page: raw.page ?? 1,
     repo: raw.repo,
@@ -215,7 +285,7 @@ export function toUrlSearch(state: SearchState): UserSearch {
 
   if (state.group.length > 0) out.group = [...state.group];
 
-  if (state.archived) out.archived = true;
+  if (state.archived !== DEFAULT_ARCHIVED) out.archived = state.archived;
 
   if (state.minStars !== undefined) out.minStars = state.minStars;
 
@@ -230,7 +300,7 @@ export function hasActiveFilters(state: SearchState): boolean {
   return (
     state.lang !== undefined ||
     state.group.length > 0 ||
-    state.archived ||
+    state.archived !== DEFAULT_ARCHIVED ||
     state.minStars !== undefined
   );
 }

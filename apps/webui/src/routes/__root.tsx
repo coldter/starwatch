@@ -1,6 +1,7 @@
 import { createRootRoute, Link, Outlet, type ErrorComponentProps } from "@tanstack/react-router";
-import { AppShell } from "../components/AppShell";
-import { EmptyState } from "../components/StateViews";
+import { AppShell } from "@/app/AppShell";
+import { NotFoundGlitch } from "@/components/motion/not-found/glitch";
+import { ErrorPanel } from "@/components/common/StatePanel";
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
@@ -18,33 +19,35 @@ function RootLayout() {
 
 function NotFoundPage() {
   return (
-    <div className="container container--narrow">
-      <EmptyState
-        title="Page not found"
-        body="That route doesn't exist. Head back home and search a GitHub user instead."
-      >
-        <Link className="btn" to="/">
-          Back home
-        </Link>
-      </EmptyState>
-    </div>
+    <NotFoundGlitch
+      className="page-shell py-10"
+      title="This star isn't on the map"
+      description="That route doesn't exist. Head home and look up a GitHub user instead."
+      homeHref="/"
+      homeLabel="Back home"
+      browseHref="https://github.com/coldter/starwatch"
+      browseLabel="Browse the source"
+    />
   );
 }
 
 function RootErrorBoundary({ error, reset }: ErrorComponentProps) {
   return (
-    <div className="container container--narrow">
-      <EmptyState
-        title="Something broke"
-        body={error instanceof Error ? error.message : "An unexpected error occurred in the app."}
+    <div className="page-shell py-16">
+      <ErrorPanel
+        title="Something broke while rendering this page"
+        error={
+          error instanceof Error ? error : new Error("An unexpected error occurred in the app.")
+        }
+        onRetry={reset}
       >
-        <button type="button" className="btn" onClick={reset}>
-          Try again
-        </button>
-        <Link className="btn btn--ghost" to="/">
+        <Link
+          to="/"
+          className="inline-flex h-8 items-center rounded-full border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
           Back home
         </Link>
-      </EmptyState>
+      </ErrorPanel>
     </div>
   );
 }

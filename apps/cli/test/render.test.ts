@@ -185,11 +185,13 @@ describe("search output", () => {
     expect(formatExplain(["keyword", "semantic"], 0.0325)).toBe(
       "kw:+ exp:- sem:+ name:- · score 0.0325",
     );
+
     const output = renderSearchHit(hit, {
       color: false,
       width: 120,
       explain: true,
     });
+
     expect(output.split("\n")[2]).toBe(
       "  kw:+ exp:- sem:+ name:- · score 0.0325",
     );
@@ -234,6 +236,7 @@ describe("repo, status and groups output", () => {
       { repo, groups: [inbox, rustTools] },
       { color: false },
     );
+
     expect(output).toBe(
       [
         "effect-ts/effect  ★8.2k  TypeScript  MIT  not archived",
@@ -249,6 +252,7 @@ describe("repo, status and groups output", () => {
       { profile, state, groups: [] },
       { color: false },
     );
+
     expect(output).toBe(
       [
         "@alice  Alice Example",

@@ -10,7 +10,8 @@ export interface SearchQueryState {
   mode: SearchMode;
   lang?: string;
   groups: string[];
-  archived: boolean;
+  /** Worker semantics: `false` excludes archived, `true` is only archived. */
+  archived?: boolean;
   minStars?: number;
 }
 
@@ -27,7 +28,7 @@ interface FetchKey {
   mode: SearchMode;
   lang: string | undefined;
   groupKey: string;
-  archived: boolean;
+  archived: boolean | undefined;
   minStars: number | undefined;
 }
 
@@ -97,8 +98,7 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
   }, [login, trimmed, mode, lang, groupKey, archived, minStars, attempt]);
 
   // Never show results for a different user, query, or filter set.
-  const fresh =
-    response !== null &&
+  const keyMatches =
     lastKey !== null &&
     lastKey.login === login &&
     lastKey.query === trimmed &&
@@ -106,19 +106,25 @@ export function useSearch(login: string, query: SearchQueryState): SearchResult 
     lastKey.lang === lang &&
     lastKey.groupKey === groupKey &&
     lastKey.archived === archived &&
-    lastKey.minStars === minStars
-      ? response
-      : null;
+    lastKey.minStars === minStars;
 
-  const status: SearchStatus = !trimmed
-    ? "idle"
-    : pending
-      ? fresh === null
-        ? "loading"
-        : "refreshing"
-      : error !== null
-        ? "error"
-        : "ready";
+  const fresh = keyMatches ? response : null;
+
+  // The effect that sets `pending` runs after paint, so a changed key is also
+  // treated as loading: otherwise one frame renders "ready" with no response
+  // and the results area collapses on every submit.
+  const status: SearchStatus =
+    trimmed === ""
+      ? "idle"
+      : fresh !== null
+        ? pending
+          ? "refreshing"
+          : error !== null
+            ? "error"
+            : "ready"
+        : !pending && error !== null
+          ? "error"
+          : "loading";
 
   const retry = useCallback(() => {
     setAttempt((value) => value + 1);

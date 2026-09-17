@@ -43,6 +43,12 @@
       "skillPath": "skills/better-writing/SKILL.md",
       "computedHash": "225768480d8ba9cf6d00bb728d2a34dfb430d2134e25fc02dcedbba086b3bc5f"
     },
+    "beui": {
+      "source": "starc007/ui-components",
+      "sourceType": "github",
+      "skillPath": "skills/beui/SKILL.md",
+      "computedHash": "c64a06282077b4ced723e092422bd8b6208c19857fff6317c6a9419f11c4c671"
+    },
     "break": {
       "source": "jakubkrehel/skills",
       "sourceType": "github",

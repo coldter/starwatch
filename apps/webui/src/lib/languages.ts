@@ -76,7 +76,7 @@ const COLORS = {
 const COLOR_BY_LANGUAGE: ReadonlyMap<string, string> = new Map(Object.entries(COLORS));
 
 export function colorForLanguage(language: string | null | undefined): string {
-  if (!language) return "var(--fg-faint)";
+  if (!language) return "var(--muted-foreground)";
 
-  return COLOR_BY_LANGUAGE.get(language) ?? "var(--fg-faint)";
+  return COLOR_BY_LANGUAGE.get(language) ?? "var(--muted-foreground)";
 }

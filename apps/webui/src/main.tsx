@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
-import { ToastProvider } from "./hooks/useToasts";
+import { ThemeProvider } from "./app/theme";
+import { ToastProvider } from "./app/toast";
 import { router } from "./router";
 import "./styles.css";
 
@@ -11,8 +12,10 @@ if (!rootElement) throw new Error("#root not found");
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ToastProvider>
-      <RouterProvider router={router} />
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

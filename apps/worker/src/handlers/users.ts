@@ -190,6 +190,7 @@ export const usersGroup = (deps: WorkerDeps) =>
             Stream.mapEffect(() =>
               Effect.gen(function* () {
                 const store = yield* RepoStore;
+
                 const state = yield* store
                   .getIndexState(login)
                   .pipe(Effect.orDie);

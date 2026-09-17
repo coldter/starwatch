@@ -8,6 +8,18 @@ export default defineConfig({
     "eval-lab/data/**",
     "apps/worker/.alchemy/**",
     "apps/webui/dist/**",
+    // Vendored beUI source (https://beui.dev), installed by the shadcn CLI and
+    // kept byte-identical so `shadcn add` can update it. It is copy-paste
+    // source, not our code: lint it with beUI's own conventions, not ours.
+    "apps/webui/src/components/motion/**",
+    "apps/webui/src/components/agents/**",
+    "apps/webui/src/lib/ease.ts",
+    "apps/webui/src/lib/utils.ts",
+    "apps/webui/src/lib/touch.ts",
+    "apps/webui/src/lib/text-shimmer.ts",
+    "apps/webui/src/lib/command-search.ts",
+    "apps/webui/src/lib/presence-gate.tsx",
+    "apps/webui/src/lib/hooks/**",
   ],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },

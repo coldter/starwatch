@@ -9,15 +9,20 @@ const MODES: Mode[] = ["keyword", "semantic", "hybrid", "hybrid+expand"];
 
 function metrics(hits: Hit[], rel: Record<string, number>) {
   const grade = (n: string) => rel[n] ?? 0;
+
   const g2 = Object.entries(rel)
     .filter(([, g]) => g === 2)
     .map(([n]) => n);
+
   const top = hits.slice(0, 10);
+
   const p5g2 =
     top.slice(0, 5).filter((h) => grade(h.full_name) === 2).length / 5;
+
   const r10 = g2.length
     ? g2.filter((n) => top.some((h) => h.full_name === n)).length / g2.length
     : null;
+
   let mrr: number | null = null;
 
   for (let i = 0; i < top.length; i++)
@@ -30,6 +35,7 @@ function metrics(hits: Hit[], rel: Record<string, number>) {
     (a, h, i) => a + (2 ** grade(h.full_name) - 1) / Math.log2(i + 2),
     0,
   );
+
   const idcg = Object.values(rel)
     .sort((a, b) => b - a)
     .slice(0, 10)
@@ -44,6 +50,7 @@ async function main(): Promise<void> {
   const golden = Schema.decodeUnknownSync(GoldQueriesFile)(
     readFileSync(path.join(LAB_DIR, "gold", "queries.json"), "utf8"),
   );
+
   const index = LabIndex.open();
   console.log(
     "query                mode          boost   P@5g2  R@10  MRR   nDCG@10",

@@ -56,6 +56,23 @@ pnpm dev          # alchemy dev: Worker (:1337, workerd) + WebUI (:5173, Vite)
 
 Standalone variants: `pnpm dev:webui` (UI only) · `pnpm --filter @starwatch/worker run dev` (API only).
 
+### WebUI
+
+The WebUI is a Vite + React 19 SPA styled with **Tailwind v4** and composed
+from **[beUI](https://beui.dev)** motion components, vendored through the
+shadcn registry into `apps/webui/src/components/{motion,agents}`. Design tokens
+(semantic colors, radii, type) live in `apps/webui/src/styles.css`; the
+component contract, slice ownership and conventions are documented in
+[apps/webui/docs/ui-contract.md](apps/webui/docs/ui-contract.md).
+
+```bash
+npx shadcn@latest add @beui/<slug>   # from apps/webui — add or update a component
+```
+
+Vendored beUI sources are excluded from oxlint/oxfmt so registry updates stay
+byte-identical; app code uses the semantic tokens (`bg-card`,
+`text-muted-foreground`, `text-star`, …) rather than raw palette values.
+
 ### Tests & search-quality lab
 
 ```bash

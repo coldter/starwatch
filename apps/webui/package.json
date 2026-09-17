@@ -11,10 +11,19 @@
   },
   "dependencies": {
     "@starwatch/domain": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
     "@tanstack/react-router": "catalog:",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
     "effect": "catalog:",
+    "lucide-react": "catalog:",
+    "motion": "catalog:",
+    "next-themes": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "tailwind-merge": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",

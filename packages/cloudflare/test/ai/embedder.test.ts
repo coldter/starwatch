@@ -137,9 +137,11 @@ describe("makeWorkersAiEmbedder", () => {
   it("keeps in-flight batches at the concurrency limit", async () => {
     const fake = fakeBinding({ delayMs: 10 });
     const embedder = makeWorkersAiEmbedder(fake.binding, { batchSize: 2, concurrency: 2 });
+
     const vectors = await Effect.runPromise(
       embedder.embed(["0", "1", "2", "3", "4", "5", "6", "7"]),
     );
+
     expect(vectors).toHaveLength(8);
     expect(fake.calls).toHaveLength(4);
     expect(fake.peakConcurrency()).toBeLessThanOrEqual(2);

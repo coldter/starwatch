@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   const golden = Schema.decodeUnknownSync(GoldQueriesFile)(
     readFileSync(path.join(LAB_DIR, "gold", "queries.json"), "utf8"),
   );
+
   const index = LabIndex.open();
 
   for (const q of golden.queries) {

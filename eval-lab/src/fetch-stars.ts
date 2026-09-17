@@ -26,15 +26,18 @@ async function main(): Promise<void> {
     maxBuffer: 64 * 1024 * 1024,
     timeout: 10 * 60_000,
   });
+
   const lines = stdout.split("\n").filter((l) => l.trim().length > 0);
   const stars = lines.map((l) => JSON.parse(l));
   writeFileSync(
     path.join(DATA_DIR, "stars.json"),
     JSON.stringify(stars, null, 2) + "\n",
   );
+
   const withLang = stars.filter(
     (s: { language: string | null }) => s.language,
   ).length;
+
   console.log(
     `fetch-stars: wrote ${stars.length} repos to data/stars.json (${withLang} with a language)`,
   );

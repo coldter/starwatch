@@ -299,6 +299,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       const getIndexState = Effect.fn("RepoStore.getIndexState")(function* (login: string) {
         const rows =
           yield* sql<IndexStateRow>`SELECT * FROM user_index_state WHERE login = ${login} LIMIT 1`;
+
         const row = rows[0];
 
         return row === undefined
@@ -814,6 +815,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
       const getVectorBlob = Effect.fn("RepoStore.getVectorBlob")(function* (login: string) {
         const rows =
           yield* sql<VectorBlobRow>`SELECT * FROM vector_blobs WHERE login = ${login} LIMIT 1`;
+
         const row = rows[0];
 
         if (row === undefined) return null;

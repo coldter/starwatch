@@ -75,6 +75,7 @@ describe("planReadmeWork", () => {
       batchSize: 2,
       semanticWindow: 100,
     });
+
     expect(batches).toEqual([[4, 3], [1]]);
   });
 
@@ -115,6 +116,7 @@ describe("planReadmeWork", () => {
       batchSize: 10,
       semanticWindow: 2,
     });
+
     expect(batches).toEqual([[4, 3]]);
   });
 
@@ -195,6 +197,7 @@ describe("canSync", () => {
     relistSeconds: 900,
     fullRefreshSeconds: 24 * 60 * 60,
   };
+
   const nowMs = 1_800_000_000_000;
 
   it("blocks while a job is in progress, even with force", () => {
