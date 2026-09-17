@@ -1,6 +1,6 @@
 # starwatch
 
-## *Toy Project _trying out effect-ts with cloudflare platform along side Pi agent with open weight models_*
+## _Toy Project *trying out effect-ts with cloudflare platform along side Pi agent with open weight models*_
 
 Public search for GitHub stars. Enter any GitHub username and get full-text search over that user's public starred repositories — no login required. Semantic (embedding) search is an opt-in extra, off by default: `STARWATCH_SEMANTIC_SEARCH=1`.
 
