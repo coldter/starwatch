@@ -18,7 +18,4 @@ export function parseLoginInput(raw: string): string | null {
   return LOGIN_RE.test(first) ? first : null;
 }
 
-export const SUGGESTED_USERS: ReadonlyArray<string> = [
-  "coldter",
-  "sam-goodwin",
-];
+export const SUGGESTED_USERS: ReadonlyArray<string> = ["coldter", "sam-goodwin"];

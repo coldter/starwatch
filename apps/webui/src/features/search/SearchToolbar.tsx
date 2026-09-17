@@ -18,6 +18,8 @@ import { SEARCH_MODE_LABELS, SORT_HINTS, SORT_LABELS, SORTS } from "@/lib/search
 export interface SearchToolbarProps {
   value: string;
   busy: boolean;
+  /** No query yet: hide the retrieval modes, which need text to mean anything. */
+  browsing: boolean;
   mode: SearchMode;
   sort: SearchSort;
   filterCount: number;
@@ -56,6 +58,7 @@ const MODE_OPTIONS: ReadonlyArray<ModeOption> = [
 export function SearchToolbar({
   value,
   busy,
+  browsing,
   mode,
   sort,
   filterCount,
@@ -106,6 +109,11 @@ export function SearchToolbar({
     if (option !== undefined) onSort(option);
   };
 
+  // `relevance` is the search default; without a query the worker reads it as
+  // "recently starred", so offering it here would be a no-op that resets the
+  // view. The browse rail keeps only the keys that actually order a list.
+  const sortOptions = browsing ? SORTS.filter((entry) => entry !== "relevance") : SORTS;
+
   return (
     <form
       role="search"
@@ -148,20 +156,22 @@ export function SearchToolbar({
       </div>
 
       <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
-        <Tabs
-          value={mode}
-          onValueChange={onModeChange}
-          variant="segment"
-          className="min-w-0 sm:flex-1"
-        >
-          <TabsList className="max-w-full overflow-x-auto bg-muted">
-            {MODE_OPTIONS.map((option) => (
-              <Tooltip key={option.value} content={option.hint} side="bottom">
-                <TabsTrigger value={option.value}>{SEARCH_MODE_LABELS[option.value]}</TabsTrigger>
-              </Tooltip>
-            ))}
-          </TabsList>
-        </Tabs>
+        {browsing ? null : (
+          <Tabs
+            value={mode}
+            onValueChange={onModeChange}
+            variant="segment"
+            className="min-w-0 sm:flex-1"
+          >
+            <TabsList className="max-w-full overflow-x-auto bg-muted">
+              {MODE_OPTIONS.map((option) => (
+                <Tooltip key={option.value} content={option.hint} side="bottom">
+                  <TabsTrigger value={option.value}>{SEARCH_MODE_LABELS[option.value]}</TabsTrigger>
+                </Tooltip>
+              ))}
+            </TabsList>
+          </Tabs>
+        )}
 
         <div className="flex items-center justify-between gap-2 sm:justify-end">
           {/* Sorting is part of the search identity (URL state), not a filter:
@@ -174,7 +184,7 @@ export function SearchToolbar({
                   <SelectValue placeholder={SORT_LABELS.relevance} />
                 </SelectTrigger>
                 <SelectContent>
-                  {SORTS.map((option) => (
+                  {sortOptions.map((option) => (
                     <SelectItem key={option} value={option}>
                       {SORT_LABELS[option]}
                     </SelectItem>

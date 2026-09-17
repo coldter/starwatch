@@ -6,6 +6,8 @@ import {
   hashReadme,
   planEmbedWork,
   planReadmeWork,
+  publishedReadmeHash,
+  readmeBatchAction,
   type ReadmeFetchState,
 } from "../../src/sync/plan.ts";
 
@@ -32,9 +34,9 @@ const at = (day: number): string => `2026-01-${String(day).padStart(2, "0")}T00:
 
 const state = (
   repoId: number,
-  pushedAt: string | null,
+  checkedAt: string | null,
   status: ReadmeFetchState["status"],
-): ReadmeFetchState => ({ repoId, pushedAt, status });
+): ReadmeFetchState => ({ repoId, checkedAt, status });
 
 describe("diffStars", () => {
   it("returns added and removed ids in input order", () => {
@@ -57,17 +59,17 @@ describe("diffStars", () => {
 
 describe("planReadmeWork", () => {
   const repos = [
-    repo(1, { pushedAt: "a", starredAt: at(1) }),
-    repo(2, { pushedAt: "b", starredAt: at(2) }),
-    repo(3, { pushedAt: "new", starredAt: at(3) }),
-    repo(4, { pushedAt: "d", starredAt: at(4) }),
+    repo(1, { pushedAt: at(1), starredAt: at(1) }),
+    repo(2, { pushedAt: at(10), starredAt: at(2) }),
+    repo(3, { pushedAt: at(3), starredAt: at(3) }),
+    repo(4, { pushedAt: at(4), starredAt: at(4) }),
   ];
 
-  it("selects new, errored and pushed_at-changed repos, newest first", () => {
+  it("selects new, errored and pushed-after-check repos, newest first", () => {
     const stateMap = new Map<number, ReadmeFetchState>([
-      [2, state(2, "b", "ok")],
-      [3, state(3, "old", "ok")],
-      [4, state(4, "d", "error")],
+      [1, state(1, at(1), "ok")],
+      [2, state(2, at(1), "ok")],
+      [4, state(4, at(4), "error")],
     ]);
 
     const batches = planReadmeWork(repos, stateMap, {
@@ -75,15 +77,15 @@ describe("planReadmeWork", () => {
       semanticWindow: 100,
     });
 
-    expect(batches).toEqual([[4, 3], [1]]);
+    expect(batches).toEqual([[4, 3], [2]]);
   });
 
-  it("skips untouched ok/missing/unavailable repos", () => {
+  it("skips repos checked after their last push", () => {
     const stateMap = new Map<number, ReadmeFetchState>([
-      [1, state(1, "a", "ok")],
-      [2, state(2, "b", "missing")],
-      [3, state(3, "new", "unavailable")],
-      [4, state(4, "d", "ok")],
+      [1, state(1, at(1), "ok")],
+      [2, state(2, at(10), "missing")],
+      [3, state(3, at(3), "unavailable")],
+      [4, state(4, at(4), "ok")],
     ]);
 
     expect(planReadmeWork(repos, stateMap, { batchSize: 25, semanticWindow: 100 })).toEqual([]);
@@ -91,13 +93,13 @@ describe("planReadmeWork", () => {
 
   it("rechecks missing/unavailable repos when pushed_at moves", () => {
     const twoRepos = [
-      repo(1, { pushedAt: "a", starredAt: at(1) }),
-      repo(2, { pushedAt: "b", starredAt: at(2) }),
+      repo(1, { pushedAt: at(5), starredAt: at(1) }),
+      repo(2, { pushedAt: at(6), starredAt: at(2) }),
     ];
 
     const stateMap = new Map<number, ReadmeFetchState>([
-      [1, state(1, "old", "missing")],
-      [2, state(2, "old", "unavailable")],
+      [1, state(1, at(1), "missing")],
+      [2, state(2, at(1), "unavailable")],
     ]);
 
     expect(
@@ -106,6 +108,31 @@ describe("planReadmeWork", () => {
         semanticWindow: 100,
       }),
     ).toEqual([[2, 1]]);
+  });
+
+  it("plans a fresh pending row: the text is stored, the vector is not", () => {
+    const stateMap = new Map<number, ReadmeFetchState>([[2, state(2, at(10), "pending")]]);
+    const pendingRepo = repo(2, { pushedAt: at(10), starredAt: at(2) });
+
+    expect(planReadmeWork([pendingRepo], stateMap, { batchSize: 25 })).toEqual([[2]]);
+  });
+
+  it("plans window repos this account has not published a vector for", () => {
+    // 1 and 2 are fresh (no fetch needed) but absent from the account's blob,
+    // which is embed-only work a shared README row must not hide.
+    const stateMap = new Map<number, ReadmeFetchState>([
+      [1, state(1, at(1), "ok")],
+      [2, state(2, at(2), "ok")],
+      [3, state(3, at(3), "ok")],
+      [4, state(4, at(4), "ok")],
+    ]);
+
+    const batches = planReadmeWork(repos, stateMap, {
+      batchSize: 25,
+      existingVectorIds: new Set([3, 4]),
+    });
+
+    expect(batches).toEqual([[2, 1]]);
   });
 
   it("limits work to the newest semanticWindow repos", () => {
@@ -130,6 +157,44 @@ describe("planReadmeWork", () => {
         semanticWindow: 10,
       }),
     ).toEqual([[11, 12, 10]]);
+  });
+});
+
+describe("readmeBatchAction", () => {
+  const repoRow = repo(1, { pushedAt: at(5) });
+
+  it("reuses the stored text of a fresh pending row instead of re-fetching", () => {
+    expect(readmeBatchAction(repoRow, state(1, at(5), "pending"), "stored readme")).toEqual({
+      kind: "reuse",
+      text: "stored readme",
+      state: "present",
+    });
+  });
+
+  it("reuses a confirmed-missing README as missing, without a fetch", () => {
+    expect(readmeBatchAction(repoRow, state(1, at(5), "pending"), undefined)).toEqual({
+      kind: "reuse",
+      text: "",
+      state: "missing",
+    });
+  });
+
+  it("reuses a current published row that is only embed work", () => {
+    expect(readmeBatchAction(repoRow, state(1, at(5), "ok"), "stored readme")).toEqual({
+      kind: "reuse",
+      text: "stored readme",
+      state: "present",
+    });
+  });
+
+  it("fetches when the last attempt errored or the repo moved since the check", () => {
+    expect(readmeBatchAction(repoRow, state(1, at(5), "error"), "stale text")).toEqual({
+      kind: "fetch",
+    });
+    expect(readmeBatchAction(repoRow, state(1, at(1), "ok"), "stale text")).toEqual({
+      kind: "fetch",
+    });
+    expect(readmeBatchAction(repoRow, undefined, undefined)).toEqual({ kind: "fetch" });
   });
 });
 
@@ -287,5 +352,26 @@ describe("canSync", () => {
     );
 
     expect(result.allowed).toBe(true);
+  });
+});
+
+describe("publishedReadmeHash", () => {
+  it("hashes the text of a published row", () => {
+    expect(publishedReadmeHash("ok", "hello")).toBe(hashReadme("hello"));
+    // A repo with no README is embedded from metadata alone, so its published
+    // hash is the hash of the empty document.
+    expect(publishedReadmeHash("missing", undefined)).toBe(hashReadme(""));
+  });
+
+  it("marks an unpublished row dirty, whatever text it carries", () => {
+    // `pending` = text stored, vector still in an unmerged part.
+    expect(publishedReadmeHash("pending", "hello")).toBe("");
+    expect(publishedReadmeHash("error", "hello")).toBe("");
+    expect(publishedReadmeHash("unavailable", "hello")).toBe("");
+    expect(publishedReadmeHash(undefined, "hello")).toBe("");
+  });
+
+  it("never returns a value that could be mistaken for a real hash", () => {
+    expect(hashReadme("")).not.toBe("");
   });
 });

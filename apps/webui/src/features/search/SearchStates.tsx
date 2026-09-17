@@ -1,4 +1,4 @@
-import { LoaderCircle, SearchX } from "lucide-react";
+import { Inbox, LoaderCircle, SearchX } from "lucide-react";
 import type { SearchMode } from "@starwatch/domain";
 import type { ApiError } from "@/api";
 import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shimmer";
@@ -25,6 +25,35 @@ export function IndexPreparingPanel({ login }: { login: string }) {
         <ThinkingShimmer>Results appear as the index loads.</ThinkingShimmer>
       </StatePanel>
     </div>
+  );
+}
+
+export interface BrowseEmptyPanelProps {
+  /** Active filter count; zero means the star list itself is empty. */
+  filterCount: number;
+  onClearFilters: () => void;
+}
+
+/** The browse view matched nothing — either no stars, or filters too narrow. */
+export function BrowseEmptyPanel({ filterCount, onClearFilters }: BrowseEmptyPanelProps) {
+  const filtered = filterCount > 0;
+
+  return (
+    <StatePanel
+      icon={Inbox}
+      title={filtered ? "No repos match this view" : "No starred repositories yet"}
+      body={
+        filtered
+          ? "The active filters — including an empty collection — are narrowing the list."
+          : "Nothing to browse here yet. Re-check GitHub, or search another user."
+      }
+    >
+      {filtered ? (
+        <Button variant="outline" size="sm" onClick={onClearFilters}>
+          Clear filters
+        </Button>
+      ) : null}
+    </StatePanel>
   );
 }
 

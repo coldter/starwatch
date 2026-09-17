@@ -108,7 +108,10 @@ export function useUserIndex(login: string): UserIndexResult {
             ? prev
             : {
                 ...prev,
-                state: { ...prev.state, phase: result.phase, updatedAt: new Date().toISOString() },
+                // Only the phase is optimistic: `updatedAt` is the worker's
+                // heartbeat, and inventing one here would hide a real stall
+                // (see the ui-contract note on optimistic patches).
+                state: { ...prev.state, phase: result.phase },
               },
         );
 

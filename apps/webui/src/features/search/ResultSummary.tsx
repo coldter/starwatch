@@ -6,7 +6,7 @@ import { SEARCH_MODE_LABELS, SORT_LABELS } from "@/lib/search-params";
 
 export interface ResultSummaryProps {
   response: SearchResponse;
-  status: "idle" | "loading" | "refreshing" | "ready" | "error";
+  status: "loading" | "refreshing" | "ready" | "error";
   semanticDocs: number;
   /** Active ordering, so a query-less browse line can name it. */
   sort: SearchSort;
@@ -31,7 +31,7 @@ export function ResultSummary({ response, status, semanticDocs, sort }: ResultSu
         className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums"
       >
         <span>
-          {formatNumber(response.hits.length)} {plural(response.hits.length, "result")}
+          {formatNumber(response.total)} {plural(response.total, "result")}
         </span>
         <span aria-hidden="true">·</span>
         <span>{formatNumber(response.tookMs)} ms</span>

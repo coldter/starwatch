@@ -200,20 +200,20 @@ Groups are user-defined labels for browse and narrowing (`cloudflare`, `tui`, `e
 
 ### 4.5 Naming parity (canonical across surfaces)
 
-| Concept      | CLI                                                    | HTTP API / MCP `filters`               | WebUI query param       |
-| ------------ | ------------------------------------------------------ | -------------------------------------- | ----------------------- |
-| language     | `--lang`                                               | `language`                             | `language`              |
-| stars        | `--min-stars` / `--max-stars`                          | `minStars` / `maxStars`                | `minStars` / `maxStars` |
-| topics       | `--topic` (repeat) + `--topic-mode`                    | `topics[]` + `topicMode`               | `topics` + `topicMode`  |
-| groups       | `--group` (repeat) + `--group-mode`                    | `groups[]` + `groupMode`               | `groups`                |
-| starred date | `--starred-after` / `--starred-before`                 | `starredAfter` / `starredBefore`       | same                    |
-| archived     | `--archived` / `--no-archived`                         | `archived: true\|false` (absent = any) | `archived`              |
-| license      | `--license` (repeat)                                   | `license[]`                            | `license`               |
-| fork         | `--fork` / `--no-fork`                                 | `fork: true\|false`                    | `fork`                  |
-| has-README   | `--has-readme` / `--no-readme`                         | `hasReadme: true\|false`               | `hasReadme`             |
-| last-pushed  | `--pushed-after` / `--pushed-before`                   | `pushedAfter` / `pushedBefore`         | same                    |
-| owner/org    | `--owner` (repeat)                                     | `owner[]`                              | `owner`                 |
-| sort / limit | `--sort relevance\|stars\|starred\|pushed` / `--limit` | `sort` / `limit`                       | same                    |
+| Concept      | CLI                                                                 | HTTP API / MCP `filters`               | WebUI query param       |
+| ------------ | ------------------------------------------------------------------- | -------------------------------------- | ----------------------- |
+| language     | `--lang`                                                            | `language`                             | `language`              |
+| stars        | `--min-stars` / `--max-stars`                                       | `minStars` / `maxStars`                | `minStars` / `maxStars` |
+| topics       | `--topic` (repeat) + `--topic-mode`                                 | `topics[]` + `topicMode`               | `topics` + `topicMode`  |
+| groups       | `--group` (repeat) + `--group-mode`                                 | `groups[]` + `groupMode`               | `groups`                |
+| starred date | `--starred-after` / `--starred-before`                              | `starredAfter` / `starredBefore`       | same                    |
+| archived     | `--archived` / `--no-archived`                                      | `archived: true\|false` (absent = any) | `archived`              |
+| license      | `--license` (repeat)                                                | `license[]`                            | `license`               |
+| fork         | `--fork` / `--no-fork`                                              | `fork: true\|false`                    | `fork`                  |
+| has-README   | `--has-readme` / `--no-readme`                                      | `hasReadme: true\|false`               | `hasReadme`             |
+| last-pushed  | `--pushed-after` / `--pushed-before`                                | `pushedAfter` / `pushedBefore`         | same                    |
+| owner/org    | `--owner` (repeat)                                                  | `owner[]`                              | `owner`                 |
+| sort / limit | `--sort relevance\|stars\|starred\|pushed` / `--limit` / `--offset` | `sort` / `limit` / `offset`            | same                    |
 
 Shared result shape (contracts package): `{ full_name, url, description, language, stars, starred_at, pushed_at, archived, fork, license, topics[], groups[], snippet { text, html?, source, chunk_id? }, score, explain? }`. `snippet.text` is plain text; `snippet.html` is pre-escaped with only `<mark>` tags (§6). MCP omits `html` and `explain` unless requested.
 
@@ -334,7 +334,7 @@ CLI pretty mode condenses each result to one reason line: `#2 sem:2 lex:7 ★7.9
 2. **Default multi-term semantics:** lexical uses **implicit AND**; if it returns 0 repos and the query contains no quoted phrase/negation, retry with **OR** and set `fallback: "or"` in the response/explain. The semantic leg always embeds the full natural-language text.
 3. **Negation:** lexical applies `AND NOT`; semantic drops negated tokens from the embedding and then excludes candidates whose name/description/topics contain the negated token (metadata check only). Documented as best-effort — a repo whose README mentions the negated term once is not excluded.
 4. **Identifier detection (`auto` → `keyword` mode)** when any holds: single token; contains any of `- . _ / : @`; matches `/^[a-z0-9]+([-_][a-z0-9]+)+$/`; camelCase token (`useEffect`); or is an exact/prefix match against repo names in D1 (case-insensitive). `gql.tada`, `wttr.in`, `bge-m3`, `Effect-TS/effect` all route keyword; a 5+ token natural sentence never does.
-5. **Empty query → browse mode:** requires at least one filter or an explicit sort; a bare empty query returns the **25 most recently starred repos** (`sort=starred`) — never the whole corpus dump.
+5. **Empty query → browse mode:** the filtered candidates ordered by `sort`. `relevance` is meaningless without text, so it falls back to `sort=starred` — the **most recently starred repos first**, never a relevance claim. The response carries `total` (every candidate, not just the page) and accepts `offset`, so a client can page the whole star list instead of receiving a corpus dump in one response.
 6. **Safety:**
    - FTS5 MATCH: every term is wrapped in double quotes with internal `"` doubled (`term.replaceAll('"', '""')`); raw FTS operators (`AND`, `OR`, `NOT`, `NEAR`, `*`, `^`, `:`) are never passed through — only our parsed `-` negation maps to `NOT`.
    - All SQL is parameterized; topics use `json_each` values, never string-built `IN` lists.

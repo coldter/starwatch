@@ -2,6 +2,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import {
   Group,
+  ListsInfo,
   Repo,
   SearchResponse,
   SyncPhase,
@@ -29,6 +30,14 @@ export interface UserPayload {
   profile: UserProfile;
   state: UserIndexState;
   groups: ReadonlyArray<Group>;
+  /** Last public-Lists import outcome, so the rail can tell "none" from "failed". */
+  lists: ListsInfo;
+}
+
+/** Result of an on-demand public-Lists import. */
+export interface GroupsRefreshPayload {
+  groups: ReadonlyArray<Group>;
+  lists: ListsInfo;
 }
 
 export interface RepoPayload {
@@ -45,6 +54,12 @@ const UserPayloadSchema = Schema.Struct({
   profile: UserProfile,
   state: UserIndexState,
   groups: Schema.Array(Group),
+  lists: ListsInfo,
+});
+
+const GroupsRefreshSchema = Schema.Struct({
+  groups: Schema.Array(Group),
+  lists: ListsInfo,
 });
 
 const RepoPayloadSchema = Schema.Struct({
@@ -190,6 +205,17 @@ async function toApiError(response: Response): Promise<ApiError> {
     });
   }
 
+  // Budget refusals share HTTP 429 with the sync cooldown, so the tag has to
+  // win: one is "this account was synced today", the other is "this visitor (or
+  // the service) has spent today's allowance", and they need different words.
+  if (tag === "BudgetExceeded") {
+    return new ApiError("budget", detail ?? "Daily limit reached; try again tomorrow.", {
+      status: response.status,
+      retryAfterSeconds,
+      detail,
+    });
+  }
+
   if (response.status === 429 || tag === "SyncCooldown" || tag === "GithubRateLimited") {
     return new ApiError(
       "rate-limited",
@@ -268,6 +294,8 @@ export interface SearchQuery {
   archived?: boolean;
   minStars?: number;
   maxStars?: number;
+  /** Row offset for paging; `response.total` is the span the ordering covers. */
+  offset?: number;
   limit?: number;
 }
 
@@ -293,6 +321,8 @@ export function searchUrl(login: string, query: SearchQuery): string {
   if (query.minStars !== undefined) params.set("minStars", String(query.minStars));
 
   if (query.maxStars !== undefined) params.set("maxStars", String(query.maxStars));
+
+  if (query.offset !== undefined && query.offset > 0) params.set("offset", String(query.offset));
   params.set("limit", String(query.limit ?? 50));
 
   return `${userPath(login)}/search?${params.toString()}`;
@@ -326,6 +356,23 @@ export async function fetchSyncState(login: string, signal?: AbortSignal): Promi
   const response = await request(`${userPath(login)}/sync`, { signal });
 
   return decodeResponse(UserIndexState, response, "sync state");
+}
+
+/**
+ * Re-import the user's public GitHub Lists now. Unlike `POST /sync` this is not
+ * part of the per-account daily window: it reads one cheap GraphQL point and is
+ * the recovery path when the sync's own Lists step was skipped.
+ */
+export async function refreshUserGroups(
+  login: string,
+  signal?: AbortSignal,
+): Promise<GroupsRefreshPayload> {
+  const response = await request(`${userPath(login)}/groups/refresh`, {
+    method: "POST",
+    signal,
+  });
+
+  return decodeResponse(GroupsRefreshSchema, response, "collections");
 }
 
 export function userSyncEventsUrl(login: string): string {

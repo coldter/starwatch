@@ -7,7 +7,14 @@ import { Tooltip } from "@/components/motion/tooltip";
 import { Avatar } from "@/components/common/Avatar";
 import { FreshnessBadge } from "@/components/common/Badges";
 import { formatCompact, formatNumber, plural } from "@/lib/format";
-import { exceedsStarCap, hasIndex, isActivePhase, isMetadataOnly, isStale } from "@/lib/state";
+import {
+  exceedsStarCap,
+  hasIndex,
+  isActivePhase,
+  isMetadataOnly,
+  isStale,
+  type SyncWindow,
+} from "@/lib/state";
 
 export interface ProfileHeaderProps {
   profile: UserProfile;
@@ -17,7 +24,19 @@ export interface ProfileHeaderProps {
   onStartSync: (options?: { full?: boolean }) => void;
   /** Cheap metadata re-list: ask GitHub for the star list again. */
   onRecheck: () => void;
+  /** Per-account daily window (`lib/state.syncWindow`). */
+  syncWindow: SyncWindow;
+  /**
+   * A sync was attempted while the daily window is closed. The controls are
+   * `aria-disabled` rather than `disabled`, so the click still lands here and
+   * the page can explain *why* instead of leaving a dead button.
+   */
+  onBlockedSync: () => void;
 }
+
+/** Why both sync controls can be unavailable, in one sentence. */
+const WINDOW_EXPLAINER =
+  "This account was synced less than 24 hours ago — one sync per account per day keeps GitHub's limits fair.";
 
 /**
  * Primary sync action label. An active run always reads as indexing, even when
@@ -65,11 +84,22 @@ export function ProfileHeader({
   busy,
   onStartSync,
   onRecheck,
+  syncWindow,
+  onBlockedSync,
 }: ProfileHeaderProps) {
   const indexed = hasIndex(state);
   const active = isActivePhase(state.phase);
   const stale = isStale(state);
   const stars = state.starsTotal || state.reposMetadata;
+
+  // A run already in flight outranks the window: the buttons belong to it.
+  const running = busy || active;
+  const blocked = !syncWindow.open && !running;
+  const windowHint = `${WINDOW_EXPLAINER} ${syncWindow.label}.`;
+
+  const primaryHint = blocked
+    ? windowHint
+    : "Read this account's stars again. A stale index also refetches READMEs and rebuilds the semantic index.";
 
   return (
     <header className="flex flex-col gap-4">
@@ -127,24 +157,42 @@ export function ProfileHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="primary"
-          size="md"
-          disabled={busy || active}
-          onClick={() => onStartSync({ full: stale })}
-        >
-          {primaryActionLabel(indexed, active, stale)}
-        </Button>
+        <Tooltip content={primaryHint} side="bottom">
+          <Button
+            variant="primary"
+            size="md"
+            disabled={running}
+            aria-disabled={blocked}
+            className={blocked ? "opacity-60" : undefined}
+            onClick={() => (blocked ? onBlockedSync() : onStartSync({ full: stale }))}
+          >
+            {primaryActionLabel(indexed, running, stale)}
+          </Button>
+        </Tooltip>
         <Tooltip
-          content="List your starred repos again — metadata only, no READMEs. GitHub is asked once every 15 minutes at most."
+          content={
+            blocked
+              ? windowHint
+              : "List your starred repos again — metadata only, no READMEs. GitHub is asked once per account per day."
+          }
           side="bottom"
         >
-          <Button variant="ghost" size="md" disabled={busy || active} onClick={onRecheck}>
+          <Button
+            variant="ghost"
+            size="md"
+            disabled={running}
+            aria-disabled={blocked}
+            className={blocked ? "opacity-60" : undefined}
+            onClick={onRecheck}
+          >
             <RefreshCw className="size-3.5" aria-hidden="true" />
             Re-check GitHub
           </Button>
         </Tooltip>
       </div>
+
+      {/* Sighted and screen-reader users both need the reason without hovering. */}
+      {blocked ? <p className="text-xs text-muted-foreground">{syncWindow.label}</p> : null}
     </header>
   );
 }

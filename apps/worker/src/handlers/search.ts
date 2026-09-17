@@ -9,6 +9,7 @@ import {
   parseFilters,
   parseLimit,
   parseMode,
+  parseOffset,
   parseSort,
 } from "./http.ts";
 import type { WorkerDeps } from "./types.ts";
@@ -39,6 +40,7 @@ export const searchGroup = (deps: WorkerDeps) =>
           mode: parseMode(query.mode),
           sort: parseSort(query.sort),
           filters: parseFilters(query),
+          offset: parseOffset(query.offset),
           limit: parseLimit(query.limit),
         }).pipe(Effect.orDie, Effect.provide(deps.searchLayer));
       }),

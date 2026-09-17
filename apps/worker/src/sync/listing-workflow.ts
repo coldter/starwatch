@@ -1,15 +1,19 @@
-import { MAX_STARS, type SyncPhase } from "@starwatch/domain";
+import { isActiveSyncPhase, MAX_STARS, type SyncPhase } from "@starwatch/domain";
 import { diffStars, GithubClient } from "@starwatch/core/sync";
 import { RepoStore, UserFts } from "@starwatch/cloudflare/storage";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Predicate from "effect/Predicate";
 import { SyncDeps, type SyncDepsService } from "../deps.ts";
 import {
   StarRefreshWorkflow,
   type StarRefreshInput,
   type StarRefreshResult,
 } from "./refresh-workflow.ts";
+import { workflowInstanceLive } from "./liveness.ts";
+import { elapsedMs, logRun } from "./log.ts";
+import { planRateLimitWait } from "./rate-limit.ts";
 import { describeGithubError, nowIso, patchState } from "./state.ts";
 
 /**
@@ -54,6 +58,14 @@ const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<Readonly
 type PageOutcome =
   | { readonly kind: "fresh"; readonly ids: ReadonlyArray<number>; readonly stop: boolean }
   | { readonly kind: "not-modified" }
+  | {
+      readonly kind: "rate-limited";
+      readonly waitMs: number;
+      readonly until: Date | null;
+      readonly reason: string;
+      readonly message: string;
+      readonly rateLimitRemaining: number;
+    }
   | { readonly kind: "error"; readonly message: string };
 
 const makeListingBody = (
@@ -103,14 +115,46 @@ const makeListingBody = (
     yield* Cloudflare.Workflows.task(
       "lists",
       Effect.gen(function* () {
-        const groups = yield* github.listGroups(login).pipe(
+        const fetched = yield* github.listGroups(login).pipe(
           Effect.matchEffect({
-            onSuccess: (value) => Effect.succeed(value),
-            onFailure: () => Effect.succeed([] as const),
+            onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
+            onFailure: (error) =>
+              Effect.succeed({ ok: false as const, message: describeGithubError(error) }),
           }),
         );
 
-        yield* repos.replaceGroups(login, groups).pipe(Effect.ignore);
+        // A failed fetch is *not* an empty account. Replacing with `[]` would
+        // delete every collection the user has (memberships included) because
+        // of one rate-limited probe; leaving the stored rows alone keeps the
+        // last known lists until a run can read them. The failure itself is
+        // recorded so the rail can say "couldn't load collections" instead of
+        // "no public Lists".
+        if (!fetched.ok) {
+          yield* repos
+            .putListsInfo(login, { state: "error", error: fetched.message, checkedAt: nowIso() })
+            .pipe(Effect.ignore);
+          logRun("starwatch.sync.listing.lists-skipped", {
+            login,
+            phase: "listing",
+            reason: fetched.message,
+          });
+
+          return;
+        }
+
+        yield* repos.replaceGroups(login, fetched.value).pipe(Effect.ignore);
+        yield* repos
+          .putListsInfo(login, {
+            state: fetched.value.length > 0 ? "ok" : "empty",
+            error: null,
+            checkedAt: nowIso(),
+          })
+          .pipe(Effect.ignore);
+        logRun("starwatch.sync.listing.lists", {
+          login,
+          phase: "listing",
+          groups: fetched.value.length,
+        });
       }),
       { retries: { limit: 1, delay: "5 seconds" } },
     );
@@ -118,15 +162,43 @@ const makeListingBody = (
     // ---- star pages --------------------------------------------------------
     const freshPages = new Map<number, ReadonlyArray<number>>();
     const notModifiedPages = new Set<number>();
+    const startedAt = Date.now();
     let listedCount = 0;
     let page = 1;
+    // Rate-limit waits taken so far (bounded by MAX_RATE_LIMIT_WAITS) and the
+    // last remaining-quota GitHub reported, both only for the log line.
+    let rateLimitWaits = 0;
+    let rateLimitRemaining: number | undefined;
+
+    logRun("starwatch.sync.listing.start", { login, phase: "listing", full: input.full === true });
+
+    // Repo counts of the pages already stored. A re-list answers 304 for most
+    // pages, and a 304 page never tells us how big it is — without this the
+    // confirmed count stays at the *previous* total, so the panel sits at
+    // "3,447 of 3,447" for the whole sweep and a healthy run looks hung.
+    const storedPageCounts = new Map<number, number>();
+
+    let confirmed = 0;
+
+    for (const row of yield* repos.getStarPageRows(login).pipe(Effect.orDie)) {
+      // Unattributed rows (pre-migration writers) belong to no page, so they
+      // are counted up front: the progress bar would otherwise stop short of
+      // the real total for every legacy account.
+      if (row.starPage === null) {
+        confirmed += 1;
+        continue;
+      }
+
+      storedPageCounts.set(row.starPage, (storedPageCounts.get(row.starPage) ?? 0) + 1);
+    }
 
     while (page <= MAX_PAGES) {
       const pageNumber = page;
-      const listedBefore = listedCount;
 
       const outcome: PageOutcome = yield* Cloudflare.Workflows.task(
-        `star-page-${pageNumber}`,
+        // A page re-queued after a rate-limit wait is a new step: replaying the
+        // memoized failure would fail the run instead of refetching the page.
+        `star-page-${pageNumber}-w${rateLimitWaits}`,
         Effect.gen(function* () {
           const etag = yield* repos.starEtag(login, pageNumber).pipe(Effect.orDie);
 
@@ -139,13 +211,29 @@ const makeListingBody = (
             .pipe(
               Effect.matchEffect({
                 onSuccess: (value) => Effect.succeed({ ok: true as const, value }),
-                onFailure: (error) =>
-                  Effect.succeed({ ok: false as const, message: describeGithubError(error) }),
+                onFailure: (error) => Effect.succeed({ ok: false as const, error }),
               }),
             );
 
           if (!fetched.ok) {
-            return { kind: "error", message: fetched.message } satisfies PageOutcome;
+            const state = describeGithubError(fetched.error);
+
+            // Rate limits are the one failure worth waiting out (docs/03 §1.3):
+            // the run keeps its progress and resumes the same page.
+            if (Predicate.isTagged(fetched.error, "GithubRateLimited")) {
+              const plan = planRateLimitWait(fetched.error, { waitsSoFar: rateLimitWaits });
+
+              return {
+                kind: "rate-limited",
+                waitMs: plan.waitMs,
+                until: plan.until,
+                reason: plan.reason,
+                message: state,
+                rateLimitRemaining: rateLimitRemaining ?? 0,
+              } satisfies PageOutcome;
+            }
+
+            return { kind: "error", message: state } satisfies PageOutcome;
           }
 
           const starPage = fetched.value;
@@ -180,17 +268,22 @@ const makeListingBody = (
             yield* repos.putStarEtag(login, pageNumber, starPage.etag).pipe(Effect.orDie);
           }
 
-          // Progress only grows: a re-list that starts with changed pages must
-          // not show a count below the previously indexed total.
-          const seen = Math.max(profile.starsHint, listedBefore + starPage.repos.length);
+          // `reposMetadata` is the progress counter while a listing runs: pages
+          // confirmed so far. `starsTotal` stays the best estimate of the final
+          // size (never below what a previous run saw), so the bar moves
+          // 0 → ~3,447 instead of starting at 100%.
+          // A fresh page *replaces* its stored rows, so its own length is what
+          // that page now contributes.
+          confirmed += starPage.repos.length;
           yield* patchState(login, {
             phase: "listing",
-            starsTotal: seen,
-            reposMetadata: seen,
+            starsTotal: Math.max(profile.starsHint, confirmed),
+            reposMetadata: confirmed,
             lastError: null,
           });
 
           const stop = starPage.repos.length < PER_PAGE || starPage.nextPage === undefined;
+          rateLimitRemaining = starPage.rateLimitRemaining;
 
           return {
             kind: "fresh",
@@ -202,13 +295,70 @@ const makeListingBody = (
       );
 
       if (outcome.kind === "error") {
+        logRun("starwatch.sync.listing.paused", {
+          login,
+          phase: "paused",
+          page: pageNumber,
+          reason: outcome.message,
+          elapsedMs: elapsedMs(startedAt),
+        });
         yield* patchState(login, { phase: "paused", lastError: outcome.message });
 
         return { ok: false, reason: "github" };
       }
 
+      if (outcome.kind === "rate-limited") {
+        if (outcome.waitMs === 0) {
+          const message = `${outcome.message} (${outcome.reason}); retry later`;
+
+          logRun("starwatch.sync.listing.paused", {
+            login,
+            phase: "paused",
+            page: pageNumber,
+            reason: outcome.reason,
+            elapsedMs: elapsedMs(startedAt),
+          });
+          yield* patchState(login, { phase: "paused", lastError: message });
+
+          return { ok: false, reason: "rate-limit" };
+        }
+
+        rateLimitWaits += 1;
+        logRun("starwatch.sync.listing.rate-limit", {
+          login,
+          phase: "listing",
+          page: pageNumber,
+          waitMs: outcome.waitMs,
+          until: outcome.until?.toISOString() ?? null,
+          reason: outcome.reason,
+          remaining: outcome.rateLimitRemaining,
+          waits: rateLimitWaits,
+        });
+        // A sleep is invisible in the state row, which is exactly what a dead
+        // run looks like: the panel would cry "no progress" and — past
+        // `STUCK_LIVE_RUN_MS` — a retry would terminate a run that is merely
+        // waiting. Publishing the wait as `paused` (the phase the UI already
+        // explains as "resumes when the limit resets") keeps the two apart.
+        yield* patchState(login, {
+          phase: "paused",
+          lastError: `GitHub rate limit; resuming ${outcome.until?.toISOString() ?? "shortly"}`,
+        });
+        yield* Cloudflare.Workflows.sleep(`rate-limit-${rateLimitWaits}`, outcome.waitMs);
+        yield* patchState(login, { phase: "listing", lastError: null });
+
+        // Same page, same progress: the loop does not advance until it answers.
+        continue;
+      }
+
       if (outcome.kind === "not-modified") {
         notModifiedPages.add(pageNumber);
+        confirmed += storedPageCounts.get(pageNumber) ?? 0;
+        yield* patchState(login, {
+          phase: "listing",
+          starsTotal: Math.max(profile.starsHint, confirmed),
+          reposMetadata: confirmed,
+          lastError: null,
+        });
         page += 1;
         continue;
       }
@@ -219,6 +369,16 @@ const makeListingBody = (
       if (outcome.stop || listedCount >= MAX_STARS) break;
       page += 1;
     }
+
+    logRun("starwatch.sync.listing.pages", {
+      login,
+      phase: "listing",
+      pages: freshPages.size,
+      notModified: notModifiedPages.size,
+      listed: listedCount,
+      waits: rateLimitWaits,
+      elapsedMs: elapsedMs(startedAt),
+    });
 
     // ---- diff: union fresh ids with the stored ids of unchanged pages ------
     const removed = yield* Cloudflare.Workflows.task(
@@ -244,6 +404,14 @@ const makeListingBody = (
 
     const removedChunks = chunk(removed, UNSTAR_CHUNK);
 
+    logRun("starwatch.sync.listing.diff", {
+      login,
+      phase: "listing",
+      removed: removed.length,
+      unstarTasks: removedChunks.length,
+      elapsedMs: elapsedMs(startedAt),
+    });
+
     for (let index = 0; index < removedChunks.length; index++) {
       yield* Cloudflare.Workflows.task(
         `unstar-${index}`,
@@ -253,6 +421,14 @@ const makeListingBody = (
 
     // ---- finalize ----------------------------------------------------------
     const phase: SyncPhase = input.full === true ? "fetching-readmes" : "ready";
+    logRun("starwatch.sync.listing.finalized", {
+      login,
+      phase,
+      listed: listedCount,
+      removed: removed.length,
+      full: input.full === true,
+      elapsedMs: elapsedMs(startedAt),
+    });
     yield* Cloudflare.Workflows.task(
       "finalize",
       Effect.gen(function* () {
@@ -269,10 +445,50 @@ const makeListingBody = (
       { retries: { limit: 3, delay: "5 seconds" } },
     );
 
-    // ---- chain Tier 1 (dedupes per user per UTC day) -----------------------
+    // ---- chain Tier 1 ------------------------------------------------------
     if (input.full === true) {
-      const day = new Date().toISOString().slice(0, 10);
-      yield* Effect.exit(refresh.create({ id: `refresh-${login}-${day}`, params: { login } }));
+      // Unique per run. A day-scoped id was the old dedupe mechanism, but it
+      // also blocked the *retry* that a paused/failed refresh needs: the
+      // retained instance made `create` fail, the run settled to `ready`, and
+      // the user got "Index updated" with the semantic pass still missing.
+      // Ownership is recorded in `user_index_state` now, so dedupe no longer
+      // needs the id to be shared.
+      const refreshId = `refresh-${login}-${input.requestId ?? crypto.randomUUID()}`;
+
+      const chained = yield* Effect.exit(
+        refresh.create({ id: refreshId, params: { login, runId: input.requestId } }),
+      );
+
+      const live = Exit.isFailure(chained) ? yield* workflowInstanceLive(refresh, refreshId) : true;
+
+      logRun("starwatch.sync.listing.chained", {
+        login,
+        phase,
+        chained: Exit.isSuccess(chained),
+        refreshLive: live,
+        elapsedMs: elapsedMs(startedAt),
+      });
+
+      // A refresh for today may already have run (or be running). The instance
+      // id makes that a silent no-op, which would otherwise strand the run in
+      // `fetching-readmes` — an *active* phase, so `POST /sync` answers 409 and
+      // the user is stuck with a spinner until tomorrow.
+      if (!live) {
+        const current = yield* repos.getIndexState(login).pipe(Effect.orDie);
+
+        if (current !== null && isActiveSyncPhase(current.phase)) {
+          yield* patchState(login, { phase: "ready", lastError: null });
+        }
+      }
+
+      // Ownership moves in one step: the listing handed the account to the
+      // refresh (which now owns `fetching-readmes`), or nothing owns it. A
+      // window where the phase is active and no id is recorded would look like
+      // an abandoned run and invite a takeover.
+      yield* repos.setRunInstance(login, live ? refreshId : null).pipe(Effect.ignore);
+    } else {
+      // A re-list is done: nothing owns the account until the next request.
+      yield* repos.setRunInstance(login, null).pipe(Effect.ignore);
     }
 
     return {
@@ -300,6 +516,15 @@ export class StarListingWorkflow extends Cloudflare.Workflow<StarListingWorkflow
       const exit = yield* Effect.exit(body(input).pipe(Effect.provide(deps.runLayers)));
 
       if (Exit.isSuccess(exit)) return exit.value;
+
+      // The boundary is the only path that sees an *unhandled* failure, so it
+      // is the one place that must log: without this a run that died inside a
+      // step leaves a `failed` row and no explanation in Workers Logs.
+      logRun("starwatch.sync.listing.crashed", {
+        login: input.login,
+        phase: "failed",
+        error: exit.cause.toString().slice(0, 200),
+      });
       yield* patchState(input.login, { phase: "failed", lastError: "listing failed" }).pipe(
         Effect.provide(deps.runLayers),
         Effect.ignore,

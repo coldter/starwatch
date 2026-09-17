@@ -140,11 +140,25 @@ Two request shapes are load-bearing and were wrong before the rebuild:
 - **Sort is a search key, not a filter**: `?sort=pushed|starred|stars`
   (`relevance` is the default and is omitted from the URL). The worker
   re-orders the match set, so the page passes it through unchanged and never
-  sorts locally — a client-side sort of one 50-hit page would silently lie.
+  sorts locally — a client-side sort of one page would silently lie.
   Changing it resets to page 1 and replaces the history entry (it is a view
-  change, like filters). An empty query with a non-default sort is the browse
-  request (`q=&sort=…`); with the default sort an empty query must not hit the
-  API at all.
+  change, like filters).
+- **An empty query is the default browse view** (docs/08 §3.4): the page asks
+  the API for `q=` with `offset = (page - 1) × PAGE_SIZE` and renders the
+  returned page beside the collections rail. The worker reads the default
+  `relevance` sort as `starred` for that request, so the listing is "recently
+  starred first" without writing a sort into the URL; the toolbar hides the
+  retrieval modes and the relevance option while browsing. `response.total` is
+  the full candidate count (every filtered star, or the fused match set for a
+  query), which is what the pager counts; the worker clamps `offset` to a hard
+  ceiling of 10,000.
+- **Active phases are claims that can go stale.** `runHeartbeat(state)` (in
+  `@/lib/state`) measures `updatedAt`, which only progress writes advance; past
+  5 minutes an active phase is shown as stalled with _Check again_ /
+  _Start again_ instead of an eternal spinner, and an in-progress step whose
+  counter already reached its total reads "wrapping up…" rather than
+  "3,447 of 3,447". Keep the worker's heartbeat interval well under that window,
+  and keep `updatedAt` out of optimistic client-side patches.
 - **The freshness chip reads `state.lastSyncedAt`,** so anything that promises a
   re-check must actually start a run: the header's `Re-check GitHub` button posts
   a metadata re-list (`full: false`) and never a client-only refetch. The server

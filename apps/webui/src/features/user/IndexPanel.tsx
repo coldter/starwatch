@@ -16,6 +16,16 @@ export interface IndexPanelProps {
   transport: "off" | "sse" | "polling";
   busy: boolean;
   onStartSync: (options?: { full?: boolean }) => void;
+  /** Re-read the stored state, for when a run looks stalled. */
+  onRefresh: () => void;
+  /**
+   * Auto-recovery state for a run that stopped heartbeating: `probing` while
+   * the page asks the server to recover it, `failed` when that could not be
+   * queued and the reader has to choose.
+   */
+  stall: "none" | "probing" | "failed";
+  /** Why the automatic restart could not be queued (`failed` only). */
+  stallMessage?: string | null;
 }
 
 /**
@@ -82,6 +92,19 @@ interface PipelineStep {
   total: number;
 }
 
+/**
+ * Detail line for the live step. A step whose counter is already at its total
+ * is *not* finished — the run still has to diff, chain and finalize — so saying
+ * "3,447 of 3,447" next to a spinner reads as "stuck at 100%".
+ */
+function stepDetail(step: PipelineStep): string {
+  if (step.total <= 0) return "starting…";
+
+  if (step.done >= step.total) return "wrapping up…";
+
+  return `${formatNumber(step.done)} of ${formatNumber(step.total)}`;
+}
+
 /** The three sync stages with their real counters, mapped to `TodoList` items. */
 function pipelineItems(state: UserIndexState): TodoItem[] {
   const steps: PipelineStep[] = [
@@ -116,7 +139,7 @@ function pipelineItems(state: UserIndexState): TodoItem[] {
         title: step.title,
         status,
         progress: percent(step.done, step.total),
-        detail: `${formatNumber(step.done)} of ${formatNumber(step.total)}`,
+        detail: stepDetail(step),
       });
     } else {
       items.push({ id: step.id, title: step.title, status });
@@ -127,10 +150,76 @@ function pipelineItems(state: UserIndexState): TodoItem[] {
 }
 
 /**
+ * The reader-facing half of stall recovery, under the indexing steps: a quiet
+ * "restarting safely" shimmer while the page probes the server, and a manual
+ * retry only when that probe could not queue a run. The scary part of a stall
+ * — whether the run is dead or merely quiet — is decided server-side.
+ */
+function StallNote({
+  stall,
+  stallMessage,
+  busy,
+  onRefresh,
+  onStartSync,
+}: {
+  stall: "probing" | "failed";
+  stallMessage: string | null;
+  busy: boolean;
+  onRefresh: () => void;
+  onStartSync: (options?: { full?: boolean }) => void;
+}) {
+  if (stall === "probing") {
+    return (
+      <ThinkingShimmer>
+        Indexing hasn&apos;t reported progress recently — restarting it safely…
+      </ThinkingShimmer>
+    );
+  }
+
+  return (
+    <NoticeStrip
+      icon={Clock}
+      tone="error"
+      action={
+        <span className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onRefresh}>
+            Check again
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => onStartSync({ full: true })}
+          >
+            Restart indexing
+          </Button>
+        </span>
+      }
+    >
+      <span>
+        Indexing stopped reporting progress. Everything already indexed is kept.
+        {stallMessage === null || stallMessage.length === 0 ? null : (
+          <span className="mt-1 block text-xs text-muted-foreground">{stallMessage}</span>
+        )}
+      </span>
+    </NoticeStrip>
+  );
+}
+
+/**
  * The whole "what is the index doing" story for a user. Returns nothing when
  * the index is settled, complete, and error-free, so a healthy page stays quiet.
  */
-export function IndexPanel({ login, state, transport, busy, onStartSync }: IndexPanelProps) {
+export function IndexPanel({
+  login,
+  state,
+  transport,
+  busy,
+  onStartSync,
+  onRefresh,
+  stall,
+  stallMessage = null,
+}: IndexPanelProps) {
   const active = isActivePhase(state.phase);
   const elapsedSeconds = useObservedSeconds(active, state.phase);
 
@@ -139,7 +228,17 @@ export function IndexPanel({ login, state, transport, busy, onStartSync }: Index
       <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:p-5">
         <AgentProgress label={phaseLabel(state.phase)} elapsedSeconds={elapsedSeconds} />
         <TodoList title="Indexing steps" items={pipelineItems(state)} />
-        <ThinkingShimmer>Search works during indexing.</ThinkingShimmer>
+        {stall === "none" ? (
+          <ThinkingShimmer>Search works during indexing.</ThinkingShimmer>
+        ) : (
+          <StallNote
+            stall={stall}
+            stallMessage={stallMessage}
+            busy={busy}
+            onRefresh={onRefresh}
+            onStartSync={onStartSync}
+          />
+        )}
         {transport === "polling" ? (
           <p className="text-xs text-muted-foreground">Checking for updates every 5 seconds.</p>
         ) : null}
@@ -163,7 +262,8 @@ export function IndexPanel({ login, state, transport, busy, onStartSync }: Index
         }
       >
         Paused by the GitHub rate limit
-        {state.lastError ? `: ${state.lastError}` : ""}. Indexing resumes when the limit resets.
+        {state.lastError ? `: ${state.lastError}` : ""}. A run that is still waiting resumes on its
+        own when the limit resets; if this stays paused, try again.
       </NoticeStrip>
     );
   }
@@ -202,7 +302,9 @@ export function IndexPanel({ login, state, transport, busy, onStartSync }: Index
               variant="outline"
               size="sm"
               disabled={busy}
-              onClick={() => onStartSync({ full: false })}
+              // `full: true` — a metadata-only re-list never chains the README
+              // and embedding pass, so this button could never do what it says.
+              onClick={() => onStartSync({ full: true })}
             >
               Enable semantic search
             </Button>

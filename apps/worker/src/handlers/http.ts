@@ -2,7 +2,7 @@ import type { SearchMode, SearchSort, UserIndexState } from "@starwatch/domain";
 import * as Option from "effect/Option";
 import * as Headers from "effect/unstable/http/Headers";
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
-import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT } from "../constants.ts";
+import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, MAX_SEARCH_OFFSET } from "../constants.ts";
 import type { SearchQuery } from "../api.ts";
 
 /** Canonical login handling: GitHub logins are case-insensitive. */
@@ -110,10 +110,33 @@ export const parseSort = (value: string | undefined): SearchSort => {
     : "relevance";
 };
 
+/** Row offset for paging. Negative/garbage clamps to 0, everything else to the cap. */
+export const parseOffset = (value: string | undefined): number => {
+  const parsed = parseNumber(value);
+
+  if (parsed === undefined) return 0;
+
+  return Math.min(MAX_SEARCH_OFFSET, Math.max(0, Math.floor(parsed)));
+};
+
 export const parseLimit = (value: string | undefined): number => {
   const parsed = parseNumber(value);
 
   if (parsed === undefined) return DEFAULT_SEARCH_LIMIT;
 
   return Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.floor(parsed)));
+};
+
+/**
+ * Budget key for a caller (docs/14 §3.3: no raw IPs at rest).
+ *
+ * The day is mixed in as the salt, so a stored counter cannot be correlated
+ * across days even if the table leaks, and a leaked row cannot be reversed to
+ * an address without guessing 2^32 candidates per day.
+ */
+export const hashIp = async (ip: string, day: string): Promise<string> => {
+  const bytes = new TextEncoder().encode(`${day}\u0000${ip}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 };

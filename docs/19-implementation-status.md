@@ -4,22 +4,22 @@
 
 ## What exists
 
-| Layer                | Location                          | Notes                                                                                                                                        |
-| -------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Domain models        | `packages/domain`                 | Schema models + static concept lexicon (15 clusters incl. auth/http/jobs/tui)                                                                |
-| Search engine (pure) | `packages/core/src/search`        | FTS5 MATCH builder (injection-safe), classifier, expansion, weighted RRF, IDF-gated name boosts, dedupe, snippets, vector codec + kNN        |
-| Sync planning (pure) | `packages/core/src/sync`          | wire schemas (`Schema.encodeKeys`), star diff, README/embed planning, cooldowns                                                              |
-| Storage              | `packages/cloudflare/src/storage` | D1 schema + repositories, per-user FTS5 (porter + trigram), R2 vector blobs                                                                  |
-| GitHub client        | `packages/cloudflare/src/github`  | Public endpoints, ETags/304, README raw-probe chain, GraphQL public Lists                                                                    |
-| AI embedder          | `packages/cloudflare/src/ai`      | `bge-small-en-v1.5` (384d), batch ≤32, repo-text profile                                                                                     |
-| Worker API           | `apps/worker/src`                 | HttpApi: health/users/sync (+SSE)/groups/search/repos; per-IP rate limits; Alchemy stack                                                     |
-| Sync workflows       | `apps/worker/src/sync`            | `StarListingWorkflow` (Tier 0, ETag-aware pages, unstar diff), `StarRefreshWorkflow` (Tier 1, READMEs → embeddings → R2 parts → merged blob) |
-| CLI                  | `apps/cli`                        | `search/show/sync/status/groups/health`, `--json`/`--plain`/`--explain`, exit codes                                                          |
-| WebUI                | `apps/webui`                      | Landing + `/u/$login` search (URL-state filters and sort, groups chips, sync SSE banner, repo drawer, a11y)                                  |
-| Search-quality lab   | `eval-lab`                        | Local FTS5 + embeddings eval over the real 3,448-star corpus                                                                                 |
-| Design docs          | `docs/00–18`                      | Research, pivots, free-tier feasibility, hardening, ranking, eval                                                                            |
+| Layer                | Location                          | Notes                                                                                                                                                                                                                       |
+| -------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain models        | `packages/domain`                 | Schema models + static concept lexicon (15 clusters incl. auth/http/jobs/tui)                                                                                                                                               |
+| Search engine (pure) | `packages/core/src/search`        | FTS5 MATCH builder (injection-safe), classifier, expansion, weighted RRF, IDF-gated name boosts, dedupe, snippets, vector codec + kNN                                                                                       |
+| Sync planning (pure) | `packages/core/src/sync`          | wire schemas (`Schema.encodeKeys`), star diff, README/embed planning, cooldowns                                                                                                                                             |
+| Storage              | `packages/cloudflare/src/storage` | D1 schema + repositories, per-user FTS5 (porter + trigram), R2 vector blobs                                                                                                                                                 |
+| GitHub client        | `packages/cloudflare/src/github`  | Public endpoints, ETags/304, README raw-probe chain, GraphQL public Lists                                                                                                                                                   |
+| AI embedder          | `packages/cloudflare/src/ai`      | `bge-small-en-v1.5` (384d), batch ≤32, repo-text profile                                                                                                                                                                    |
+| Worker API           | `apps/worker/src`                 | HttpApi: health/users/sync (+SSE)/groups/search/repos; per-IP rate limits; Alchemy stack                                                                                                                                    |
+| Sync workflows       | `apps/worker/src/sync`            | `StarListingWorkflow` (Tier 0, ETag-aware pages, unstar diff), `StarRefreshWorkflow` (Tier 1, READMEs → embeddings → R2 parts → merged blob)                                                                                |
+| CLI                  | `apps/cli`                        | `search/show/sync/status/groups/health`, `--json`/`--plain`/`--explain`, exit codes                                                                                                                                         |
+| WebUI                | `apps/webui`                      | Landing + `/u/$login`: default view lists every star (recently starred first, paged) beside the public Lists rail and index stats; URL-state search with filters and sort, groups chips, sync SSE banner, repo drawer, a11y |
+| Search-quality lab   | `eval-lab`                        | Local FTS5 + embeddings eval over the real 3,448-star corpus                                                                                                                                                                |
+| Design docs          | `docs/00–18`                      | Research, pivots, free-tier feasibility, hardening, ranking, eval                                                                                                                                                           |
 
-**Test counts:** core 124 · cloudflare 67 · cli 43 · worker (search e2e 8 + sync state 3) 11 = **245 passing**; all 6 packages typecheck; WebUI builds (`apps/webui/dist`).
+**Test counts:** core 127 · cloudflare 76 · cli 43 · worker 48 = **294 passing**; all 6 packages typecheck; WebUI builds (`apps/webui/dist`).
 
 ## The docs/18 quality fixes are in the code
 

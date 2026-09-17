@@ -467,7 +467,97 @@ describe("RepoStore", () => {
       expect(states.get(1)?.status).toBe("ok");
       expect(states.get(2)?.status).toBe("missing");
       expect(states.get(3)?.status).toBe("error"); // default 'unknown'
-      expect(states.get(1)?.pushedAt).toBeNull();
+      // `checked_at` is the freshness anchor the planner compares against
+      // `pushed_at`; it must round-trip, including an explicit null.
+      expect(states.get(1)?.checkedAt).toBe("2026-09-13T00:00:00Z");
+      expect(states.get(2)?.checkedAt).toBeNull();
+    }).pipe(Effect.provide(testLive())),
+  );
+
+  it.effect("claims run ownership atomically, so two starts cannot both win", () =>
+    Effect.gen(function* () {
+      yield* applyMigration;
+      const store = yield* RepoStore;
+
+      yield* store.upsertUser(makeUser(LOGIN));
+      yield* store.upsertIndexState(makeIndexState(LOGIN, { phase: "idle" }));
+
+      expect(yield* store.claimRunInstance(LOGIN, "run-a")).toBe(true);
+      // A second request that raced the same probe loses the claim.
+      expect(yield* store.claimRunInstance(LOGIN, "run-b")).toBe(false);
+      expect(yield* store.getRunInstance(LOGIN)).toBe("run-a");
+
+      // The owner can re-claim (a retry of its own run), and releasing frees it.
+      expect(yield* store.claimRunInstance(LOGIN, "run-a")).toBe(true);
+      yield* store.setRunInstance(LOGIN, null);
+      expect(yield* store.claimRunInstance(LOGIN, "run-b")).toBe(true);
+    }).pipe(Effect.provide(testLive())),
+  );
+
+  it.effect("counts pending READMEs, because their text is fetched and searchable", () =>
+    Effect.gen(function* () {
+      yield* applyMigration;
+      const store = yield* RepoStore;
+
+      yield* store.upsertRepos(LOGIN, [makeRepo(1, "owner/one"), makeRepo(2, "owner/two")]);
+      yield* store.putReadme(1, {
+        text: "published",
+        hash: "h1",
+        state: "present",
+        checkedAt: "2026-09-13T00:00:00Z",
+      });
+      yield* store.putReadme(2, {
+        text: "fetched, vector still in a part",
+        hash: "h2",
+        state: "pending",
+        pendingRun: "run-1",
+        checkedAt: "2026-09-13T00:00:00Z",
+      });
+
+      const stats = yield* store.countStats(LOGIN);
+      expect(stats.readmesFetched).toBe(2);
+
+      // `pending` stays distinct from `error`: the text is present and only
+      // the vector is unpublished, so a retry re-embeds it without re-fetching.
+      const states = yield* store.getReadmeStates(LOGIN);
+      expect(states.get(2)?.status).toBe("pending");
+    }).pipe(Effect.provide(testLive())),
+  );
+
+  it.effect("publishes only the rows the finishing run left pending", () =>
+    Effect.gen(function* () {
+      yield* applyMigration;
+      const store = yield* RepoStore;
+
+      yield* store.upsertRepos(LOGIN, [makeRepo(1, "owner/one"), makeRepo(2, "owner/two")]);
+      yield* store.putReadme(1, {
+        text: "mine",
+        hash: "h1",
+        state: "pending",
+        pendingRun: "run-1",
+        checkedAt: "2026-09-13T00:00:00Z",
+      });
+      yield* store.putReadme(2, {
+        text: "someone else's run",
+        hash: "h2",
+        state: "pending",
+        pendingRun: "run-2",
+        checkedAt: "2026-09-13T00:00:00Z",
+      });
+
+      yield* store.markReadmesPublished([1, 2], "run-1");
+
+      const states = yield* store.getReadmeStates(LOGIN);
+      expect(states.get(1)?.status).toBe("ok");
+      // The concurrent run's marker survives: if it dies, its repo is still
+      // dirty and will be re-embedded instead of silently keeping a vector
+      // that was never published into *its* blob.
+      expect(states.get(2)?.status).toBe("pending");
+
+      // A no-op for an empty id list, and idempotent on a second pass.
+      yield* store.markReadmesPublished([], "run-1");
+      yield* store.markReadmesPublished([1], "run-1");
+      expect((yield* store.getReadmeStates(LOGIN)).get(1)?.status).toBe("ok");
     }).pipe(Effect.provide(testLive())),
   );
 

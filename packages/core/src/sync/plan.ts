@@ -42,13 +42,18 @@ export const diffStars = (
 };
 
 /** Lifecycle of a repo's README as persisted by the sync workflow. */
-export type ReadmeFetchStatus = "ok" | "missing" | "unavailable" | "error";
+export type ReadmeFetchStatus = "ok" | "missing" | "unavailable" | "error" | "pending";
 
 /** One row of README state, keyed by repo id. */
 export interface ReadmeFetchState {
   readonly repoId: number;
-  /** `pushed_at` recorded when this state was written (the change trigger). */
-  readonly pushedAt: string | null;
+  /**
+   * When this state was last written (`repos.readme_checked_at`), or `null`
+   * for a row written before the column existed. The freshness anchor for
+   * {@link needsReadmeFetch}: a repo pushed after the last check may have a
+   * newer README.
+   */
+  readonly checkedAt: string | null;
   readonly status: ReadmeFetchStatus;
 }
 
@@ -59,6 +64,14 @@ export interface PlanReadmeWorkOptions {
   readonly batchSize?: number | undefined;
   /** Only the newest N repos get README/embedding work (free tier window). */
   readonly semanticWindow?: number | undefined;
+  /**
+   * Repo ids this account has already published vectors for. When given, a
+   * window repo missing from this set is planned even though its README is
+   * current: the vector belongs to the *account*, while `repos.readme_*` is a
+   * shared row, so a second starrer of the same repo would otherwise never get
+   * vectors for a README the first starrer already fetched.
+   */
+  readonly existingVectorIds?: ReadonlySet<number> | undefined;
 }
 
 /**
@@ -96,12 +109,66 @@ const chunk = <A>(items: ReadonlyArray<A>, size: number): ReadonlyArray<Readonly
 };
 
 /**
+ * Does this repo's stored README need a fetch from GitHub?
+ *
+ * Yes when nothing is known, when the last attempt errored, or when the repo
+ * was pushed after the last check (`pushed_at > readme_checked_at`, the schema's
+ * documented trigger). **`pending` is not automatically stale**: it means a
+ * previous run stored the text and died before its vector was published, and
+ * re-fetching that text on retry is exactly the waste this predicate exists to
+ * prevent. The README is still re-embedded — {@link publishedReadmeHash} marks
+ * `pending` dirty.
+ */
+export const needsReadmeFetch = (
+  repo: Pick<Repo, "pushedAt">,
+  state: ReadmeFetchState | undefined,
+): boolean => {
+  if (state === undefined) return true;
+
+  if (state.status === "error") return true;
+
+  // ISO-8601 UTC strings order lexicographically; an unknown push date can
+  // never prove the stored text is stale.
+  return repo.pushedAt !== null && (state.checkedAt === null || repo.pushedAt > state.checkedAt);
+};
+
+/**
+ * What one README batch should do for one repo: re-read it from GitHub, or
+ * reuse the text it already has stored.
+ */
+export type ReadmeBatchAction =
+  | { readonly kind: "fetch" }
+  | { readonly kind: "reuse"; readonly text: string; readonly state: "present" | "missing" };
+
+/**
+ * Decide one repo's batch work. The expensive half of a README batch is the
+ * GitHub round-trip, so a retry after a killed run must reuse whatever text is
+ * already stored (a `pending` row) instead of paying for the same fetch twice;
+ * only the embedding — which never reached the published blob — is redone.
+ */
+export const readmeBatchAction = (
+  repo: Pick<Repo, "pushedAt">,
+  state: ReadmeFetchState | undefined,
+  storedText: string | undefined,
+): ReadmeBatchAction => {
+  if (needsReadmeFetch(repo, state)) return { kind: "fetch" };
+
+  // A stored row without text means GitHub confirmed there is no README; a
+  // `pending` row with text is a fetch that already succeeded.
+  if (storedText === undefined) return { kind: "reuse", text: "", state: "missing" };
+
+  return { kind: "reuse", text: storedText, state: "present" };
+};
+
+/**
  * New or changed README work for the semantic window.
  *
- * A repo needs a fetch when there is no state row, the last attempt errored, or
- * `pushed_at` moved since the recorded state. `missing`/`unavailable` repos are
- * otherwise left alone (docs/09 §3.3 rechecks them on a 30–90 day cadence,
- * which the workflow layer owns).
+ * A repo enters a batch when {@link needsReadmeFetch} says its text must be
+ * re-read, when a previous run left it `pending` (text stored, vector
+ * unpublished), or when the account has no published vector for it yet
+ * (`existingVectorIds`). The batch decides for itself whether that work is a
+ * GitHub fetch or an embed of the stored text — a restart must not pay for the
+ * same README twice.
  */
 export const planReadmeWork = (
   repos: ReadonlyArray<Repo>,
@@ -110,6 +177,7 @@ export const planReadmeWork = (
 ): ReadonlyArray<ReadonlyArray<number>> => {
   const batchSize = options.batchSize ?? 25;
   const semanticWindow = options.semanticWindow ?? SEMANTIC_WINDOW;
+  const existingVectorIds = options.existingVectorIds;
 
   if (batchSize < 1) throw new RangeError(`batchSize must be >= 1, got ${batchSize}`);
 
@@ -118,24 +186,35 @@ export const planReadmeWork = (
 
   for (const repo of window) {
     const existing = state.get(repo.id);
+    const unpublished = existing?.status === "pending";
 
-    if (existing === undefined) {
-      ids.push(repo.id);
-      continue;
-    }
-
-    if (existing.status === "error") {
-      ids.push(repo.id);
-      continue;
-    }
-
-    if (existing.pushedAt !== repo.pushedAt) {
+    if (
+      needsReadmeFetch(repo, existing) ||
+      unpublished ||
+      (existingVectorIds !== undefined && !existingVectorIds.has(repo.id))
+    ) {
       ids.push(repo.id);
     }
   }
 
   return chunk(ids, batchSize);
 };
+
+/**
+ * The hash {@link planEmbedWork} should compare against for one repo: its
+ * published README hash when the row is *published* (`ok`/`missing`), and the
+ * empty marker otherwise.
+ *
+ * `pending` is the state the refresh writes when it stores README text but the
+ * vector is still sitting in an unmerged part. Treating that as published is
+ * what once let an aborted run leave repos the planner would never visit again;
+ * an unreadable state is dirty for the same reason. The empty string can never
+ * collide with a real FNV hash, so "dirty" and "unchanged" stay distinguishable.
+ */
+export const publishedReadmeHash = (
+  status: ReadmeFetchStatus | undefined,
+  text: string | undefined,
+): string => (status === "ok" || status === "missing" ? hashReadme(text ?? "") : "");
 
 /**
  * Stable content hash for README-derived embedding documents (FNV-1a/32).

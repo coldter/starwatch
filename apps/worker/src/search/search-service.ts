@@ -67,6 +67,8 @@ export interface SearchInput {
   readonly mode: SearchMode;
   readonly sort: SearchSort;
   readonly filters: SearchFilters;
+  /** Row offset for paging; the ordering covers `total` rows. */
+  readonly offset: number;
   readonly limit: number;
 }
 
@@ -83,6 +85,7 @@ const emptyResponse = (query: string, startedAt: number): SearchResponse => ({
   query,
   mode: "keyword",
   hits: [],
+  total: 0,
   tookMs: Date.now() - startedAt,
   semanticCoverage: 0,
 });
@@ -104,9 +107,11 @@ export const runSearch = (
 
     const query = normalizeQuery(input.query);
 
-    // Browse (docs/07 §Q6): no text + an explicit key = a sorted listing of the
-    // filtered candidates. No legs, no embeddings, no relevance claim.
-    const browse = input.query.trim().length === 0 && input.sort !== "relevance";
+    // Browse (docs/07 §Q6, docs/08 §3.4): no text = a listing of the filtered
+    // candidates. `relevance` is meaningless without a query, so it falls back
+    // to the documented default — most recently starred first.
+    const browse = input.query.trim().length === 0;
+    const sort: SearchSort = browse && input.sort === "relevance" ? "starred" : input.sort;
 
     const semanticRequested = !browse && input.mode !== "keyword";
     const hybridRequested = !browse && (input.mode === "auto" || input.mode === "hybrid");
@@ -140,7 +145,7 @@ export const runSearch = (
     // Legs widen only for explicit sorts: the relevance contract (docs/17 §3)
     // stays per-leg top-50, while a new-again repo ranked below that window
     // must still be orderable by its push date.
-    const legLimit = input.sort === "relevance" ? SEARCH_LEG_LIMIT : SORT_MATCH_LIMIT;
+    const legLimit = sort === "relevance" ? SEARCH_LEG_LIMIT : SORT_MATCH_LIMIT;
 
     const searchOptions = { limit: legLimit, candidateIds, weights: FTS_WEIGHTS };
 
@@ -269,7 +274,9 @@ export const runSearch = (
           },
         );
 
-    const selected = sortHits(fused, input.sort).slice(0, input.limit);
+    const ordered = sortHits(fused, sort);
+    const total = ordered.length;
+    const selected = ordered.slice(input.offset, input.offset + input.limit);
     const resultIds = selected.map((hit) => hit.repo.id);
     const snippetIds = resultIds.slice(0, SNIPPET_HITS);
 
@@ -304,6 +311,7 @@ export const runSearch = (
       query,
       mode,
       hits,
+      total,
       tookMs: Date.now() - startedAt,
       semanticCoverage,
     };

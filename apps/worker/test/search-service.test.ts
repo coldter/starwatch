@@ -8,7 +8,7 @@ import {
   makeFtsDoc,
   makeRepo,
   makeSqliteLayer,
-} from "../../packages/cloudflare/test/storage/support.ts";
+} from "../../../packages/cloudflare/test/storage/support.ts";
 import { VectorBlobFiles } from "../src/adapters/vector-bucket.ts";
 import { runSearch, type SearchInput } from "../src/search/search-service.ts";
 
@@ -115,6 +115,7 @@ const search = (input: Partial<SearchInput> & { readonly sort: SearchSort }) =>
       query: "http client",
       mode: "keyword",
       filters: {},
+      offset: 0,
       limit: 50,
       ...input,
     });
@@ -203,9 +204,9 @@ describe("runSearch sort", () => {
 });
 
 describe("runSearch browse", () => {
-  it.effect("returns an empty page for an empty query without a sort", () =>
+  it.effect("defaults a bare empty query to most recently starred", () =>
     seeded(search({ query: "", sort: "relevance" })).pipe(
-      Effect.tap((ids) => Effect.sync(() => expect(ids).toEqual([]))),
+      Effect.tap((ids) => Effect.sync(() => expect(ids).toEqual([1, 2, 3]))),
       Effect.provide(testLive()),
     ),
   );
@@ -221,6 +222,61 @@ describe("runSearch browse", () => {
     ),
   );
 
+  it.effect("reports the browsable total and windows it with offset", () =>
+    seeded(
+      Effect.gen(function* () {
+        const first = yield* runSearch({
+          login: LOGIN,
+          query: "",
+          mode: "auto",
+          sort: "relevance",
+          filters: {},
+          offset: 0,
+          limit: 2,
+        });
+
+        const second = yield* runSearch({
+          login: LOGIN,
+          query: "",
+          mode: "auto",
+          sort: "starred",
+          filters: {},
+          offset: 2,
+          limit: 2,
+        });
+
+        const past = yield* runSearch({
+          login: LOGIN,
+          query: "",
+          mode: "auto",
+          sort: "starred",
+          filters: {},
+          offset: 3,
+          limit: 2,
+        });
+
+        return {
+          first: first.hits.map((hit) => hit.repo.id),
+          firstTotal: first.total,
+          second: second.hits.map((hit) => hit.repo.id),
+          secondTotal: second.total,
+          past: past.hits.length,
+        };
+      }),
+    ).pipe(
+      Effect.tap((page) =>
+        Effect.sync(() => {
+          expect(page.first).toEqual([1, 2]);
+          expect(page.firstTotal).toBe(3);
+          expect(page.second).toEqual([3]);
+          expect(page.secondTotal).toBe(3);
+          expect(page.past).toBe(0);
+        }),
+      ),
+      Effect.provide(testLive()),
+    ),
+  );
+
   it.effect("browse hits carry no match evidence and no score", () =>
     seeded(
       Effect.gen(function* () {
@@ -230,6 +286,7 @@ describe("runSearch browse", () => {
           mode: "auto",
           sort: "stars",
           filters: {},
+          offset: 0,
           limit: 50,
         });
 

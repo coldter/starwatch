@@ -1,6 +1,7 @@
 import {
   BudgetExceeded,
   Group,
+  ListsInfo,
   Repo,
   RepoNotFound,
   SearchResponse,
@@ -57,6 +58,13 @@ export const UserDetail = Schema.Struct({
   profile: UserProfile,
   state: UserIndexState,
   groups: Schema.Array(Group),
+  lists: ListsInfo,
+});
+
+/** Result of an on-demand public-Lists import (`POST /users/:login/groups/refresh`). */
+export const GroupsRefresh = Schema.Struct({
+  groups: Schema.Array(Group),
+  lists: ListsInfo,
 });
 
 export const RepoDetail = Schema.Struct({
@@ -83,6 +91,7 @@ export const SearchQuery = Schema.Struct({
   license: Schema.optional(Schema.String),
   starredAfter: Schema.optional(Schema.String),
   starredBefore: Schema.optional(Schema.String),
+  offset: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.String),
 });
 
@@ -138,6 +147,13 @@ const usersGroup = HttpApiGroup.make("users")
       params: LoginParams,
       success: Schema.Array(Group),
       error: ApiUserNotFound,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("refreshUserGroups", "/users/:login/groups/refresh", {
+      params: LoginParams,
+      success: GroupsRefresh,
+      error: [ApiUserNotFound, ApiBudgetExceeded],
     }),
   );
 

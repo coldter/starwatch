@@ -80,6 +80,7 @@ const response: SearchResponse = {
   query: "durable jobs",
   mode: "hybrid",
   hits: [hit],
+  total: 1,
   tookMs: 128,
   semanticCoverage: 42,
 };

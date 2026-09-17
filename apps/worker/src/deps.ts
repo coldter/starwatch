@@ -6,7 +6,7 @@ import {
   type WorkersAiBinding,
 } from "@starwatch/cloudflare/ai";
 import { makeGithubClient } from "@starwatch/cloudflare/github";
-import { camelize, RepoStore, UserFts } from "@starwatch/cloudflare/storage";
+import { camelize, RepoStore, SyncBudget, UserFts } from "@starwatch/cloudflare/storage";
 import { Embedder, GithubClient, type EmbedderService } from "@starwatch/core/sync";
 import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
@@ -31,7 +31,7 @@ import {
 
 export interface SyncDepsService {
   /** `RepoStore` + `UserFts` wired to the D1 `SqlClient` (`camelize` rows). */
-  readonly storage: Layer.Layer<RepoStore | UserFts>;
+  readonly storage: Layer.Layer<RepoStore | UserFts | SyncBudget>;
   /** GitHub REST/GraphQL client over the Workers global `fetch`. */
   readonly github: Layer.Layer<GithubClient>;
   /** Workers AI embedder (`bge-small-en-v1.5`, 384d). */
@@ -88,7 +88,9 @@ export const syncDepsFrom = (options: SyncDepsOptions): SyncDepsService => {
     transformResultNames: camelize,
   }).pipe(Layer.orDie);
 
-  const storage = Layer.mergeAll(RepoStore.layer, UserFts.layer).pipe(Layer.provide(sql));
+  const storage = Layer.mergeAll(RepoStore.layer, UserFts.layer, SyncBudget.layer).pipe(
+    Layer.provide(sql),
+  );
 
   const github = makeGithubClient({
     token: options.githubToken,

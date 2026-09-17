@@ -21,6 +21,10 @@ export interface WorkerDeps {
   readonly searchRate: Cloudflare.RateLimitClient;
   /** Per-IP burst limiter on `POST /api/users/:login/sync` (5/60s). */
   readonly syncRate: Cloudflare.RateLimitClient;
+  /** Per-IP burst limiter on the public-Lists refresh (12/60s). */
+  readonly listsRate: Cloudflare.RateLimitClient;
   /** Tier 0 workflow handle (started by `POST /sync`). */
   readonly listing: Cloudflare.WorkflowHandle<StarListingInput, unknown>;
+  /** Tier 1 workflow handle, for liveness checks on `fetching-readmes`/`embedding`. */
+  readonly refresh: Cloudflare.WorkflowHandle<{ readonly login: string }, unknown>;
 }

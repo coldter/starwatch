@@ -17,6 +17,7 @@ import { ResultList } from "@/features/search/ResultList";
 import { ResultSummary } from "@/features/search/ResultSummary";
 import { ResultsPager } from "@/features/search/ResultsPager";
 import {
+  BrowseEmptyPanel,
   IndexPreparingPanel,
   NoResultsPanel,
   SearchErrorPanel,
@@ -27,6 +28,7 @@ import { BrowsePanel } from "@/features/user/BrowsePanel";
 import { IndexPanel } from "@/features/user/IndexPanel";
 import { ProfileHeader } from "@/features/user/ProfileHeader";
 import { useSearch, type SearchQueryState } from "@/hooks/useSearch";
+import { asApiError, refreshUserGroups } from "@/api";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useModalSurface } from "@/hooks/useModalSurface";
 import { useSearchShortcut } from "@/hooks/useSearchShortcut";
@@ -47,7 +49,8 @@ import {
   type ArchivedFilter,
   type SearchState,
 } from "@/lib/search-params";
-import { hasIndex, isActivePhase } from "@/lib/state";
+import { hasIndex, isActivePhase, runHeartbeat, syncWaitLabel, syncWindow } from "@/lib/state";
+import { cn } from "@/lib/utils";
 import { rootRoute } from "./__root";
 
 export const userRoute = createRoute({
@@ -64,6 +67,15 @@ export const userRoute = createRoute({
 const EMPTY_GROUPS: Group[] = [];
 
 const EMPTY_HITS: SearchHit[] = [];
+
+/** What the automatic stall probe learned about the run behind an old heartbeat. */
+type StallProbe =
+  | { key: string; status: "probing" }
+  | { key: string; status: "started" | "alive" }
+  | { key: string; status: "failed"; message: string };
+
+/** What the panel should say: nothing, restarting, or a manual retry. */
+type StallView = "none" | "probing" | "failed";
 
 function UserSearchPage() {
   const { login } = userRoute.useParams();
@@ -114,18 +126,32 @@ function UserSearchPage() {
 
   const { data, loading, error, refresh, startSync, syncPending, transport } = useUserIndex(login);
 
+  // The per-account daily window (docs/08 §2.2): the header, the auto-start and
+  // the refusal toasts all read the same derivation. Declared before the
+  // handlers because their dependency arrays are evaluated during render.
+  const syncGate = useMemo(() => syncWindow(data?.state), [data?.state]);
+
   // A 404 from the index means "not indexed yet", not "no such GitHub user";
   // only the sync POST can tell those apart (it reads the profile itself).
   const [missingUser, setMissingUser] = useState(false);
 
+  // The default view is the browse path (docs/08 §3.4): with no text there is
+  // no relevance to rank by, so `relevance` falls back to the documented browse
+  // order — most recently starred first — and the page asks for one real page.
+  const searching = search.q.trim() !== "";
+  const browseSort: SearchSort = search.sort === DEFAULT_SORT ? "starred" : search.sort;
+  const effectiveSort: SearchSort = searching ? search.sort : browseSort;
+  const offset = (search.page - 1) * PAGE_SIZE;
+
   const query: SearchQueryState = {
     q: search.q,
     mode: search.mode,
-    sort: search.sort,
+    sort: effectiveSort,
     lang: search.lang,
     groups: search.group,
     archived: toArchivedQuery(search.archived),
     minStars: search.minStars,
+    offset,
   };
 
   const { response, status, error: searchError, retry } = useSearch(login, query);
@@ -202,25 +228,146 @@ function UserSearchPage() {
           // A run started in another tab answers 409; that is a state, not a failure.
           if (outcome.error.kind === "busy") {
             toast.info("Already indexing", outcome.error.message);
+          } else if (outcome.error.kind === "rate-limited") {
+            // The only 429 `POST /sync` can return is the per-account window
+            // (`SyncCooldown`); a GitHub limit never reaches the client, since a
+            // failed profile probe dies as a 500. So the honest copy is always
+            // the window, with the server's `retry-after` as the precise answer.
+            //
+            // Which sentence fits depends on who noticed first: while our own
+            // copy of the state already says the window is closed it is simply
+            // "today", but an open window here means the server closed it after a
+            // run we never saw finish (an older tab, a missed final frame).
+            const wait = syncWaitLabel(outcome.error.retryAfterSeconds);
+
+            if (syncGate.open) {
+              toast.info(
+                "That sync already finished",
+                `The next refresh is due ${wait ?? "tomorrow"} — one sync per account per day.`,
+              );
+            } else {
+              toast.info(
+                "Already synced today",
+                `One sync per account per day. You can refresh ${wait ?? "tomorrow"}.`,
+              );
+            }
+          } else if (outcome.error.kind === "budget") {
+            // Visitor, service allowance, or a busy queue: the server's message
+            // already names which one and when to come back, so do not put a
+            // "daily limit" headline on a queue rejection.
+            toast.info("Sync not started", outcome.error.message);
           } else {
             toast.error("Couldn't start indexing", outcome.error.message);
           }
         } else if (!outcome.started) {
-          toast.info("Nothing new to index yet", "GitHub has no newer stars to read.");
+          // `started: false` means the request attached to a run that already
+          // exists — which is either a fresh one or one sleeping out a GitHub
+          // limit. Only a settled index means "there is genuinely nothing to do".
+          if (isActivePhase(outcome.phase) || outcome.phase === "paused") {
+            toast.info("Already indexing", "This index is being refreshed right now.");
+          } else {
+            toast.info("Nothing new to index yet", "GitHub has no newer stars to read.");
+          }
         } else {
           toast.success("Indexing started");
         }
       });
     },
-    [startSync, toast],
+    [startSync, syncGate, toast],
   );
 
   /** The header's re-check button: always the cheap metadata re-list. */
   const handleRecheck = useCallback(() => handleStartSync({ full: false }), [handleStartSync]);
 
+  /** A sync control was pressed while the daily window is closed. */
+  const handleBlockedSync = useCallback(() => {
+    toast.info("Already synced today", `One sync per account per day. ${syncGate.label}.`);
+  }, [syncGate, toast]);
+
+  /**
+   * Re-read the collections rail. One cheap Lists import (not bound by the
+   * per-account daily sync window), then an authoritative payload refresh so
+   * the stored groups and the import outcome both land.
+   */
+  const [listsRefreshing, setListsRefreshing] = useState(false);
+  const listsAttemptedRef = useRef<string | null>(null);
+
+  const refreshLists = useCallback(() => {
+    setListsRefreshing(true);
+    void refreshUserGroups(login)
+      .catch((cause) => {
+        toast.info("Couldn't refresh collections", asApiError(cause).message);
+      })
+      .finally(() => {
+        setListsRefreshing(false);
+        refresh();
+      });
+  }, [login, refresh, toast]);
+
+  // Collections self-heal on first view: when the rail has nothing to show and
+  // the last import did not succeed, try once per visit. `empty` is a real
+  // answer (the account has no public Lists), so it never spends a request, and
+  // an active index run owns its own Lists step — wait for it to settle.
+  useEffect(() => {
+    if (data === null) return;
+
+    if (data.groups.length > 0 || data.lists.state === "empty") return;
+
+    if (isActivePhase(data.state.phase)) return;
+
+    if (listsAttemptedRef.current === login) return;
+
+    listsAttemptedRef.current = login;
+    refreshLists();
+  }, [data, login, refreshLists]);
+
   const state = data?.state ?? null;
   const groups = data?.groups ?? EMPTY_GROUPS;
   const hits = response?.hits ?? EMPTY_HITS;
+
+  // Stalled-run recovery. An active phase with no heartbeat for 20 minutes is
+  // either dead (killed at a platform limit) or sleeping where the state row
+  // cannot show it. The server owns the distinction — it probes the workflow
+  // engine and takes over only a run that provably stopped — so this is a
+  // *probe*, not a blind restart: it either recovers the run, learns the run
+  // is alive, or surfaces a manual retry. One probe per silence stamp, and
+  // only while the page is open; a passive view never starts an index.
+  const beat = runHeartbeat(data?.state);
+  const stallKey = data !== null && beat.stalled ? `${login}:${data.state.updatedAt}` : null;
+  const [stallProbe, setStallProbe] = useState<StallProbe | null>(null);
+
+  useEffect(() => {
+    if (stallKey === null) return;
+
+    if (stallProbe?.key === stallKey) return;
+
+    setStallProbe({ key: stallKey, status: "probing" });
+    void startSync({ full: true }).then((outcome) => {
+      setStallProbe((current) => {
+        if (current?.key !== stallKey) return current;
+
+        if (outcome.ok) {
+          return { key: stallKey, status: outcome.started ? "started" : "alive" };
+        }
+
+        // A 409 means another request created or already owns the run between
+        // the probe and the post — that is the run being alive, not a failure.
+        if (outcome.error.kind === "busy") return { key: stallKey, status: "alive" };
+
+        return { key: stallKey, status: "failed", message: outcome.error.message };
+      });
+    });
+  }, [stallKey, stallProbe, startSync]);
+
+  let stall: StallView = "none";
+
+  if (stallKey !== null) {
+    if (stallProbe?.key !== stallKey || stallProbe.status === "probing") stall = "probing";
+    else if (stallProbe.status === "failed") stall = "failed";
+  }
+
+  const stallMessage =
+    stallProbe?.key === stallKey && stallProbe.status === "failed" ? stallProbe.message : null;
 
   const pageStars = data ? data.state.starsTotal || data.state.reposMetadata : 0;
 
@@ -254,31 +401,45 @@ function UserSearchPage() {
 
     if (!neverIndexed && !semanticMissing) return;
 
-    autoStartedRef.current = true;
-    void startSync({ full: false }).then((outcome) => {
-      if (!outcome.ok) {
-        toast.error("Couldn't start indexing", outcome.error.message);
-      }
-    });
-  }, [data, search.q, startSync, toast]);
+    // Inside the daily window nothing will start (the API refuses), so do not
+    // spend a request that can only come back as a refusal.
+    if (!syncGate.open) return;
 
-  // One refresh when the listing finishes, so early searchers see the full set.
-  const lastPhaseRef = useRef<SyncPhase | null>(null);
+    // A start request is already in flight: posting again would only attach to
+    // the run it is creating and toast about it.
+    if (syncPending) return;
+
+    autoStartedRef.current = true;
+    // A first index only needs metadata (search works in seconds, docs/08 tier
+    // 0); an existing metadata-only index needs the full pass, or the auto-start
+    // would re-list and re-close the daily window without ever building vectors.
+    handleStartSync({ full: semanticMissing });
+  }, [data, search.q, syncGate, syncPending, handleStartSync]);
+
+  // One refresh when the listing finishes, so early browsers and searchers see
+  // the full set. Keyed by login: navigating between two users must not read the
+  // previous account's phase as this one's progress.
+  const lastPhaseRef = useRef<{ login: string; phase: SyncPhase } | null>(null);
   useEffect(() => {
     const phase = data?.state.phase ?? null;
     const previous = lastPhaseRef.current;
-    lastPhaseRef.current = phase;
+
+    if (phase !== null) lastPhaseRef.current = { login, phase };
 
     if (
       previous !== null &&
+      previous.login === login &&
       phase === "ready" &&
-      (previous === "listing" || previous === "fetching-readmes" || previous === "embedding") &&
-      search.q.trim()
+      (previous.phase === "listing" ||
+        previous.phase === "fetching-readmes" ||
+        previous.phase === "embedding")
     ) {
+      // Covers the default browse list too: it was fetched against a partial
+      // (or empty) index, so it must be re-read once the run settles.
       retry();
       toast.info("Index updated");
     }
-  }, [data?.state.phase, search.q, retry, toast]);
+  }, [data?.state.phase, login, retry, toast]);
 
   const groupNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -288,15 +449,21 @@ function UserSearchPage() {
     return map;
   }, [groups]);
 
-  const total = hits.length;
+  const total = response?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = Math.min(search.page, pageCount);
+  // A bookmarked page can outlive its results (stars get unstarred). The
+  // response still carries the real total, so fold the page back instead of
+  // showing an empty list; until the corrected fetch lands, keep the skeleton.
+  const outOfRange = response !== null && search.page > pageCount;
 
-  const pageHits = useMemo(
-    () => hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [hits, page],
-  );
+  useEffect(() => {
+    if (response === null || search.page <= pageCount) return;
 
+    applyPatch({ page: pageCount }, true);
+  }, [response, search.page, pageCount, applyPatch]);
+
+  const pageHits = hits;
   const shownStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const shownEnd = Math.min(page * PAGE_SIZE, total);
 
@@ -317,12 +484,8 @@ function UserSearchPage() {
 
   const semanticDocs = state?.semanticDocs ?? 0;
   const indexPreparing = state !== null && (!hasIndex(state) || isActivePhase(state.phase));
-  const searching = search.q.trim() !== "";
-  // An explicit sort with no query is the browse path: the worker returns the
-  // filtered candidates ordered by that key, so the page shows a result list
-  // instead of the browse panel (docs/07 §Q6).
-  const browsing = !searching && search.sort !== DEFAULT_SORT;
-  const browsingEmpty = browsing && response !== null && response.hits.length === 0;
+  // No query is the default browse view; the collections rail rides beside it.
+  const browsing = !searching;
 
   return (
     <div className="page-shell flex flex-col gap-6 py-6 sm:py-8">
@@ -400,6 +563,8 @@ function UserSearchPage() {
             busy={syncPending}
             onStartSync={handleStartSync}
             onRecheck={handleRecheck}
+            syncWindow={syncGate}
+            onBlockedSync={handleBlockedSync}
           />
 
           {error ? (
@@ -421,13 +586,17 @@ function UserSearchPage() {
             transport={transport}
             busy={syncPending}
             onStartSync={handleStartSync}
+            onRefresh={refresh}
+            stall={stall}
+            stallMessage={stallMessage}
           />
 
           <SearchToolbar
             value={search.q}
             busy={status === "loading" || status === "refreshing"}
+            browsing={browsing}
             mode={search.mode}
-            sort={search.sort}
+            sort={effectiveSort}
             filterCount={countActiveFilters(search)}
             filtersOpen={filtersOpen}
             onSubmit={onSubmitQuery}
@@ -446,110 +615,157 @@ function UserSearchPage() {
             onClear={onClear}
           />
 
-          {searching ? (
-            <div className="hidden lg:block">
-              <FilterControls
-                state={search}
-                groups={groups}
-                layout="inline"
-                onLanguage={onLanguage}
-                onToggleGroup={onToggleGroup}
-                onMinStars={onMinStars}
-                onArchived={onArchived}
-                onClear={onClear}
-              />
-            </div>
-          ) : null}
+          <div className="hidden lg:block">
+            <FilterControls
+              state={search}
+              groups={groups}
+              layout="inline"
+              onLanguage={onLanguage}
+              onToggleGroup={onToggleGroup}
+              onMinStars={onMinStars}
+              onArchived={onArchived}
+              onClear={onClear}
+            />
+          </div>
 
-          <section className="flex min-w-0 flex-col gap-4" aria-labelledby="results-heading">
-            {/* The results column names itself for screen readers, so the card
-                headings below sit at h3 under a real h2 rather than skipping. */}
-            {searching ? (
-              <h2 id="results-heading" className="sr-only">
-                Search results for {search.q}
-              </h2>
-            ) : browsing ? (
-              <h2 id="results-heading" className="sr-only">
-                Starred repos, {SORT_LABELS[search.sort].toLowerCase()}
-              </h2>
-            ) : null}
+          <div
+            className={cn(
+              "grid min-w-0 items-start gap-6",
+              browsing && "lg:grid-cols-[minmax(0,1fr)_18rem]",
+            )}
+          >
+            <section
+              className={cn("flex min-w-0 flex-col gap-4", browsing && "order-2 lg:order-1")}
+              aria-labelledby="results-heading"
+            >
+              {/* The results column names itself, so the card headings below
+                  sit at h3 under a real h2 rather than skipping. */}
+              {browsing ? (
+                <header className="flex flex-col gap-1">
+                  <h2
+                    id="results-heading"
+                    className="text-lg font-semibold tracking-tight text-balance-pretty"
+                  >
+                    {browseHeading(search, groups, effectiveSort)}
+                  </h2>
+                  <p aria-live="polite" className="text-xs text-muted-foreground tabular-nums">
+                    {formatNumber(total)} {plural(total, "repo")} · sorted by{" "}
+                    {SORT_LABELS[effectiveSort].toLowerCase()}
+                    {status === "refreshing" ? " · updating…" : ""}
+                  </p>
+                </header>
+              ) : (
+                <h2 id="results-heading" className="sr-only">
+                  Search results for {search.q}
+                </h2>
+              )}
 
-            {response ? (
-              <ResultSummary
-                response={response}
-                status={status}
-                semanticDocs={semanticDocs}
-                sort={search.sort}
-              />
-            ) : null}
+              {searching && response ? (
+                <ResultSummary
+                  response={response}
+                  status={status}
+                  semanticDocs={semanticDocs}
+                  sort={search.sort}
+                />
+              ) : null}
 
-            {searchError && response ? (
-              <NoticeStrip
-                tone="error"
-                action={
-                  <Button variant="outline" size="sm" onClick={retry}>
-                    Retry
-                  </Button>
-                }
+              {searchError && response ? (
+                <NoticeStrip
+                  tone="error"
+                  action={
+                    <Button variant="outline" size="sm" onClick={retry}>
+                      Retry
+                    </Button>
+                  }
+                >
+                  {searchError.message}
+                </NoticeStrip>
+              ) : null}
+
+              {status === "loading" ? <ResultSkeletonList /> : null}
+
+              {status === "error" && !response ? (
+                searching ? (
+                  indexPreparing ? (
+                    <IndexPreparingPanel login={login} />
+                  ) : searchError ? (
+                    <SearchErrorPanel
+                      error={searchError}
+                      canFallbackToKeyword={search.mode === "semantic" || search.mode === "hybrid"}
+                      onRetry={retry}
+                      onMode={onMode}
+                    />
+                  ) : null
+                ) : (
+                  <ErrorPanel
+                    title="Couldn't load these repositories"
+                    error={searchError ?? { message: "The request did not complete." }}
+                    onRetry={retry}
+                  />
+                )
+              ) : null}
+
+              {searching && status === "ready" && response && pageHits.length === 0 ? (
+                <NoResultsPanel
+                  query={search.q}
+                  hasLanguageFilter={search.lang !== undefined}
+                  hasCollectionFilter={search.group.length > 0}
+                  hasStarFilter={search.minStars !== undefined}
+                  canTrySemantic={semanticDocs > 0 && search.mode !== "semantic"}
+                  onClearFilters={onClear}
+                  onMode={onMode}
+                />
+              ) : null}
+
+              {browsing &&
+              status === "ready" &&
+              !outOfRange &&
+              response &&
+              pageHits.length === 0 ? (
+                indexPreparing ? (
+                  <IndexPreparingPanel login={login} />
+                ) : (
+                  <BrowseEmptyPanel
+                    filterCount={countActiveFilters(search)}
+                    onClearFilters={onClear}
+                  />
+                )
+              ) : null}
+
+              {pageHits.length > 0 ? (
+                <ResultList hits={pageHits} groupNames={groupNames} onOpen={onOpen} />
+              ) : null}
+
+              {response ? (
+                <ResultsPager
+                  page={page}
+                  pageCount={pageCount}
+                  shownStart={shownStart}
+                  shownEnd={shownEnd}
+                  total={total}
+                  onPage={onPage}
+                />
+              ) : null}
+            </section>
+
+            {browsing ? (
+              <aside
+                aria-label="Collections and index status"
+                className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pr-1"
               >
-                {searchError.message}
-              </NoticeStrip>
-            ) : null}
-
-            {status === "loading" ? <ResultSkeletonList /> : null}
-
-            {status === "idle" || browsingEmpty ? (
-              state ? (
                 <BrowsePanel
                   login={login}
                   state={state}
                   groups={groups}
+                  lists={data.lists}
+                  refreshingLists={listsRefreshing}
                   selected={search.group}
                   onPickGroup={onToggleGroup}
+                  onRefreshLists={refreshLists}
                 />
-              ) : null
+              </aside>
             ) : null}
-
-            {status === "error" && !response ? (
-              indexPreparing ? (
-                <IndexPreparingPanel login={login} />
-              ) : searchError ? (
-                <SearchErrorPanel
-                  error={searchError}
-                  canFallbackToKeyword={search.mode === "semantic" || search.mode === "hybrid"}
-                  onRetry={retry}
-                  onMode={onMode}
-                />
-              ) : null
-            ) : null}
-
-            {searching && status === "ready" && response && response.hits.length === 0 ? (
-              <NoResultsPanel
-                query={search.q}
-                hasLanguageFilter={search.lang !== undefined}
-                hasCollectionFilter={search.group.length > 0}
-                hasStarFilter={search.minStars !== undefined}
-                canTrySemantic={semanticDocs > 0 && search.mode !== "semantic"}
-                onClearFilters={onClear}
-                onMode={onMode}
-              />
-            ) : null}
-
-            {pageHits.length > 0 ? (
-              <ResultList hits={pageHits} groupNames={groupNames} onOpen={onOpen} />
-            ) : null}
-
-            {response ? (
-              <ResultsPager
-                page={page}
-                pageCount={pageCount}
-                shownStart={shownStart}
-                shownEnd={shownEnd}
-                total={total}
-                onPage={onPage}
-              />
-            ) : null}
-          </section>
+          </div>
         </>
       ) : null}
 
@@ -592,7 +808,33 @@ function countActiveFilters(state: SearchState): number {
 
   if (state.minStars !== undefined) count += 1;
 
-  if (state.archived) count += 1;
+  // `hide` is the default, not an active narrowing — treating it as one made
+  // every default view claim "Filters (1)".
+  if (state.archived !== DEFAULT_ARCHIVED) count += 1;
 
   return count;
+}
+
+/** The default view's heading: the collection in view, or the ordering in words. */
+function browseHeading(state: SearchState, groups: ReadonlyArray<Group>, sort: SearchSort): string {
+  if (state.group.length === 1) {
+    const slug = state.group[0];
+
+    for (const group of groups) {
+      if (group.slug === slug) return `Starred in ${group.name}`;
+    }
+
+    return "Starred in this collection";
+  }
+
+  if (state.group.length > 1) return `Starred in ${state.group.length} collections`;
+
+  switch (sort) {
+    case "stars":
+      return "Most starred";
+    case "pushed":
+      return "Recently pushed";
+    default:
+      return "Recently starred";
+  }
 }

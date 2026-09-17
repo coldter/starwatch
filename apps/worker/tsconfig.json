@@ -4,5 +4,5 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "alchemy.run.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "alchemy.run.ts"]
 }

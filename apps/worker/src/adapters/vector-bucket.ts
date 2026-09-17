@@ -18,11 +18,18 @@ import * as Schema from "effect/Schema";
  * passes the raw R2 binding and tests pass an in-memory map. This module is
  * that adapter plus the key layout around it:
  *
- *   vectors/{login}.bin            canonical packed blob (core codec)
- *   vectors/{login}.ids.json       repo ids in vector order (sidecar)
- *   vectors/{login}/part-N.bin     per-batch vectors during a refresh run
- *   vectors/{login}/part-N.ids.json
- *   vectors/{login}/merge-R-I.*    fan-in merge intermediates
+ *   vectors/{login}.bin                     canonical packed blob (core codec)
+ *   vectors/{login}.ids.json                repo ids in vector order (sidecar)
+ *   vectors/{login}/run-{token}/part-N.bin  per-batch vectors during a refresh run
+ *   vectors/{login}/run-{token}/part-N.ids.json
+ *   vectors/{login}/run-{token}/merge-R-I.* fan-in merge intermediates
+ *
+ * Scratch keys are namespaced by a per-run token. Two runs for one account can
+ * overlap — a terminated run's replacement, or a retry the platform replays —
+ * and run-scoped keys make them disjoint: without the token, run B overwrites
+ * run A's parts and then deletes them at finalize, so run A reads missing
+ * parts (or silently drops vectors). `vectors/{login}.bin` stays run-independent:
+ * it is the published blob.
  *
  * The sidecar exists because the blob layout carries only `count`/`dims`; the
  * search path needs ids to map vectors back to repos.
@@ -52,13 +59,20 @@ export const vectorBlobBinKey = (login: string): string => `vectors/${login}.bin
 /** Repo ids in vector order, parallel to {@link vectorBlobBinKey}. */
 export const vectorIdsKey = (login: string): string => `vectors/${login}.ids.json`;
 
-/** Base key of one refresh batch part (`…bin` / `…ids.json` suffixes). */
-export const vectorPartBaseKey = (login: string, index: number): string =>
-  `vectors/${login}/part-${index}`;
+/**
+ * Base key of one refresh batch part (`…bin` / `…ids.json` suffixes).
+ * `runToken` scopes the scratch namespace to a single run (see the key layout).
+ */
+export const vectorPartBaseKey = (login: string, runToken: string, index: number): string =>
+  `vectors/${login}/run-${runToken}/part-${index}`;
 
-/** Base key of one fan-in merge intermediate. */
-export const vectorMergeBaseKey = (login: string, round: number, index: number): string =>
-  `vectors/${login}/merge-${round}-${index}`;
+/** Base key of one fan-in merge intermediate, inside the run's namespace. */
+export const vectorMergeBaseKey = (
+  login: string,
+  runToken: string,
+  round: number,
+  index: number,
+): string => `vectors/${login}/run-${runToken}/merge-${round}-${index}`;
 
 const BIN_SUFFIX = ".bin";
 

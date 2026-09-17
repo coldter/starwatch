@@ -1,6 +1,15 @@
-import type { Group, Repo, SearchFilters, UserIndexState, UserProfile } from "@starwatch/domain";
+import {
+  ListsState,
+  type Group,
+  type ListsInfo,
+  type Repo,
+  type SearchFilters,
+  type UserIndexState,
+  type UserProfile,
+} from "@starwatch/domain";
 import type { ReadmeFetchState, ReadmeStateMap } from "@starwatch/core/sync";
 import { Context, Effect, Layer, Schema } from "effect";
+import * as Option from "effect/Option";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { Fragment } from "effect/unstable/sql/Statement";
@@ -13,6 +22,7 @@ import {
   GroupSlugRow,
   IndexStateRow,
   intToBool,
+  ListsStateRow,
   nowIso,
   parseTopicsJson,
   README_MAX_CHARS,
@@ -53,6 +63,12 @@ export const REPO_BATCH_SIZE = 50;
  * `readme_state` is `TEXT NOT NULL` with no CHECK constraint, so any value the
  * pipeline did not write degrades to `"error"` instead of failing the read.
  */
+/**
+ * Map the persisted README state onto the sync planner's fetch status.
+ * `readme_state` is `TEXT NOT NULL` with no CHECK constraint, so any value the
+ * pipeline did not write degrades to `"error"` instead of failing the read —
+ * which also re-selects the repo, the safe direction for an unknown state.
+ */
 const toFetchStatus = (state: string): ReadmeFetchState["status"] => {
   switch (state) {
     case "present":
@@ -61,9 +77,32 @@ const toFetchStatus = (state: string): ReadmeFetchState["status"] => {
       return "missing";
     case "too_big":
       return "ok";
+    // Text stored, vector not published: a run died before finalize. Kept
+    // distinct from `error` so a retry re-embeds the stored text instead of
+    // re-fetching the README from GitHub.
+    case "pending":
+      return "pending";
     default:
       return "error";
   }
+};
+
+/**
+ * Map a stored Lists-import row onto the domain info. A missing row and a
+ * value the pipeline never wrote both degrade to `never`: the rail then offers
+ * an import instead of claiming the account has no public Lists.
+ */
+const toListsInfo = (row: ListsStateRow | undefined): ListsInfo => {
+  if (row === undefined) return { state: "never", error: null, checkedAt: null };
+
+  const decoded = Schema.decodeUnknownSync(ListsStateRow)(row);
+  const state = Schema.decodeUnknownOption(ListsState)(decoded.state);
+
+  return {
+    state: Option.getOrElse(state, () => "never"),
+    error: decoded.error,
+    checkedAt: decoded.checkedAt,
+  };
 };
 
 /** Columns written when a README is fetched or re-checked. */
@@ -72,6 +111,11 @@ export interface ReadmeUpdate {
   readonly hash: string | null;
   readonly state: ReadmeState;
   readonly checkedAt: string | null;
+  /**
+   * Run that left this row `pending`, so only that run's finalize can publish
+   * it. Omitted for `error`/terminal writes, which do not publish anything.
+   */
+  readonly pendingRun?: string | null;
 }
 
 /**
@@ -87,6 +131,29 @@ export interface RepoStoreService {
   readonly getUser: (login: string) => Effect.Effect<UserProfile | null, SqlError>;
   readonly upsertIndexState: (state: UserIndexState) => Effect.Effect<void, SqlError>;
   readonly getIndexState: (login: string) => Effect.Effect<UserIndexState | null, SqlError>;
+  /**
+   * Instance id of the workflow that currently owns this account's index
+   * (migration 0004), or `null` when none does. Liveness, dedupe and takeover
+   * read this instead of guessing an id from a naming convention — guessing is
+   * how a live run became invisible once the fixed id was taken by a retained
+   * instance.
+   */
+  readonly getRunInstance: (login: string) => Effect.Effect<string | null, SqlError>;
+  /** Record (or clear, with `null`) the owning instance id. */
+  readonly setRunInstance: (
+    login: string,
+    instanceId: string | null,
+  ) => Effect.Effect<void, SqlError>;
+  /**
+   * Atomically take ownership if nobody else holds it, answering whether this
+   * caller won. Two concurrent `POST /sync` for one account would otherwise
+   * both read "no owner" and both start a run; D1 serialises writes, so the
+   * conditional UPDATE is the claim.
+   */
+  readonly claimRunInstance: (
+    login: string,
+    instanceId: string,
+  ) => Effect.Effect<boolean, SqlError>;
   /**
    * Upsert repo metadata (never the README fields) and link each repo to
    * `login` in `user_stars`. Safe to re-run: `first_seen_at` is preserved on
@@ -161,6 +228,14 @@ export interface RepoStoreService {
     groups: ReadonlyArray<Group>,
   ) => Effect.Effect<void, SqlError>;
   readonly listGroups: (login: string) => Effect.Effect<ReadonlyArray<Group>, SqlError>;
+  /**
+   * Last public-Lists import outcome for the collections rail (migration
+   * 0006). `never` when no attempt has been recorded; a failed read leaves the
+   * stored lists untouched and only updates this row.
+   */
+  readonly getListsInfo: (login: string) => Effect.Effect<ListsInfo, SqlError>;
+  /** Record a Lists import outcome (`ok`/`empty` after a fetch, else `error`). */
+  readonly putListsInfo: (login: string, info: ListsInfo) => Effect.Effect<void, SqlError>;
   /** Map `repo_id` → group **slugs**, for `SearchHit.groups` (docs/05 §4.4). */
   readonly groupsForRepos: (
     login: string,
@@ -172,6 +247,16 @@ export interface RepoStoreService {
    * README text for a set of the user's repos, for snippet hydration. Repos
    * with no stored text are absent from the map.
    */
+  /**
+   * Mark the README rows of `repoIds` as published: `present` when text exists,
+   * `missing` when GitHub has none. Called by the refresh's finalize *after*
+   * the vector blob is durable; rows still `pending` from an aborted run keep
+   * that state and are re-selected by the planner.
+   */
+  readonly markReadmesPublished: (
+    repoIds: ReadonlyArray<number>,
+    runToken: string,
+  ) => Effect.Effect<void, SqlError>;
   readonly getReadmeTexts: (
     login: string,
     ids: ReadonlyArray<number>,
@@ -222,6 +307,11 @@ const toRepo = (row: RepoRow): Repo => ({
   starredAt: row.starredAt,
   htmlUrl: row.htmlUrl,
 });
+
+/** Single-column read for {@link RepoStore.getRunInstance}. */
+const RunInstanceRow = Schema.Struct({ runInstanceId: Schema.NullOr(Schema.String) });
+
+type RunInstanceRow = typeof RunInstanceRow.Type;
 
 const toIndexState = (row: IndexStateRow): UserIndexState => ({
   login: row.login,
@@ -305,6 +395,42 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         return row === undefined
           ? null
           : toIndexState(Schema.decodeUnknownSync(IndexStateRow)(row));
+      });
+
+      const getRunInstance = Effect.fn("RepoStore.getRunInstance")(function* (login: string) {
+        const rows =
+          yield* sql<RunInstanceRow>`SELECT run_instance_id FROM user_index_state WHERE login = ${login} LIMIT 1`;
+
+        const row = rows[0];
+
+        return row === undefined
+          ? null
+          : Schema.decodeUnknownSync(RunInstanceRow)(row).runInstanceId;
+      });
+
+      const setRunInstance = Effect.fn("RepoStore.setRunInstance")(function* (
+        login: string,
+        instanceId: string | null,
+      ) {
+        // Touches one column: `upsertIndexState`'s explicit column list keeps
+        // every heartbeat and finalize from clobbering it.
+        yield* sql`
+          UPDATE user_index_state SET run_instance_id = ${instanceId} WHERE login = ${login}
+        `;
+      });
+
+      const claimRunInstance = Effect.fn("RepoStore.claimRunInstance")(function* (
+        login: string,
+        instanceId: string,
+      ) {
+        const rows = yield* sql<RunInstanceRow>`
+          UPDATE user_index_state SET run_instance_id = ${instanceId}
+          WHERE login = ${login}
+            AND (run_instance_id IS NULL OR run_instance_id = ${instanceId})
+          RETURNING run_instance_id
+        `;
+
+        return rows.length > 0;
       });
 
       const upsertRepos = Effect.fn("RepoStore.upsertRepos")(function* (
@@ -580,6 +706,10 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         return row === undefined ? null : toRepo(Schema.decodeUnknownSync(RepoRow)(row));
       });
 
+      // `readmesFetched` counts `pending` rows too: their text is fetched and
+      // searchable, only the vector has not been published yet. Counting
+      // `present` alone froze this counter at 0 for the whole README phase and
+      // made it drop again on the next run.
       const countStats = Effect.fn("RepoStore.countStats")(function* (login: string) {
         const rows = yield* sql<RepoStats>`
           SELECT
@@ -587,7 +717,8 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
             (SELECT COUNT(*) FROM repos r JOIN user_stars s ON s.repo_id = r.id WHERE s.login = ${login})
               AS repos_metadata,
             (SELECT COUNT(*) FROM repos r JOIN user_stars s ON s.repo_id = r.id
-              WHERE s.login = ${login} AND r.readme_state = 'present') AS readmes_fetched
+              WHERE s.login = ${login}
+                AND r.readme_state IN ('present', 'pending')) AS readmes_fetched
         `;
 
         const row = rows[0];
@@ -699,6 +830,28 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         });
       });
 
+      const getListsInfo = Effect.fn("RepoStore.getListsInfo")(function* (login: string) {
+        const rows = yield* sql<ListsStateRow>`
+          SELECT * FROM user_lists_state WHERE login = ${login} LIMIT 1
+        `;
+
+        return toListsInfo(rows[0]);
+      });
+
+      const putListsInfo = Effect.fn("RepoStore.putListsInfo")(function* (
+        login: string,
+        info: ListsInfo,
+      ) {
+        yield* sql`
+          INSERT INTO user_lists_state (login, state, error, checked_at)
+          VALUES (${login}, ${info.state}, ${info.error}, ${info.checkedAt})
+          ON CONFLICT(login) DO UPDATE SET
+            state = excluded.state,
+            error = excluded.error,
+            checked_at = excluded.checked_at
+        `;
+      });
+
       const groupsForRepos = Effect.fn("RepoStore.groupsForRepos")(function* (
         login: string,
         repoIds: ReadonlyArray<number>,
@@ -745,6 +898,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
             readme_text = ${text},
             readme_hash = ${update.hash},
             readme_state = ${update.state},
+            readme_pending_run = ${update.pendingRun ?? null},
             readme_checked_at = ${update.checkedAt},
             updated_at = ${nowIso()}
           WHERE id = ${repoId}
@@ -775,9 +929,28 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         return out;
       });
 
+      const markReadmesPublished = Effect.fn("RepoStore.markReadmesPublished")(function* (
+        repoIds: ReadonlyArray<number>,
+        runToken: string,
+      ) {
+        if (repoIds.length === 0) return;
+
+        // The run guard is what keeps this per-user: `repos` is shared, so a
+        // concurrent run that re-wrote one of these rows as `pending` must keep
+        // its own marker (and be re-selected if it dies).
+        yield* sql`
+          UPDATE repos SET
+            readme_state = CASE WHEN readme_text IS NULL THEN 'missing' ELSE 'present' END,
+            readme_pending_run = NULL
+          WHERE id IN (SELECT value FROM json_each(${JSON.stringify(repoIds)}))
+            AND readme_state = 'pending'
+            AND readme_pending_run = ${runToken}
+        `;
+      });
+
       const getReadmeStates = Effect.fn("RepoStore.getReadmeStates")(function* (login: string) {
         const rows = yield* sql<ReadmeStateRow>`
-          SELECT r.id AS repo_id, r.pushed_at, r.readme_state
+          SELECT r.id AS repo_id, r.readme_checked_at AS checked_at, r.readme_state
           FROM repos r
           JOIN user_stars s ON s.repo_id = r.id
           WHERE s.login = ${login}
@@ -789,7 +962,7 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
           const decoded = Schema.decodeUnknownSync(ReadmeStateRow)(row);
           out.set(decoded.repoId, {
             repoId: decoded.repoId,
-            pushedAt: decoded.pushedAt,
+            checkedAt: decoded.checkedAt,
             status: toFetchStatus(decoded.readmeState),
           });
         }
@@ -833,6 +1006,9 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         getUser,
         upsertIndexState,
         getIndexState,
+        getRunInstance,
+        setRunInstance,
+        claimRunInstance,
         upsertRepos,
         upsertRepoBatch,
         listRepoIds,
@@ -846,9 +1022,12 @@ export class RepoStore extends Context.Service<RepoStore, RepoStoreService>()("R
         putStarEtag,
         replaceGroups,
         listGroups,
+        getListsInfo,
+        putListsInfo,
         groupsForRepos,
         putReadme,
         getReadmeTexts,
+        markReadmesPublished,
         getReadmeStates,
         putVectorBlob,
         getVectorBlob,

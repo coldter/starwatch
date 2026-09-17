@@ -64,6 +64,11 @@ export const SearchResponse = Schema.Struct({
   query: Schema.String,
   mode: Schema.Literals(["keyword", "hybrid", "semantic"]),
   hits: Schema.Array(SearchHit),
+  /**
+   * Rows the active ordering covers: every filtered candidate for browse, the
+   * fused match set for a query. Lets a client page past the first window.
+   */
+  total: Schema.Number,
   tookMs: Schema.Number,
   semanticCoverage: Schema.Number,
   degraded: Schema.optional(DegradedReason),

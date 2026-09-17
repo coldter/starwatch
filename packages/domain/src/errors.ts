@@ -12,7 +12,10 @@ export class GithubRateLimited extends Schema.TaggedError<GithubRateLimited>()(
   "GithubRateLimited",
   {
     message: Schema.String,
+    /** Primary limit: `x-ratelimit-reset` as ISO-8601. */
     resetAt: Schema.NullOr(Schema.String),
+    /** Secondary limit: `retry-after` in seconds, when GitHub sent one. */
+    retryAfterSeconds: Schema.NullOr(Schema.Number),
   },
 ) {}
 

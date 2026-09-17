@@ -12,6 +12,13 @@ export const DEFAULT_SEARCH_LIMIT = 20;
 /** Hard server-side cap; also the FTS/vector leg ceiling (docs/07 §4.2). */
 export const MAX_SEARCH_LIMIT = 50;
 
+/**
+ * Hard ceiling for `offset` on a page request. The browse path can page a whole
+ * star list (docs/08 §3.4), but an unbounded offset is a free way to ask for a
+ * very expensive row window, so it is clamped at 10k (500 pages of 20).
+ */
+export const MAX_SEARCH_OFFSET = 10_000;
+
 /** Per-leg top-N fed into RRF (docs/17 §3: each leg keeps its own top-50). */
 export const SEARCH_LEG_LIMIT = 50;
 
@@ -42,6 +49,15 @@ export const MAX_FTS_CANDIDATE_IDS = 810;
 
 /** READMEs fetched per workflow step (see listing/refresh workflow math). */
 export const README_FETCH_BATCH = 8;
+
+/**
+ * Batches between two progress heartbeats in the refresh workflow. The heartbeat
+ * is what makes a dead run detectable (see `STALE_RUN_MS`) and what moves the
+ * README counter in the UI, so it must stay well under that timeout; every
+ * batch would add ~190 statements to the free-tier query budget for no extra
+ * signal. 1,500 repos ÷ `README_FETCH_BATCH` = 188 batches → 47 heartbeats.
+ */
+export const README_PROGRESS_EVERY = 4;
 
 /** Texts per embedding batch; also the Workers AI per-request ceiling. */
 export const EMBED_BATCH = 32;

@@ -1,5 +1,7 @@
 # starwatch
 
+## _Toy Project ~~trying out effect-ts with cloudflare platform along side Pi agent with open weight models~~_
+
 Public search for GitHub stars. Enter any GitHub username and get full-text + semantic search over that user's public starred repositories — no login required.
 
 **Stack:** TypeScript · [Effect](https://effect.website) · Cloudflare Workers (Alchemy) · D1 + Workers AI + R2
@@ -22,28 +24,6 @@ Public search for GitHub stars. Enter any GitHub username and get full-text + se
 | `packages/domain`     | Schema models and the static concept lexicon                                    |
 | `eval-lab`            | Local search-quality lab over a real 3,448-star corpus                          |
 
-## Docs
-
-**Current design (public multi-tenant service):**
-
-- [docs/08-public-service-ux.md](docs/08-public-service-ux.md) — first-use flow, eager-lazy sync UX, username-context search, groups context
-- [docs/09-public-data-and-limits.md](docs/09-public-data-and-limits.md) — GitHub public-data strategy + rate-limit/capacity dossier (live-verified)
-- [docs/10-multitenant-architecture.md](docs/10-multitenant-architecture.md) — shared corpus, Vectorize namespaces, D1 sharding, costs, eviction
-- [docs/11-assumptions-delta.md](docs/11-assumptions-delta.md) — what the pivot changed in docs 00–07
-- [docs/12-hardening.md](docs/12-hardening.md) — abuse controls, quotas, cost guardrails, runbooks
-- [docs/13-free-tier-feasibility.md](docs/13-free-tier-feasibility.md) — zero-spend envelope: exact free limits, breaking points, first paid upgrades
-- [docs/14-abuse-protection.md](docs/14-abuse-protection.md) — $0 abuse defense: budgets, DO governors, degradation ladder
-- [docs/15-free-semantic-search.md](docs/15-free-semantic-search.md) — free semantic search: repo-level embeddings + in-Worker kNN (benchmarked)
-- [docs/16-search-quality-teardown.md](docs/16-search-quality-teardown.md) — teardown of openalternative.co / GitHub / npm search + patterns to adopt
-- [docs/17-query-understanding-ranking.md](docs/17-query-understanding-ranking.md) — query expansion, ranking design, worked `auth`+TS walkthrough
-- [docs/18-search-quality-eval.md](docs/18-search-quality-eval.md) — measured results on the real 3,448-star corpus + required fixes
-- [docs/19-implementation-status.md](docs/19-implementation-status.md) — what's built, test counts, how to deploy, known gaps
-
-**Original design (pre-pivot; parts superseded — see doc 11):**
-
-- [00-requirements.md](docs/00-requirements.md) · [01-search-and-index.md](docs/01-search-and-index.md) · [02-stack-and-pipeline.md](docs/02-stack-and-pipeline.md)
-- [03-sync-and-limits.md](docs/03-sync-and-limits.md) · [04-groups.md](docs/04-groups.md) · [05-cli.md](docs/05-cli.md) · [06-webui.md](docs/06-webui.md) · [07-search-contract.md](docs/07-search-contract.md)
-
 ## Development
 
 ### Local dev (`alchemy dev`)
@@ -58,8 +38,13 @@ pnpm --filter @starwatch/worker exec alchemy profile create default
 pnpm --filter @starwatch/worker exec alchemy profile edit
 
 # or env-based
-cp apps/worker/.env.example apps/worker/.env   # set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN (+ optional GITHUB_TOKEN)
+cp apps/worker/.env.example apps/worker/.env   # set CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN + GITHUB_TOKEN
 ```
+
+`GITHUB_TOKEN` is a fine-grained PAT with public read only. It is strongly
+recommended everywhere and **required for collections**: GitHub's GraphQL API
+(the only one exposing the public Lists we import) refuses anonymous requests,
+and a token lifts the REST quota from 60/hour to 5,000/hour.
 
 ```bash
 pnpm install

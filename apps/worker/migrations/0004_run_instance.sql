@@ -1,0 +1,24 @@
+-- 0004 — which workflow instance owns an account's index.
+--
+-- The start handler used to *guess* the owner: it probed the fixed id
+-- `listing-<login>` for liveness and dedupe and, when that id was taken by a
+-- terminal instance still inside its retention window, created
+-- `listing-<login>-<timestamp>` — an id nothing could ever look up again. The
+-- consequences were both bad: a *live* run became invisible (so a stale row
+-- looked abandoned, and two runs could write the same account), or — if the
+-- engine treats `create` on an existing id as a no-op — the handler reported
+-- "started" while no run existed at all, which is exactly the "spinner at
+-- 3,447/3,447 forever" users reported.
+--
+-- Recording the id that was actually created removes the guesswork: liveness,
+-- dedupe and takeover all read the same value the handler wrote, and every run
+-- gets a unique id so a retained instance can never shadow a new one.
+--
+-- Nullable on purpose: NULL means "no run owns this account", including every
+-- row written before this migration.
+--
+-- `user_index_state`'s upsert lists its columns explicitly, so patches
+-- (`patchState`, heartbeats, finalize) leave this column alone; only
+-- `setRunInstance` writes it.
+
+ALTER TABLE user_index_state ADD COLUMN run_instance_id TEXT;

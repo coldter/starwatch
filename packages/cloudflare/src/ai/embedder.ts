@@ -12,6 +12,7 @@
 import type { Repo } from "@starwatch/domain";
 import { EmbedFailed, type EmbedderService } from "@starwatch/core/sync";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
 export const EMBEDDING_MODEL = "@cf/baai/bge-small-en-v1.5";
@@ -49,6 +50,15 @@ const DEFAULT_BATCH_SIZE = 32;
 const DEFAULT_CONCURRENCY = 2;
 
 const MAX_README_CHARS = 1_500;
+
+/** `Effect.timeout` is the only producer of a tag in this union. */
+const isTimeoutError = Predicate.isTagged("TimeoutError");
+
+/**
+ * Ceiling for one Workers AI request. Long enough for a cold model load,
+ * short enough that a queued batch cannot stall a whole refresh pass.
+ */
+const EMBED_TIMEOUT = "60 seconds";
 
 const WHITESPACE = /\s+/g;
 
@@ -150,6 +160,17 @@ export const makeWorkersAiEmbedder = (
           message: `Workers AI embedding batch ${index} failed: ${String(cause)}`,
         }),
     }).pipe(
+      // Workers AI occasionally queues for minutes. A batch that never settles
+      // would freeze the whole refresh pass with no error to retry, so give up
+      // on the batch instead (the workflow degrades that batch and continues).
+      Effect.timeout(EMBED_TIMEOUT),
+      Effect.mapError((error) =>
+        isTimeoutError(error)
+          ? new EmbedFailed({
+              message: `Workers AI embedding batch ${index} timed out after ${EMBED_TIMEOUT}`,
+            })
+          : error,
+      ),
       Effect.flatMap((result) => {
         const rows = result.data;
 

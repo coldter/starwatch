@@ -53,7 +53,25 @@ export const parseTopicsJson = (topicsJson: string): ReadonlyArray<string> => {
 };
 
 /** README lifecycle states written by the sync pipeline (docs/03). */
-export const ReadmeState = Schema.Literals(["unknown", "present", "missing", "too_big", "error"]);
+export const ReadmeState = Schema.Literals([
+  "unknown",
+  "present",
+  "missing",
+  "too_big",
+  "error",
+  /**
+   * Text stored, vector not yet in the published blob.
+   *
+   * The refresh writes this when a README is fetched, and `finalize` flips the
+   * ids it actually published to `present`/`missing`. Vectors live in parts
+   * until finalize merges them, so "text is present" is not the same fact as
+   * "this repo is embedded" — without the distinction, a run that dies before
+   * finalize leaves repos that the planner considers done, and their vectors
+   * are never built. `toFetchStatus` maps it to `"error"`, so such a repo is
+   * re-selected, and the published-hash rule in the refresh treats it as dirty.
+   */
+  "pending",
+]);
 
 export type ReadmeState = typeof ReadmeState.Type;
 
@@ -146,6 +164,20 @@ export const GroupRepoRow = Schema.Struct({
 
 export type GroupRepoRow = typeof GroupRepoRow.Type;
 
+/**
+ * Last public-Lists import outcome (migration 0006). The state is decoded with
+ * the domain literal, so a value the pipeline never wrote degrades to `never`
+ * instead of failing the read.
+ */
+export const ListsStateRow = Schema.Struct({
+  login: Schema.String,
+  state: Schema.String,
+  error: Schema.NullOr(Schema.String),
+  checkedAt: Schema.NullOr(Schema.String),
+});
+
+export type ListsStateRow = typeof ListsStateRow.Type;
+
 export const VectorBlobRow = Schema.Struct({
   login: Schema.String,
   dims: Schema.Number,
@@ -173,7 +205,7 @@ export type ReadmeTextRow = typeof ReadmeTextRow.Type;
 /** README bookkeeping for a user's repos (`planReadmeWork` input). */
 export const ReadmeStateRow = Schema.Struct({
   repoId: Schema.Number,
-  pushedAt: Schema.NullOr(Schema.String),
+  checkedAt: Schema.NullOr(Schema.String),
   readmeState: Schema.String,
 });
 

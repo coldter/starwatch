@@ -39,6 +39,7 @@ import * as Headers from "effect/unstable/http/Headers";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import type * as HttpClientError from "effect/unstable/http/HttpClientError";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import * as Predicate from "effect/Predicate";
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import {
   GITHUB_API_BASE,
@@ -48,12 +49,24 @@ import {
   starPageUrl,
 } from "./github-urls.ts";
 
+/** `Effect.timeout` tags its failure with `TimeoutError`; nothing else in this
+ *  client's error union does, so the guard is both precise and readable. */
+const isTimeoutError = Predicate.isTagged("TimeoutError");
+
 export interface GithubClientOptions {
   /** Service token; empty string means anonymous (never used in production). */
   readonly token: string;
   /** Required by GitHub: `starwatch/<version> (+https://…/starwatch)`. */
   readonly userAgent: string;
 }
+
+/**
+ * Per-request ceiling. Without it a stalled connection keeps a workflow step
+ * pending forever: no error, no retry, and the run sits in an active phase
+ * while the user watches a spinner (docs/03 §1.3 treats timeouts as an
+ * expected failure that must back off, not hang).
+ */
+const GITHUB_REQUEST_TIMEOUT = "20 seconds";
 
 /** docs/09 §1.4: stop paginating once `Link rel="next"` exceeds this cap. */
 const MAX_LIST_PAGES = 100;
@@ -147,12 +160,23 @@ export const makeGithubClient = (
         request: HttpClientRequest.HttpClientRequest,
       ): Effect.Effect<HttpClientResponse.HttpClientResponse, GithubUpstream> =>
         http.execute(request).pipe(
-          Effect.mapError(
-            (error: HttpClientError.HttpClientError) =>
-              new GithubUpstream({
-                message: error.message,
-                status: error.response?.status ?? 0,
-              }),
+          // A hung connection is the one failure that looks like progress: the
+          // step never settles, so it never retries and the run sits in an
+          // active phase forever. Failing here at least lets the workflow's
+          // retry policy (and, in the limit, the start handler's abandonment
+          // check) take over. GitHub's p99 is well under a second; 20 s is
+          // generous for a cold isolate, a 100-item star page and a README.
+          Effect.timeout(GITHUB_REQUEST_TIMEOUT),
+          Effect.mapError((error) =>
+            isTimeoutError(error)
+              ? new GithubUpstream({
+                  message: `GitHub request timed out after ${GITHUB_REQUEST_TIMEOUT}`,
+                  status: 0,
+                })
+              : new GithubUpstream({
+                  message: error.message,
+                  status: error.response?.status ?? 0,
+                }),
           ),
         );
 
@@ -189,11 +213,24 @@ export const makeGithubClient = (
         };
       };
 
-      const rateLimited = (status: number, resetAt: string | undefined): GithubRateLimited =>
-        new GithubRateLimited({
+      /**
+       * Secondary limits come back as 403/429 with `retry-after` and no reset
+       * header; primary exhaustion carries `x-ratelimit-reset`. Both are worth
+       * waiting out, so both are captured here (docs/03 §1.3).
+       */
+      const rateLimited = (
+        status: number,
+        resetAt: string | undefined,
+        headers?: Headers.Headers,
+      ): GithubRateLimited => {
+        const retryAfter = headers === undefined ? undefined : headerNumber(headers, "retry-after");
+
+        return new GithubRateLimited({
           message: `GitHub rate limit or secondary limit (HTTP ${status})`,
           resetAt: resetAt ?? null,
+          retryAfterSeconds: retryAfter === undefined || retryAfter <= 0 ? null : retryAfter,
         });
+      };
 
       const upstream = (status: number): GithubUpstream =>
         new GithubUpstream({
@@ -212,7 +249,7 @@ export const makeGithubClient = (
         const rate = rateLimit(response.headers);
 
         if (isRateLimitedStatus(response.status)) {
-          return yield* rateLimited(response.status, rate.resetAt);
+          return yield* rateLimited(response.status, rate.resetAt, response.headers);
         }
 
         if (!isSuccess(response.status)) return yield* upstream(response.status);
@@ -253,7 +290,7 @@ export const makeGithubClient = (
         if (response.status === 404) return yield* new UserNotFound({ login });
 
         if (isRateLimitedStatus(response.status)) {
-          return yield* rateLimited(response.status, rate.resetAt);
+          return yield* rateLimited(response.status, rate.resetAt, response.headers);
         }
 
         if (!isSuccess(response.status)) return yield* upstream(response.status);
@@ -299,7 +336,7 @@ export const makeGithubClient = (
           }
 
           if (isRateLimitedStatus(response.status)) {
-            return yield* rateLimited(response.status, undefined);
+            return yield* rateLimited(response.status, undefined, response.headers);
           }
           // 404 (wrong path/variant) and other misses: try the next candidate.
         }
@@ -315,7 +352,7 @@ export const makeGithubClient = (
         if (fallback.status === 404) return null;
 
         if (isRateLimitedStatus(fallback.status)) {
-          return yield* rateLimited(fallback.status, rate.resetAt);
+          return yield* rateLimited(fallback.status, rate.resetAt, fallback.headers);
         }
 
         if (!isSuccess(fallback.status)) return yield* upstream(fallback.status);
@@ -348,7 +385,7 @@ export const makeGithubClient = (
           const rate = rateLimit(response.headers);
 
           if (isRateLimitedStatus(response.status)) {
-            return yield* rateLimited(response.status, rate.resetAt);
+            return yield* rateLimited(response.status, rate.resetAt, response.headers);
           }
 
           if (!isSuccess(response.status)) return yield* upstream(response.status);
@@ -377,6 +414,18 @@ export const makeGithubClient = (
         });
 
       const listGroups = Effect.fn("GithubClient.listGroups")(function* (login: string) {
+        // The GraphQL API requires authentication, so without a token this is a
+        // guaranteed 401 — or an anonymous-IP 403 once the shared 60/hour REST
+        // quota is gone. Failing with the configuration fact is more useful to
+        // the operator than echoing whichever status that IP happened to get.
+        if (options.token.length === 0) {
+          return yield* new GithubUpstream({
+            message:
+              "GitHub Lists need an authenticated request: set GITHUB_TOKEN to a fine-grained token with public read access.",
+            status: 0,
+          });
+        }
+
         const groups: Group[] = [];
         let listAfter: string | undefined = undefined;
 

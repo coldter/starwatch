@@ -27,6 +27,7 @@ import type { WorkerDeps } from "./handlers/types.ts";
 import { usersGroup } from "./handlers/users.ts";
 import { Bucket, Database } from "./resources.ts";
 import { StarListingWorkflow } from "./sync/listing-workflow.ts";
+import { StarRefreshWorkflow } from "./sync/refresh-workflow.ts";
 
 /**
  * `HttpApiBuilder` needs an `HttpPlatform` service at construction time. The
@@ -101,6 +102,14 @@ const init = Effect.gen(function* () {
     simple: { limit: 5, period: 60 },
   });
 
+  // The Lists refresh is a single cheap GraphQL point, but it is still a
+  // GitHub call a visitor can trigger, so it gets its own burst filter rather
+  // than sharing (and exhausting) the sync limiter.
+  const listsRate = yield* Cloudflare.RateLimit("LISTS_RATE", {
+    namespaceId: 1003,
+    simple: { limit: 12, period: 60 },
+  });
+
   const vectorBucket = toVectorBlobBucket(rawBucket);
 
   const sync = syncDepsFrom({
@@ -122,13 +131,16 @@ const init = Effect.gen(function* () {
   // the start/inspect handle used by `POST /api/users/:login/sync`.
   // `provideService` (not `provide`) avoids a Scope requirement in init.
   const listing = yield* StarListingWorkflow.pipe(Effect.provideService(SyncDeps, sync));
+  const refresh = yield* StarRefreshWorkflow.pipe(Effect.provideService(SyncDeps, sync));
 
   const deps: WorkerDeps = {
     sync,
     searchLayer,
     searchRate,
     syncRate,
+    listsRate,
     listing,
+    refresh,
   };
 
   return {
