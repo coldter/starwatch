@@ -73,12 +73,6 @@
       "skillPath": "skills/interface-review/SKILL.md",
       "computedHash": "692fc5f2cfc2ad08951ea68ee6f5db9c99b759fa46b18e53101cd50d51a94f3a"
     },
-    "unslop": {
-      "source": "theclaymethod/unslop",
-      "sourceType": "github",
-      "skillPath": "SKILL.md",
-      "computedHash": "d72fb3b3f3ee5ff8007406910f789a278e6798ee1e90e966723bc5fe112f1bdf"
-    },
     "variant": {
       "source": "jakubkrehel/skills",
       "sourceType": "github",

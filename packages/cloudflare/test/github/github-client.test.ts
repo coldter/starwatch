@@ -9,6 +9,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Headers from "effect/unstable/http/Headers";
 import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import { makeGithubClient } from "../../src/github/github-client.ts";
@@ -19,7 +20,20 @@ interface StubResponse {
   readonly body?: string;
 }
 
-type StubHandler = (request: HttpClientRequest.HttpClientRequest) => StubResponse;
+/**
+ * A stub that never answers at all: the connection the client's `execute` maps
+ * to `GithubUpstream` with `status: 0` (raw.githubusercontent.com drops pooled
+ * connections, which is what the README probes have to survive).
+ */
+interface DroppedConnection {
+  readonly drop: true;
+}
+
+const droppedConnection: DroppedConnection = { drop: true };
+
+type StubHandler = (
+  request: HttpClientRequest.HttpClientRequest,
+) => StubResponse | DroppedConnection;
 
 const jsonResponse = <A>(
   value: A,
@@ -61,6 +75,17 @@ const runClient = <A, E>(
 ): Promise<A> => {
   const http = HttpClient.make((request) => {
     const response = handler(request);
+
+    if ("drop" in response) {
+      return Effect.fail(
+        new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({
+            request,
+            description: "connection reset",
+          }),
+        }),
+      );
+    }
 
     return Effect.succeed(HttpClientResponse.fromWeb(request, webResponse(response)));
   });
@@ -344,6 +369,66 @@ describe("GithubClient.getReadme", () => {
     );
 
     expect(readme).toBeNull();
+  });
+
+  it("keeps probing, and falls back to REST, when the raw CDN drops the connection", async () => {
+    const requests: HttpClientRequest.HttpClientRequest[] = [];
+
+    const readme = await runClient(
+      (request) => {
+        requests.push(request);
+
+        if (request.url.startsWith("https://raw.githubusercontent.com/")) return droppedConnection;
+
+        return textResponse("# Fallback", 200, { "content-type": "text/plain" });
+      },
+      GithubClient.use((client) => client.getReadme("owner/repo", "main")),
+    );
+
+    expect(readme).toEqual({ text: "# Fallback", source: "rest" });
+    // Five raw candidates, then the one-request REST fallback: a dropped
+    // connection is retried along the same ladder as a 404.
+    expect(requests).toHaveLength(6);
+  });
+
+  it("answers from a later raw candidate when an earlier one drops", async () => {
+    const readme = await runClient(
+      (request) => {
+        if (request.url.endsWith("/README.md")) return droppedConnection;
+
+        if (request.url.endsWith("/readme.md")) return textResponse("# Lowercase");
+
+        return textResponse("missing", 404);
+      },
+      GithubClient.use((client) => client.getReadme("owner/repo", "main")),
+    );
+
+    expect(readme).toEqual({ text: "# Lowercase", source: "raw" });
+  });
+
+  it("reports the dropped connection rather than calling a README missing", async () => {
+    const result = await runClient(
+      (request) =>
+        request.url.startsWith("https://raw.githubusercontent.com/")
+          ? droppedConnection
+          : textResponse("not found", 404),
+      Effect.result(GithubClient.use((client) => client.getReadme("owner/repo", "main"))),
+    );
+
+    expect(Result.isFailure(result)).toBe(true);
+
+    if (Result.isFailure(result)) {
+      const failure = result.failure;
+
+      expect(failure).toBeInstanceOf(GithubUpstream);
+
+      if (Schema.is(GithubUpstream)(failure)) {
+        // Status 0 is the client's "we never reached GitHub": the refresh
+        // workflow keys its per-repo skip off exactly this, so a connection
+        // failure must never look like a 404 ("no README") instead.
+        expect(failure.status).toBe(0);
+      }
+    }
   });
 });
 

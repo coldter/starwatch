@@ -53,6 +53,19 @@ import {
  *  client's error union does, so the guard is both precise and readable. */
 const isTimeoutError = Predicate.isTagged("TimeoutError");
 
+/**
+ * The cause Effect's own message hides. `HttpClientError.message` is a fixed
+ * "Transport error (GET url)"; when the *runtime* is the one refusing (the
+ * per-invocation subrequest cap, say), that reason only exists in `cause` —
+ * and it is the difference between a flaky network and a budget to plan
+ * around, which is exactly what `last_error` has to tell apart.
+ */
+const causeOf = (error: HttpClientError.HttpClientError): string => {
+  const cause = "cause" in error.reason ? error.reason.cause : undefined;
+
+  return cause === undefined ? "" : ` (${String(cause)})`;
+};
+
 export interface GithubClientOptions {
   /** Service token; empty string means anonymous (never used in production). */
   readonly token: string;
@@ -174,7 +187,7 @@ export const makeGithubClient = (
                   status: 0,
                 })
               : new GithubUpstream({
-                  message: error.message,
+                  message: `${error.message}${causeOf(error)}`,
                   status: error.response?.status ?? 0,
                 }),
           ),
@@ -321,8 +334,36 @@ export const makeGithubClient = (
       ) {
         const probeHeaders = { "user-agent": options.userAgent };
 
+        /**
+         * The first connection that never landed, if any. A raw probe is
+         * best-effort — `raw.githubusercontent.com` is a CDN, and a connection
+         * it drops says nothing about the repo — so every candidate is still
+         * tried, the REST fallback included (it answers from `api.github.com`, a
+         * different origin). The failure is kept because a fallback 404 only
+         * means "no README" when the probes actually got *answers*: a dropped
+         * connection must not retire a real README as `missing`.
+         */
+        let dropped: GithubUpstream | null = null;
+
         for (const url of readmeProbeUrls(fullName, defaultBranch)) {
-          const response = yield* execute(HttpClientRequest.get(url, { headers: probeHeaders }));
+          const probed = yield* execute(HttpClientRequest.get(url, { headers: probeHeaders })).pipe(
+            Effect.matchEffect({
+              onSuccess: (response) => Effect.succeed({ ok: true as const, response }),
+              onFailure: (error) => Effect.succeed({ ok: false as const, error }),
+            }),
+          );
+
+          if (!probed.ok) {
+            // `status: 0` is the client's own "never reached GitHub" mapping
+            // (transport error, or the request timeout above); a status-bearing
+            // failure is an answer and keeps its meaning.
+            if (probed.error.status !== 0) return yield* probed.error;
+
+            dropped = dropped ?? probed.error;
+            continue;
+          }
+
+          const response = probed.response;
 
           if (isSuccess(response.status)) {
             const text = yield* response.text.pipe(
@@ -341,15 +382,30 @@ export const makeGithubClient = (
           // 404 (wrong path/variant) and other misses: try the next candidate.
         }
 
-        const fallback = yield* execute(
+        const fallbackProbed = yield* execute(
           HttpClientRequest.get(`${GITHUB_API_BASE}/repos/${repoPath(fullName)}/readme`, {
             headers: apiHeaders({ accept: "application/vnd.github.raw" }),
           }),
+        ).pipe(
+          Effect.matchEffect({
+            onSuccess: (response) => Effect.succeed({ ok: true as const, response }),
+            onFailure: (error) => Effect.succeed({ ok: false as const, error }),
+          }),
         );
+
+        if (!fallbackProbed.ok) return yield* fallbackProbed.error;
+
+        const fallback = fallbackProbed.response;
 
         const rate = rateLimit(fallback.headers);
 
-        if (fallback.status === 404) return null;
+        if (fallback.status === 404) {
+          // "No README" is only credible when the probes reached GitHub; a
+          // dropped connection is not evidence that the file is absent.
+          if (dropped !== null) return yield* dropped;
+
+          return null;
+        }
 
         if (isRateLimitedStatus(fallback.status)) {
           return yield* rateLimited(fallback.status, rate.resetAt, fallback.headers);

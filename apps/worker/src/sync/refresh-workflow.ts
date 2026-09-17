@@ -1,4 +1,4 @@
-import { GithubRateLimited, SEMANTIC_WINDOW } from "@starwatch/domain";
+import { GithubRateLimited, GithubUpstream, SEMANTIC_WINDOW } from "@starwatch/domain";
 import { encodeVectors } from "@starwatch/core/search";
 import {
   Embedder,
@@ -105,11 +105,40 @@ interface BatchOutcome {
   readonly rateLimit: RateLimitWait | null;
   /** The batch hit our own ceiling: a stalled dependency, not a GitHub limit. */
   readonly timedOut: boolean;
+  /**
+   * Repos this batch could not read at all because the connection dropped.
+   * They are marked for a later run (see `markNeedsReembed`) while the rest of
+   * the batch proceeds.
+   */
+  readonly unavailable: ReadonlyArray<number>;
+  /**
+   * The first dropped connection of the batch, as the client described it. A
+   * count alone cannot tell a flaky CDN edge from a blocked egress, and this is
+   * the only place that fact survives into the account's `last_error`.
+   */
+  readonly unavailableError: string | null;
 }
 
 /** The rate-limit error behind a batch failure, if that is what it was. */
 const rateLimitOf = (error: GithubClientError): GithubRateLimited | null =>
   error instanceof GithubRateLimited ? error : null;
+
+/**
+ * The dropped connection behind a batch failure, if that is what it was.
+ *
+ * The client reports "we never reached GitHub" as `GithubUpstream` with
+ * `status: 0` — a transport error or its own 20 s request timeout. It is the
+ * one failure that says nothing about the repo: a 404 means there is no
+ * README, a 403 means we are being limited, but a dropped connection is this
+ * request, this pool, this CDN edge. A *per-repo* failure, so the batch keeps
+ * the other seven READMEs and the repo is re-checked next run.
+ */
+const transportOf = (error: GithubClientError): GithubUpstream | null =>
+  error instanceof GithubUpstream && error.status === 0 ? error : null;
+
+/** Exported for tests: is this fetch failure the repo's problem or the link's? */
+export const isPerRepoReadmeFailure = (error: GithubClientError): boolean =>
+  transportOf(error) !== null;
 
 /** May another wait be taken? The counter is run-wide, so this bounds the whole run. */
 const canWaitAgain = (waitsSoFar: number): boolean => waitsSoFar < MAX_RATE_LIMIT_WAITS;
@@ -138,6 +167,15 @@ const BATCH_TIMEOUT_MS = 3 * 60_000;
  * gone, and a partial semantic index is worth more than a failed run.
  */
 const MAX_TIMED_OUT_BATCHES = 8;
+
+/**
+ * README fetches one run may lose to dropped connections before it calls the
+ * dependency gone — the per-repo counterpart of {@link MAX_TIMED_OUT_BATCHES}.
+ * A handful of flakes costs a re-check on the next run; *every* fetch failing
+ * means raw/API GitHub is unreachable from this deployment, and a `ready`
+ * index that was never refreshed is worse than a failed run that says so.
+ */
+const MAX_UNAVAILABLE_READMES = 8;
 
 interface FinalizeOutcome {
   readonly ok: boolean;
@@ -412,10 +450,58 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
   const partBases: string[] = [];
   let embeddedTotal = 0;
   let timedOutBatches = 0;
+  // Repos lost to dropped connections, run-wide: bounded by
+  // `MAX_UNAVAILABLE_READMES` so a dead dependency cannot masquerade as a few
+  // unlucky requests (see the skip site in the batch).
+  let unavailableTotal = 0;
+  // The first dropped connection of the run, kept for the failure message: a
+  // count says the run lost repos, the message says to what.
+  let unavailableError: string | null = null;
   // Run-wide wait budget (docs/03 §1.3): `MAX_RATE_LIMIT_WAITS` is a bound on
   // the *run*, not per batch, so a systemic limit stops the run after two
   // bounded waits instead of 188 × 2 × 15 minutes of sleeping.
   let rateLimitWaits = 0;
+
+  /**
+   * Terminal failure for a batch: nothing this run wrote will be published, so
+   * hand every batch it touched back to the planner, drop the scratch parts and
+   * settle the row. Skipped/unavailable repos are covered by `idsThrough`,
+   * which is exactly what a later run needs to re-plan.
+   */
+  const abortRun = (
+    reason: string,
+    throughIndex: number,
+  ): Effect.Effect<StarRefreshResult, never, RepoStore | VectorBlobFiles> =>
+    Effect.gen(function* () {
+      const touched = idsThrough(plan.batches, throughIndex);
+
+      yield* markNeedsReembed(login, touched);
+      logError("starwatch.sync.refresh.reembed", {
+        login,
+        phase: "failed",
+        ids: touched.length,
+        batch: throughIndex,
+      });
+
+      // Early exit: the parts this run wrote will never be merged, so delete
+      // them here rather than leaking ~2 MB per full window per aborted run.
+      const scratch = partBases.flatMap((base) => [`${base}.bin`, `${base}.ids.json`]);
+
+      if (scratch.length > 0) {
+        yield* vectorFiles.deleteMany(scratch).pipe(Effect.ignore);
+      }
+
+      logError("starwatch.sync.refresh.failed", {
+        login,
+        phase: "failed",
+        batch: throughIndex,
+        error: reason,
+        elapsedMs: elapsedMs(startedAt),
+      });
+      yield* markFailed(login, reason);
+
+      return { ok: false, semanticDocs: 0, embedded: embeddedTotal } satisfies StarRefreshResult;
+    });
 
   for (let index = 0; index < plan.batches.length; index++) {
     const ids = plan.batches[index] ?? [];
@@ -467,6 +553,9 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
             const states = new Map<number, "present" | "missing">();
             /** Repos whose text this attempt actually re-read from GitHub. */
             const refetched = new Set<number>();
+            /** Repos a dropped connection kept this attempt from reading. */
+            const unavailable: number[] = [];
+            let unavailableError: string | null = null;
 
             for (const id of ids) {
               const repo = repoById.get(id);
@@ -500,6 +589,24 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
               if (!fetched.ok) {
                 const limited = rateLimitOf(fetched.error);
 
+                // A dropped connection is a property of the request, not of the
+                // repo: GitHub's raw CDN closes pooled connections, and the
+                // next run re-reads the text from scratch. Skipping just this
+                // repo keeps the other seven READMEs of the batch, and the
+                // `error` state is already the one that makes a repo
+                // selectable again (`needsReadmeFetch`). Anything else — a rate
+                // limit we can wait out, a 5xx, a decode failure — is an answer
+                // about the whole batch and still fails it.
+                if (limited === null && transportOf(fetched.error) !== null) {
+                  unavailable.push(id);
+
+                  if (unavailableError === null) {
+                    unavailableError = describeGithubError(fetched.error);
+                  }
+
+                  continue;
+                }
+
                 return {
                   ok: false,
                   partBase: null,
@@ -513,6 +620,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
                           attempt: attempts + 1,
                         }),
                   timedOut: false,
+                  unavailable: [],
+                  unavailableError: null,
                 } satisfies BatchOutcome;
               }
 
@@ -583,6 +692,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
                 error: null,
                 rateLimit: null,
                 timedOut: false,
+                unavailable,
+                unavailableError,
               } satisfies BatchOutcome;
             }
 
@@ -616,6 +727,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
                 error: null,
                 rateLimit: null,
                 timedOut: false,
+                unavailable,
+                unavailableError,
               } satisfies BatchOutcome;
             }
 
@@ -637,6 +750,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
               error: null,
               rateLimit: null,
               timedOut: false,
+              unavailable,
+              unavailableError,
             } satisfies BatchOutcome;
           }).pipe(
             // Our own ceiling, ahead of the platform's step timeout, *inside*
@@ -659,6 +774,8 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
                     : String(error),
                   rateLimit: null,
                   timedOut: Predicate.isTagged(error, "TimeoutError"),
+                  unavailable: [],
+                  unavailableError: null,
                 } satisfies BatchOutcome),
             }),
           ),
@@ -694,6 +811,34 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
     });
 
     embeddedTotal += outcome.embedded;
+
+    // Repos the batch could not read at all. Marked `error` so a later run
+    // re-plans them (`needsReadmeFetch`) and counted run-wide: a run that keeps
+    // losing *every* connection is not unlucky, it is unrefreshed, and it must
+    // fail rather than publish a "ready" index nobody re-checked.
+    if (outcome.unavailable.length > 0) {
+      unavailableTotal += outcome.unavailable.length;
+
+      if (unavailableError === null) unavailableError = outcome.unavailableError;
+
+      yield* markNeedsReembed(login, outcome.unavailable);
+      logError("starwatch.sync.refresh.readme-unavailable", {
+        login,
+        phase: "fetching-readmes",
+        batch: index,
+        repos: outcome.unavailable.length,
+        total: unavailableTotal,
+        limit: MAX_UNAVAILABLE_READMES,
+        error: outcome.unavailableError,
+      });
+
+      if (unavailableTotal > MAX_UNAVAILABLE_READMES) {
+        return yield* abortRun(
+          `GitHub README fetches kept dropping (${unavailableTotal} repos: ${unavailableError ?? "unknown"})`,
+          index,
+        );
+      }
+    }
 
     // A timed-out batch is skipped rather than fatal — but it is *marked*, and
     // the run carries on to the heartbeat below so a long run of skipped
@@ -772,24 +917,7 @@ const refreshBody = Effect.fn("StarRefreshWorkflow.body")(function* (
         return { ok: false, semanticDocs: 0, embedded: embeddedTotal } satisfies StarRefreshResult;
       }
 
-      // Early exit: the parts this run wrote will never be merged, so delete
-      // them here rather than leaking ~2 MB per full window per aborted run.
-      const scratch = partBases.flatMap((base) => [`${base}.bin`, `${base}.ids.json`]);
-
-      if (scratch.length > 0) {
-        yield* vectorFiles.deleteMany(scratch).pipe(Effect.ignore);
-      }
-
-      logError("starwatch.sync.refresh.failed", {
-        login,
-        phase: "failed",
-        batch: index,
-        error: outcome.error ?? null,
-        elapsedMs: elapsedMs(startedAt),
-      });
-      yield* markFailed(login, outcome.error ?? "README batch failed");
-
-      return { ok: false, semanticDocs: 0, embedded: embeddedTotal } satisfies StarRefreshResult;
+      return yield* abortRun(outcome.error ?? "README batch failed", index);
     }
 
     if (outcome.partBase !== null) partBases.push(outcome.partBase);
